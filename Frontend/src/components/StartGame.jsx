@@ -13,6 +13,7 @@ function StartGame() {
   const [playerPixelPos, setPlayerPixelPos] = useState({ x: 0, y: 0 })
   const [direction, setDirection] = useState(null) // null, 'up', 'down', 'left', 'right'
   const [remotePlayers, setRemotePlayers] = useState({}) // { playerId: { x, y, name } }
+  const [remotePlayerPixelPos, setRemotePlayerPixelPos] = useState({}) // { playerId: { x, y } }
   
   const directionRef = useRef(null)
   const playerPixelPosRef = useRef({ x: 0, y: 0 })
@@ -24,6 +25,8 @@ function StartGame() {
   const pendingDirectionRef = useRef(null) // Store pending direction change
   const lastFrameTimeRef = useRef(null) // Track time for smooth animation
   const lastPositionSentRef = useRef({ row: 1, col: 1 }) // Track last sent position
+  const remotePlayerPositionsRef = useRef({}) // { playerId: { current: {x,y}, target: {x,y} } }
+  const lastPositionUpdateTimeRef = useRef(0) // Track when we last sent position update
 
   // Check if we're in a game
   useEffect(() => {
@@ -42,25 +45,48 @@ function StartGame() {
       // Don't update our own position
       if (playerId === socketService.getSocket()?.id) return
       
-      // Update remote player position
+      // Update remote player target position for smooth interpolation
+      const player = roomData?.players?.find(p => p.id === playerId)
+      const playerName = player?.name || 'Player'
+      
       setRemotePlayers(prev => {
-        const player = roomData?.players?.find(p => p.id === playerId)
+        const existing = prev[playerId]
         return {
           ...prev,
           [playerId]: {
             x: position.x,
             y: position.y,
-            name: player?.name || 'Player',
+            name: playerName,
             timestamp: Date.now()
           }
         }
       })
+      
+      // Update target position for smooth interpolation
+      if (!remotePlayerPositionsRef.current[playerId]) {
+        // Initialize both current and target to the same position
+        remotePlayerPositionsRef.current[playerId] = {
+          current: { x: position.x, y: position.y },
+          target: { x: position.x, y: position.y }
+        }
+        setRemotePlayerPixelPos(prev => ({
+          ...prev,
+          [playerId]: { x: position.x, y: position.y }
+        }))
+      } else {
+        // Update target position, keep current position for smooth interpolation
+        // This allows the player to smoothly move from current to target
+        remotePlayerPositionsRef.current[playerId].target = { x: position.x, y: position.y }
+      }
     }
 
     // Listen for game state sync (initial positions)
     const handleGameStateSync = (data) => {
       if (data.gameState && data.gameState.players) {
         const newRemotePlayers = {}
+        const newRemotePixelPos = {}
+        const newRemotePositions = {}
+        
         data.gameState.players.forEach(player => {
           if (player.id !== socketService.getSocket()?.id && player.position) {
             newRemotePlayers[player.id] = {
@@ -68,9 +94,19 @@ function StartGame() {
               y: player.position.y,
               name: player.name
             }
+            newRemotePixelPos[player.id] = {
+              x: player.position.x,
+              y: player.position.y
+            }
+            newRemotePositions[player.id] = {
+              current: { x: player.position.x, y: player.position.y },
+              target: { x: player.position.x, y: player.position.y }
+            }
           }
         })
         setRemotePlayers(newRemotePlayers)
+        setRemotePlayerPixelPos(newRemotePixelPos)
+        remotePlayerPositionsRef.current = newRemotePositions
       }
     }
 
@@ -88,26 +124,40 @@ function StartGame() {
     // Request initial game state
     socketService.getGameState()
 
+    // Listen for player leaving to clean up their data
+    const handlePlayerLeft = (data) => {
+      const { playerId } = data
+      setRemotePlayers(prev => {
+        const updated = { ...prev }
+        delete updated[playerId]
+        return updated
+      })
+      setRemotePlayerPixelPos(prev => {
+        const updated = { ...prev }
+        delete updated[playerId]
+        return updated
+      })
+      delete remotePlayerPositionsRef.current[playerId]
+    }
+
+    socketService.onPlayerLeft(handlePlayerLeft)
+
     // Cleanup
     return () => {
       socketService.off('player_position_update', handlePositionUpdate)
       socketService.off('game_state_sync', handleGameStateSync)
       socketService.off('game_started', handleGameStarted)
+      socketService.off('player_left', handlePlayerLeft)
     }
   }, [socketService, roomData])
 
-  // Send position updates to server
-  const sendPositionUpdate = (gridRow, gridCol) => {
-    // Only send if position changed significantly
-    if (gridRow !== lastPositionSentRef.current.row || 
-        gridCol !== lastPositionSentRef.current.col) {
-      
-      const cellSize = Math.min(window.innerWidth / MAZE_COLS, window.innerHeight / MAZE_ROWS)
-      const x = gridCol * cellSize + cellSize / 2
-      const y = gridRow * cellSize + cellSize / 2
-      
-      socketService.updatePosition({ x, y })
-      lastPositionSentRef.current = { row: gridRow, col: gridCol }
+  // Send position updates to server (more frequently for smoother remote player movement)
+  const sendPositionUpdate = (pixelX, pixelY) => {
+    const now = Date.now()
+    // Send updates every 33ms (~30 times per second) for very smooth remote player movement
+    if (now - lastPositionUpdateTimeRef.current > 33) {
+      socketService.updatePosition({ x: pixelX, y: pixelY })
+      lastPositionUpdateTimeRef.current = now
     }
   }
 
@@ -219,8 +269,6 @@ function StartGame() {
         // Check if the new position is valid (not a wall)
         if (!isWall(newRow, newCol)) {
           targetGridPosRef.current = { row: newRow, col: newCol }
-          // Send position update to server
-          sendPositionUpdate(newRow, newCol)
           return { row: newRow, col: newCol }
         }
         // If it's a wall, stop moving (don't change position)
@@ -278,6 +326,9 @@ function StartGame() {
         current.y = targetY
       }
       
+      // Send position update for local player (more frequently for smoother remote movement)
+      sendPositionUpdate(current.x, current.y)
+      
       // Check if we have a pending direction change and player is now aligned
       if (pendingDirectionRef.current) {
         const threshold = cellSize * 0.3
@@ -289,6 +340,57 @@ function StartGame() {
           setDirection(pendingDirectionRef.current)
           pendingDirectionRef.current = null
         }
+      }
+      
+      // Smooth interpolation for remote players - update every frame for smooth movement
+      const updatedRemotePositions = {}
+      let needsUpdate = false
+      
+      Object.keys(remotePlayerPositionsRef.current).forEach(playerId => {
+        const playerPos = remotePlayerPositionsRef.current[playerId]
+        if (!playerPos) return
+        
+        const currentPos = playerPos.current
+        const targetPos = playerPos.target
+        const dx = targetPos.x - currentPos.x
+        const dy = targetPos.y - currentPos.y
+        const distance = Math.sqrt(dx * dx + dy * dy)
+        
+        if (distance > 0.1) {
+          // Interpolate towards target at the same speed as local player
+          const pixelsPerMs = cellSize / moveSpeed
+          const moveAmount = pixelsPerMs * deltaTime
+          
+          if (moveAmount >= distance) {
+            currentPos.x = targetPos.x
+            currentPos.y = targetPos.y
+          } else {
+            const ratio = moveAmount / distance
+            currentPos.x += dx * ratio
+            currentPos.y += dy * ratio
+          }
+          needsUpdate = true
+        } else if (distance > 0.01) {
+          // Very close, snap to target
+          currentPos.x = targetPos.x
+          currentPos.y = targetPos.y
+          needsUpdate = true
+        }
+        
+        // Always collect position for rendering
+        updatedRemotePositions[playerId] = { x: currentPos.x, y: currentPos.y }
+      })
+      
+      // Update state every frame for smooth rendering (React will batch these efficiently)
+      if (Object.keys(updatedRemotePositions).length > 0) {
+        // Use functional update to ensure we get the latest state
+        setRemotePlayerPixelPos(prev => {
+          const newState = { ...prev }
+          Object.keys(updatedRemotePositions).forEach(playerId => {
+            newState[playerId] = updatedRemotePositions[playerId]
+          })
+          return newState
+        })
       }
       
       // Update state for rendering
@@ -374,8 +476,10 @@ function StartGame() {
 
         {/* Remote Players */}
         {Object.entries(remotePlayers).map(([playerId, player]) => {
-          const remoteLeftPercent = (player.x / mazeWidth) * 100
-          const remoteTopPercent = (player.y / mazeHeight) * 100
+          // Use interpolated pixel position for smooth movement
+          const pixelPos = remotePlayerPixelPos[playerId] || { x: player.x, y: player.y }
+          const remoteLeftPercent = (pixelPos.x / mazeWidth) * 100
+          const remoteTopPercent = (pixelPos.y / mazeHeight) * 100
           
           return (
             <div key={playerId}>
