@@ -48,6 +48,15 @@ export function registerConnectionHandlers(socket, io) {
                 });
             }
 
+            // If unicorn disconnected and there are other players, notify all about new unicorn
+            if (result.wasUnicorn && result.newUnicornId) {
+                io.to(roomCode).emit(SOCKET_EVENTS.SERVER.UNICORN_TRANSFERRED, {
+                    newUnicornId: result.newUnicornId,
+                    room: result.room
+                });
+                log(`Unicorn transferred to ${result.newUnicornId} in room ${roomCode}`);
+            }
+
             // Notify remaining players about player leaving
             io.to(roomCode).emit(SOCKET_EVENTS.SERVER.PLAYER_LEFT, {
                 playerId: socket.id,

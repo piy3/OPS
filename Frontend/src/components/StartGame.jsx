@@ -6,7 +6,8 @@ import { maze, MAZE_ROWS, MAZE_COLS, isWall, hasWrapAround, getWrappedCol } from
 
 function StartGame() {
   const navigate = useNavigate()
-  const { socketService, roomData, gameState } = useSocket()
+  const { socketService, roomData, gameState, unicornId, leaderboard } = useSocket()
+  const [showLeaderboard, setShowLeaderboard] = useState(true)
   
   // Player starting position (row 1, col 1 is an empty space)
   const [playerPos, setPlayerPos] = useState({ row: 1, col: 1 })
@@ -46,9 +47,18 @@ function StartGame() {
       // Don't update our own position
       if (playerId === socketService.getSocket()?.id) return
       
+      // CRITICAL: Ignore position updates if we haven't initialized this player with spawn position yet
+      // This prevents gliding from (1,1) or (0,0) to spawn position
+      if (!remotePlayerPositionsRef.current[playerId] || !remotePlayerPositionsRef.current[playerId].spawnInitialized) {
+        // Player hasn't been initialized with spawn position yet, ignore this update
+        // The spawn position will come from gameState sync
+        return
+      }
+      
       // Update remote player target position for smooth interpolation
       const player = roomData?.players?.find(p => p.id === playerId)
       const playerName = player?.name || 'Player'
+      const isUnicorn = position.isUnicorn || false
       
       setRemotePlayers(prev => {
         const existing = prev[playerId]
@@ -58,38 +68,81 @@ function StartGame() {
             x: position.x,
             y: position.y,
             name: playerName,
+            isUnicorn: isUnicorn,
             timestamp: Date.now()
           }
         }
       })
       
+      // Calculate pixel position from row/col if available (more reliable than x/y from backend)
+      const cellSize = Math.min(window.innerWidth / MAZE_COLS, window.innerHeight / MAZE_ROWS)
+      let targetPixelX = position.x
+      let targetPixelY = position.y
+      
+      // If row/col are provided, calculate pixel position from them (more accurate)
+      if (typeof position.row === 'number' && typeof position.col === 'number') {
+        targetPixelX = position.col * cellSize + cellSize / 2
+        targetPixelY = position.row * cellSize + cellSize / 2
+      }
+      
       // Update target position for smooth interpolation
       if (!remotePlayerPositionsRef.current[playerId]) {
-        // Initialize both current and target to the same position
+        // This shouldn't happen due to check above, but handle it just in case
         remotePlayerPositionsRef.current[playerId] = {
-          current: { x: position.x, y: position.y },
-          target: { x: position.x, y: position.y },
+          current: { x: targetPixelX, y: targetPixelY },
+          target: { x: targetPixelX, y: targetPixelY },
           row: position.row || 1,
           col: position.col || 1,
-          lastCol: position.col || 1
+          lastCol: position.col || 1,
+          initialized: true,
+          spawnInitialized: true
         }
         setRemotePlayerPixelPos(prev => ({
           ...prev,
-          [playerId]: { x: position.x, y: position.y }
+          [playerId]: { x: targetPixelX, y: targetPixelY }
         }))
       } else {
-        const playerPos = remotePlayerPositionsRef.current[playerId]
-        const lastCol = playerPos.lastCol || playerPos.col
-        const newCol = position.col || playerPos.col
-        const newRow = position.row || playerPos.row
+        const remotePlayerPos = remotePlayerPositionsRef.current[playerId]
+        
+        // If this is the first update after initialization, snap to position immediately
+        // to prevent gliding from (0,0) or previous position
+        if (!remotePlayerPos.initialized || !remotePlayerPos.spawnInitialized) {
+          // If spawn hasn't been initialized, calculate from row/col to ensure correct position
+          const cellSize = Math.min(window.innerWidth / MAZE_COLS, window.innerHeight / MAZE_ROWS)
+          const spawnRow = position.row || remotePlayerPos.row || 1
+          const spawnCol = position.col || remotePlayerPos.col || 1
+          const spawnPixelX = spawnCol * cellSize + cellSize / 2
+          const spawnPixelY = spawnRow * cellSize + cellSize / 2
+          
+          remotePlayerPos.current = { x: spawnPixelX, y: spawnPixelY }
+          remotePlayerPos.target = { x: spawnPixelX, y: spawnPixelY }
+          remotePlayerPos.row = spawnRow
+          remotePlayerPos.col = spawnCol
+          remotePlayerPos.lastCol = spawnCol
+          remotePlayerPos.initialized = true
+          remotePlayerPos.spawnInitialized = true
+          
+          setRemotePlayerPixelPos(prev => ({
+            ...prev,
+            [playerId]: { x: spawnPixelX, y: spawnPixelY }
+          }))
+          return // Skip interpolation for first update
+        }
+        
+        // Normal update with interpolation
+        const lastCol = remotePlayerPos.lastCol || remotePlayerPos.col
+        const newCol = position.col || remotePlayerPos.col
+        const newRow = position.row || remotePlayerPos.row
         
         // Detect wrap-around for remote players
-        const cellSize = Math.min(window.innerWidth / MAZE_COLS, window.innerHeight / MAZE_ROWS)
         const mazeWidth = cellSize * MAZE_COLS
-        let adjustedTargetX = position.x
+        // Use calculated pixel position from row/col if available, otherwise use position.x
+        let adjustedTargetX = (typeof position.row === 'number' && typeof position.col === 'number') 
+          ? targetPixelX 
+          : position.x
         let wrapDetected = false
         
-        if (hasWrapAround(newRow) && hasWrapAround(playerPos.row)) {
+        if (hasWrapAround(newRow) && hasWrapAround(remotePlayerPos.row)) {
           const colDiff = newCol - lastCol
           
           // Detect wrap from right to left (31 -> 0)
@@ -97,14 +150,14 @@ function StartGame() {
             wrapDetected = true
             // Snap current position to wrapped side (right side) immediately
             // This prevents gliding across the screen
-            if (playerPos.current.x < mazeWidth / 2) {
+            if (remotePlayerPos.current.x < mazeWidth / 2) {
               // Current is on left, target is on right after wrap
               // Snap current to right side near target
-              playerPos.current.x = position.x + mazeWidth
-              adjustedTargetX = position.x + mazeWidth
+              remotePlayerPos.current.x = targetPixelX + mazeWidth
+              adjustedTargetX = targetPixelX + mazeWidth
             } else {
               // Already on right side, just update target
-              adjustedTargetX = position.x + mazeWidth
+              adjustedTargetX = targetPixelX + mazeWidth
             }
           }
           // Detect wrap from left to right (0 -> 31)
@@ -112,14 +165,14 @@ function StartGame() {
             wrapDetected = true
             // Snap current position to wrapped side (left side) immediately
             // This prevents gliding across the screen
-            if (playerPos.current.x > mazeWidth / 2) {
+            if (remotePlayerPos.current.x > mazeWidth / 2) {
               // Current is on right, target is on left after wrap
               // Snap current to left side near target
-              playerPos.current.x = position.x - mazeWidth
-              adjustedTargetX = position.x - mazeWidth
+              remotePlayerPos.current.x = targetPixelX - mazeWidth
+              adjustedTargetX = targetPixelX - mazeWidth
             } else {
               // Already on left side, just update target
-              adjustedTargetX = position.x - mazeWidth
+              adjustedTargetX = targetPixelX - mazeWidth
             }
           }
         }
@@ -135,17 +188,17 @@ function StartGame() {
           }
         }
         
-        // Update target position
-        playerPos.target = { x: adjustedTargetX, y: position.y }
-        playerPos.row = newRow
-        playerPos.col = newCol
-        playerPos.lastCol = newCol
+        // Update target position (use calculated pixel position)
+        remotePlayerPos.target = { x: adjustedTargetX, y: targetPixelY }
+        remotePlayerPos.row = newRow
+        remotePlayerPos.col = newCol
+        remotePlayerPos.lastCol = newCol
         
         // If wrap was detected, immediately update the pixel position to prevent gliding
         if (wrapDetected) {
           setRemotePlayerPixelPos(prev => ({
             ...prev,
-            [playerId]: { x: playerPos.current.x, y: playerPos.current.y }
+            [playerId]: { x: remotePlayerPos.current.x, y: remotePlayerPos.current.y }
           }))
         }
       }
@@ -154,27 +207,48 @@ function StartGame() {
     // Listen for game state sync (initial positions)
     const handleGameStateSync = (data) => {
       if (data.gameState && data.gameState.players) {
+        const cellSize = Math.min(window.innerWidth / MAZE_COLS, window.innerHeight / MAZE_ROWS)
+        const currentPlayerId = socketService.getSocket()?.id
         const newRemotePlayers = {}
         const newRemotePixelPos = {}
         const newRemotePositions = {}
         
         data.gameState.players.forEach(player => {
-          if (player.id !== socketService.getSocket()?.id && player.position) {
-            newRemotePlayers[player.id] = {
-              x: player.position.x,
-              y: player.position.y,
-              name: player.name
-            }
-            newRemotePixelPos[player.id] = {
-              x: player.position.x,
-              y: player.position.y
-            }
-            newRemotePositions[player.id] = {
-              current: { x: player.position.x, y: player.position.y },
-              target: { x: player.position.x, y: player.position.y },
-              row: player.position.row || 1,
-              col: player.position.col || 1,
-              lastCol: player.position.col || 1
+          if (player.position) {
+            // Calculate pixel position from row/col to ensure consistency
+            const spawnRow = player.position.row || 1
+            const spawnCol = player.position.col || 1
+            const spawnPixelX = spawnCol * cellSize + cellSize / 2
+            const spawnPixelY = spawnRow * cellSize + cellSize / 2
+            
+            if (player.id === currentPlayerId) {
+              // Set local player's initial position from gameState spawn position
+              setPlayerPos({ row: spawnRow, col: spawnCol })
+              targetGridPosRef.current = { row: spawnRow, col: spawnCol }
+              playerPixelPosRef.current = { x: spawnPixelX, y: spawnPixelY }
+              setPlayerPixelPos({ x: spawnPixelX, y: spawnPixelY })
+              lastGridPosRef.current = { row: spawnRow, col: spawnCol }
+            } else {
+              // Set remote players' initial positions immediately (no interpolation on first sync)
+              // This prevents gliding from (0,0) or previous position
+              newRemotePlayers[player.id] = {
+                x: spawnPixelX,
+                y: spawnPixelY,
+                name: player.name
+              }
+              newRemotePixelPos[player.id] = {
+                x: spawnPixelX,
+                y: spawnPixelY
+              }
+              newRemotePositions[player.id] = {
+                current: { x: spawnPixelX, y: spawnPixelY },
+                target: { x: spawnPixelX, y: spawnPixelY },
+                row: spawnRow,
+                col: spawnCol,
+                lastCol: spawnCol,
+                initialized: true, // Flag to prevent gliding on first position update
+                spawnInitialized: true // Flag to indicate spawn position has been set
+              }
             }
           }
         })
@@ -187,6 +261,11 @@ function StartGame() {
     // Listen for game started event
     const handleGameStarted = () => {
       console.log('Game started!')
+      // Clear all remote player data to prevent stale positions
+      // This ensures we start fresh with spawn positions
+      setRemotePlayers({})
+      setRemotePlayerPixelPos({})
+      remotePlayerPositionsRef.current = {}
       // Request initial game state
       socketService.getGameState()
     }
@@ -491,28 +570,34 @@ function StartGame() {
         }
       }
       
-      // Smooth interpolation for remote players - update every frame for smooth movement
-      const updatedRemotePositions = {}
-      let needsUpdate = false
+      // Update remote players at the same frame rate as local player
+      // Snap directly to target positions for perfect sync, but only update at moveSpeed interval
+      const now = Date.now()
+      const remoteUpdateInterval = moveSpeed // Match local player's grid update interval
       
       Object.keys(remotePlayerPositionsRef.current).forEach(playerId => {
         const playerPos = remotePlayerPositionsRef.current[playerId]
         if (!playerPos) return
         
+        // Track last update time for this remote player
+        if (!playerPos.lastUpdateTime) {
+          playerPos.lastUpdateTime = now
+        }
+        
+        // Only update if enough time has passed (match local player's update rate)
+        if (now - playerPos.lastUpdateTime < remoteUpdateInterval) {
+          return
+        }
+        
+        playerPos.lastUpdateTime = now
+        
         const currentPos = playerPos.current
         const targetPos = playerPos.target
         const currentRow = playerPos.row
         
-        // Handle wrap-around normalization for remote players
+        // For perfect sync, snap directly to target position (no interpolation)
+        // This ensures remote players are exactly where the other player says they are
         if (hasWrapAround(currentRow)) {
-          // Normalize current position to 0-mazeWidth range first
-          while (currentPos.x < 0) {
-            currentPos.x += mazeWidth
-          }
-          while (currentPos.x >= mazeWidth) {
-            currentPos.x -= mazeWidth
-          }
-          
           // Normalize target position to 0-mazeWidth range
           let normalizedTargetX = targetPos.x
           while (normalizedTargetX < 0) {
@@ -522,104 +607,27 @@ function StartGame() {
             normalizedTargetX -= mazeWidth
           }
           
-          // Calculate distance both ways (normal and wrapped)
-          const dxNormal = normalizedTargetX - currentPos.x
-          const dxWrappedLeft = (normalizedTargetX + mazeWidth) - currentPos.x
-          const dxWrappedRight = (normalizedTargetX - mazeWidth) - currentPos.x
-          
-          // Choose the shortest path (but avoid paths that cross the entire screen)
-          // If the normal path is very long (> half screen), use wrapped path
-          let dx = dxNormal
-          if (Math.abs(dxNormal) > mazeWidth / 2) {
-            // Normal path is too long, use wrapped path
-            if (Math.abs(dxWrappedLeft) < Math.abs(dxWrappedRight)) {
-              dx = dxWrappedLeft
-            } else {
-              dx = dxWrappedRight
-            }
-          } else {
-            // Normal path is short, but check if wrapped is shorter
-            if (Math.abs(dxWrappedLeft) < Math.abs(dxNormal) && Math.abs(dxWrappedLeft) < mazeWidth / 2) {
-              dx = dxWrappedLeft
-            } else if (Math.abs(dxWrappedRight) < Math.abs(dxNormal) && Math.abs(dxWrappedRight) < mazeWidth / 2) {
-              dx = dxWrappedRight
-            }
-          }
-          
-          const dy = targetPos.y - currentPos.y
-          const distance = Math.sqrt(dx * dx + dy * dy)
-          
-          if (distance > 0.1) {
-            // Interpolate towards target at the same speed as local player
-            const pixelsPerMs = cellSize / moveSpeed
-            const moveAmount = pixelsPerMs * deltaTime
-            
-            if (moveAmount >= distance) {
-              currentPos.x = normalizedTargetX
-              currentPos.y = targetPos.y
-            } else {
-              const ratio = moveAmount / distance
-              currentPos.x += dx * ratio
-              currentPos.y += dy * ratio
-            }
-            
-            // Normalize after movement to keep in 0-mazeWidth range
-            while (currentPos.x < 0) {
-              currentPos.x += mazeWidth
-            }
-            while (currentPos.x >= mazeWidth) {
-              currentPos.x -= mazeWidth
-            }
-            
-            needsUpdate = true
-          } else {
-            currentPos.x = normalizedTargetX
-            currentPos.y = targetPos.y
-            needsUpdate = true
-          }
+          // Snap directly to target for perfect sync
+          currentPos.x = normalizedTargetX
+          currentPos.y = targetPos.y
         } else {
-          // No wrap-around, normal interpolation
-          const dx = targetPos.x - currentPos.x
-          const dy = targetPos.y - currentPos.y
-          const distance = Math.sqrt(dx * dx + dy * dy)
-          
-          if (distance > 0.1) {
-            // Interpolate towards target at the same speed as local player
-            const pixelsPerMs = cellSize / moveSpeed
-            const moveAmount = pixelsPerMs * deltaTime
-            
-            if (moveAmount >= distance) {
-              currentPos.x = targetPos.x
-              currentPos.y = targetPos.y
-            } else {
-              const ratio = moveAmount / distance
-              currentPos.x += dx * ratio
-              currentPos.y += dy * ratio
-            }
-            needsUpdate = true
-          } else if (distance > 0.01) {
-            // Very close, snap to target
-            currentPos.x = targetPos.x
-            currentPos.y = targetPos.y
-            needsUpdate = true
-          }
+          // Snap directly to target for perfect sync
+          currentPos.x = targetPos.x
+          currentPos.y = targetPos.y
         }
         
-        // Always collect position for rendering
-        updatedRemotePositions[playerId] = { x: currentPos.x, y: currentPos.y }
-      })
-      
-      // Update state every frame for smooth rendering (React will batch these efficiently)
-      if (Object.keys(updatedRemotePositions).length > 0) {
-        // Use functional update to ensure we get the latest state
+        // Update state for rendering
         setRemotePlayerPixelPos(prev => {
-          const newState = { ...prev }
-          Object.keys(updatedRemotePositions).forEach(playerId => {
-            newState[playerId] = updatedRemotePositions[playerId]
-          })
-          return newState
+          const current = prev[playerId]
+          if (current && current.x === currentPos.x && current.y === currentPos.y) {
+            return prev // No change, skip update
+          }
+          return {
+            ...prev,
+            [playerId]: { x: currentPos.x, y: currentPos.y }
+          }
         })
-      }
+      })
       
       // Update state for rendering
       setPlayerPixelPos({ x: current.x, y: current.y })
@@ -664,6 +672,10 @@ function StartGame() {
   const playerLeftPercent = (playerPixelPos.x / mazeWidth) * 100
   const playerTopPercent = (playerPixelPos.y / mazeHeight) * 100
 
+  // Get current player's coins
+  const myPlayer = roomData?.players?.find(p => p.id === socketService.getSocket()?.id)
+  const myCoins = myPlayer?.coins || 100
+
   return (
     <div className="game-container">
       {/* Game Info HUD */}
@@ -674,10 +686,49 @@ function StartGame() {
         <div className="hud-item">
           Players: {Object.keys(remotePlayers).length + 1}
         </div>
+        <div className="hud-item coins-display">
+          💰 {myCoins} Coins
+        </div>
+        {unicornId === socketService.getSocket()?.id && (
+          <div className="hud-item unicorn-indicator">
+            🦄 You are the Unicorn!
+          </div>
+        )}
         <div className="hud-item">
           Press ESC to leave
         </div>
+        <button 
+          className="hud-item leaderboard-toggle"
+          onClick={() => setShowLeaderboard(!showLeaderboard)}
+        >
+          {showLeaderboard ? '📊 Hide' : '📊 Show'} Leaderboard
+        </button>
       </div>
+
+      {/* Leaderboard */}
+      {showLeaderboard && (
+        <div className="leaderboard-container">
+          <div className="leaderboard-header">
+            <h3>🏆 Leaderboard</h3>
+          </div>
+          <div className="leaderboard-list">
+            {leaderboard.map((player, index) => (
+              <div 
+                key={player.id} 
+                className={`leaderboard-item ${player.id === socketService.getSocket()?.id ? 'current-player' : ''} ${player.isUnicorn ? 'unicorn-player-item' : ''}`}
+              >
+                <span className="rank">#{index + 1}</span>
+                <span className="player-info">
+                  {player.isUnicorn && '🦄 '}
+                  {player.name}
+                  {player.id === socketService.getSocket()?.id && ' (You)'}
+                </span>
+                <span className="coins">💰 {player.coins}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="maze-container" ref={mazeContainerRef}>
         {maze.map((row, rowIndex) => (
@@ -694,7 +745,7 @@ function StartGame() {
         {/* Local Player */}
         <div
           ref={playerRef}
-          className="player local-player"
+          className={`player local-player ${unicornId === socketService.getSocket()?.id ? 'unicorn-player' : ''}`}
           style={{
             left: `${playerLeftPercent}%`,
             top: `${playerTopPercent}%`,
@@ -708,11 +759,12 @@ function StartGame() {
           const pixelPos = remotePlayerPixelPos[playerId] || { x: player.x, y: player.y }
           const remoteLeftPercent = (pixelPos.x / mazeWidth) * 100
           const remoteTopPercent = (pixelPos.y / mazeHeight) * 100
+          const isUnicorn = player.isUnicorn || playerId === unicornId
           
           return (
             <div key={playerId}>
               <div
-                className="player remote-player"
+                className={`player remote-player ${isUnicorn ? 'unicorn-player' : ''}`}
                 style={{
                   left: `${remoteLeftPercent}%`,
                   top: `${remoteTopPercent}%`,
@@ -720,14 +772,14 @@ function StartGame() {
                 }}
               />
               <div
-                className="player-name"
+                className={`player-name ${isUnicorn ? 'unicorn-name' : ''}`}
                 style={{
                   left: `${remoteLeftPercent}%`,
                   top: `${remoteTopPercent}%`,
                   transform: 'translate(-50%, calc(-100% - 10px))',
                 }}
               >
-                {player.name}
+                {isUnicorn && '🦄 '}{player.name}
               </div>
             </div>
           )

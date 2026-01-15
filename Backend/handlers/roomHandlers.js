@@ -113,6 +113,15 @@ export function registerRoomHandlers(socket, io) {
                     });
                 }
 
+                // If unicorn left and there are other players, notify all about new unicorn
+                if (result.wasUnicorn && result.newUnicornId) {
+                    io.to(roomCode).emit(SOCKET_EVENTS.SERVER.UNICORN_TRANSFERRED, {
+                        newUnicornId: result.newUnicornId,
+                        room: result.room
+                    });
+                    log(`Unicorn transferred to ${result.newUnicornId} in room ${roomCode}`);
+                }
+
                 // Notify remaining players
                 socket.to(roomCode).emit(SOCKET_EVENTS.SERVER.PLAYER_LEFT, {
                     playerId: socket.id,

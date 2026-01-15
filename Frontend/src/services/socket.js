@@ -223,6 +223,22 @@ class SocketService {
   }
 
   /**
+   * Listen for unicorn transferred event
+   */
+  onUnicornTransferred(callback) {
+    const socket = this.getSocket();
+    socket.on('unicorn_transferred', callback);
+  }
+
+  /**
+   * Listen for score update event
+   */
+  onScoreUpdate(callback) {
+    const socket = this.getSocket();
+    socket.on('score_update', callback);
+  }
+
+  /**
    * Remove event listener
    */
   off(eventName, callback) {

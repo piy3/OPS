@@ -25,11 +25,14 @@ class RoomManager {
             players: [{
                 id: socketId,
                 name: playerData?.name || generateDefaultPlayerName(socketId),
-                isHost: true
+                isHost: true,
+                isUnicorn: false, // Will be assigned when game starts
+                coins: 100 // Starting coins
             }],
             status: ROOM_STATUS.WAITING,
             createdAt: Date.now(),
-            maxPlayers: playerData?.maxPlayers || ROOM_CONFIG.DEFAULT_MAX_PLAYERS
+            maxPlayers: playerData?.maxPlayers || ROOM_CONFIG.DEFAULT_MAX_PLAYERS,
+            unicornId: null // Track current unicorn
         };
 
         this.rooms.set(roomCode, room);
@@ -101,7 +104,9 @@ class RoomManager {
         const player = {
             id: socketId,
             name: playerName || generateDefaultPlayerName(socketId),
-            isHost: false
+            isHost: false,
+            isUnicorn: false,
+            coins: 100 // Starting coins
         };
 
         room.players.push(player);
@@ -122,16 +127,27 @@ class RoomManager {
         if (playerIndex === -1) return null;
 
         const wasHost = room.players[playerIndex].isHost;
+        const wasUnicorn = room.players[playerIndex].isUnicorn;
         room.players.splice(playerIndex, 1);
 
         let roomDeleted = false;
         let newHostId = null;
+        let newUnicornId = null;
 
         // If host left and there are other players, assign new host
         if (wasHost && room.players.length > 0) {
             room.players[0].isHost = true;
             room.hostId = room.players[0].id;
             newHostId = room.players[0].id;
+        }
+
+        // If unicorn left and there are other players, assign new unicorn
+        if (wasUnicorn && room.players.length > 0) {
+            // Randomly select a new unicorn from remaining players
+            const randomIndex = Math.floor(Math.random() * room.players.length);
+            room.players[randomIndex].isUnicorn = true;
+            room.unicornId = room.players[randomIndex].id;
+            newUnicornId = room.players[randomIndex].id;
         }
 
         // If room is empty, delete it
@@ -142,8 +158,10 @@ class RoomManager {
 
         return {
             wasHost,
+            wasUnicorn,
             roomDeleted,
             newHostId,
+            newUnicornId,
             room: roomDeleted ? null : room
         };
     }
@@ -185,6 +203,13 @@ class RoomManager {
         if (!room) return null;
 
         room.status = ROOM_STATUS.PLAYING;
+        
+        // Assign first player as unicorn when game starts
+        if (room.players.length > 0 && !room.unicornId) {
+            room.players[0].isUnicorn = true;
+            room.unicornId = room.players[0].id;
+        }
+        
         return room;
     }
 
@@ -203,6 +228,74 @@ class RoomManager {
      */
     getAllRooms() {
         return Array.from(this.rooms.values());
+    }
+
+    /**
+     * Transfer unicorn status to another player
+     * @param {string} roomCode - Room code
+     * @param {string} newUnicornId - Socket ID of new unicorn
+     * @returns {Object|null} Updated room or null
+     */
+    transferUnicorn(roomCode, newUnicornId) {
+        const room = this.rooms.get(roomCode);
+        if (!room) return null;
+
+        // Remove unicorn status from current unicorn
+        const currentUnicorn = room.players.find(p => p.isUnicorn);
+        if (currentUnicorn) {
+            currentUnicorn.isUnicorn = false;
+        }
+
+        // Assign unicorn status to new player
+        const newUnicorn = room.players.find(p => p.id === newUnicornId);
+        if (newUnicorn) {
+            newUnicorn.isUnicorn = true;
+            room.unicornId = newUnicornId;
+        }
+
+        return room;
+    }
+
+    /**
+     * Get current unicorn in room
+     * @param {string} roomCode - Room code
+     * @returns {Object|null} Unicorn player object or null
+     */
+    getUnicorn(roomCode) {
+        const room = this.rooms.get(roomCode);
+        if (!room) return null;
+
+        return room.players.find(p => p.isUnicorn) || null;
+    }
+
+    /**
+     * Update player coins
+     * @param {string} roomCode - Room code
+     * @param {string} playerId - Player socket ID
+     * @param {number} coinChange - Amount to change (positive or negative)
+     * @returns {Object|null} Updated player object or null
+     */
+    updatePlayerCoins(roomCode, playerId, coinChange) {
+        const room = this.rooms.get(roomCode);
+        if (!room) return null;
+
+        const player = room.players.find(p => p.id === playerId);
+        if (!player) return null;
+
+        player.coins = Math.max(0, player.coins + coinChange); // Don't allow negative coins
+        return player;
+    }
+
+    /**
+     * Get leaderboard sorted by coins
+     * @param {string} roomCode - Room code
+     * @returns {Array} Array of players sorted by coins (descending)
+     */
+    getLeaderboard(roomCode) {
+        const room = this.rooms.get(roomCode);
+        if (!room) return [];
+
+        return [...room.players].sort((a, b) => b.coins - a.coins);
     }
 }
 

@@ -25,6 +25,8 @@ export const SocketProvider = ({ children }) => {
   const [roomData, setRoomData] = useState(null);
   const [gameState, setGameState] = useState(null);
   const [players, setPlayers] = useState([]);
+  const [unicornId, setUnicornId] = useState(null);
+  const [leaderboard, setLeaderboard] = useState([]);
 
   useEffect(() => {
     // Connect to socket server
@@ -72,6 +74,16 @@ export const SocketProvider = ({ children }) => {
       setRoomData(data.room);
       setGameState(data.gameState);
       
+      // Set initial unicorn
+      if (data.room && data.room.unicornId) {
+        setUnicornId(data.room.unicornId);
+      }
+      
+      // Set initial leaderboard
+      if (data.gameState && data.gameState.leaderboard) {
+        setLeaderboard(data.gameState.leaderboard);
+      }
+      
       // Navigate to game screen
       if (location.pathname !== '/startgame') {
         navigate('/startgame');
@@ -83,6 +95,28 @@ export const SocketProvider = ({ children }) => {
       setRoomData(data.room);
     });
 
+    socketService.onUnicornTransferred((data) => {
+      console.log('Unicorn transferred:', data);
+      setUnicornId(data.newUnicornId);
+      setRoomData(data.room);
+      if (data.room && data.room.players) {
+        setPlayers(data.room.players);
+      }
+    });
+
+    socketService.onScoreUpdate((data) => {
+      console.log('Score updated:', data);
+      // Update room data with new player scores
+      if (data.room) {
+        setRoomData(data.room);
+        setPlayers(data.room.players);
+      }
+      // Update leaderboard
+      if (data.leaderboard) {
+        setLeaderboard(data.leaderboard);
+      }
+    });
+
     // Cleanup on unmount
     return () => {
       socketService.removeAllListeners('room_update');
@@ -90,8 +124,10 @@ export const SocketProvider = ({ children }) => {
       socketService.removeAllListeners('player_left');
       socketService.removeAllListeners('game_started');
       socketService.removeAllListeners('host_transferred');
+      socketService.removeAllListeners('unicorn_transferred');
+      socketService.removeAllListeners('score_update');
     };
-  }, []);
+  }, [navigate, location.pathname]);
 
   const value = {
     socket,
@@ -102,6 +138,10 @@ export const SocketProvider = ({ children }) => {
     setGameState,
     players,
     setPlayers,
+    unicornId,
+    setUnicornId,
+    leaderboard,
+    setLeaderboard,
     socketService
   };
 

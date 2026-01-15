@@ -43,6 +43,8 @@ export const SOCKET_EVENTS = {
         ROOM_LEFT: 'room_left',
         GAME_STARTED: 'game_started',
         HOST_TRANSFERRED: 'host_transferred',
+        UNICORN_TRANSFERRED: 'unicorn_transferred', // New: Unicorn transferred to new player
+        SCORE_UPDATE: 'score_update', // New: Score/coins update
         ROOM_INFO: 'room_info',
         PLAYER_POSITION_UPDATE: 'player_position_update', // New: Position update broadcast
         GAME_STATE_SYNC: 'game_state_sync', // New: Full game state sync
@@ -61,5 +63,13 @@ export const GAME_CONFIG = {
         MAX_Y: 10000,
         MIN_X: -10000,
         MIN_Y: -10000
-    }
+    },
+    // Fixed corner spawn positions for players (row, col)
+    // Each player spawns at a different corner
+    SPAWN_POSITIONS: [
+        { row: 1, col: 1 },      // Top-left corner
+        { row: 1, col: 30 },     // Top-right corner
+        { row: 26, col: 1 },     // Bottom-left corner
+        { row: 26, col: 30 }     // Bottom-right corner
+    ]
 };

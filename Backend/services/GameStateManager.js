@@ -19,13 +19,45 @@ class GameStateManager {
     }
 
     /**
-     * Initialize game state for a room
+     * Initialize game state for a room and assign spawn positions
      * @param {string} roomCode - Room code
      */
     initializeRoom(roomCode) {
         if (!this.playerPositions.has(roomCode)) {
             this.playerPositions.set(roomCode, new Map());
         }
+
+        // Assign fixed corner spawn positions to all players in the room
+        const room = roomManager.getRoom(roomCode);
+        if (!room || !room.players) {
+            return;
+        }
+
+        const spawnPositions = GAME_CONFIG.SPAWN_POSITIONS;
+
+        // Assign spawn positions to each player based on their index
+        // Each player gets a different corner (cycles if more than 4 players)
+        room.players.forEach((player, index) => {
+            const spawnIndex = index % spawnPositions.length;
+            const spawnPos = spawnPositions[spawnIndex];
+
+            // Initialize player position at spawn point
+            // Note: x, y will be calculated on the client side from row/col
+            // We just store row/col here
+            const positionState = {
+                x: 0, // Will be calculated on client
+                y: 0, // Will be calculated on client
+                row: spawnPos.row,
+                col: spawnPos.col,
+                playerId: player.id,
+                timestamp: Date.now(),
+                isWrap: false
+            };
+
+            const roomPositions = this.playerPositions.get(roomCode);
+            roomPositions.set(player.id, positionState);
+            this.lastGridPositions.set(player.id, { row: spawnPos.row, col: spawnPos.col });
+        });
     }
 
     /**
@@ -40,10 +72,11 @@ class GameStateManager {
      * Update player position with rate limiting and validation
      * @param {string} roomCode - Room code
      * @param {string} playerId - Player socket ID
-     * @param {Object} positionData - Position data { x, y, angle?, velocity?, ... }
+     * @param {Object} positionData - Position data { x, y, angle?, velocity?, isUnicorn?, ... }
+     * @param {Object} io - Socket.IO server instance (optional)
      * @returns {Object|null} Updated position or null if throttled/invalid
      */
-    updatePlayerPosition(roomCode, playerId, positionData) {
+    updatePlayerPosition(roomCode, playerId, positionData, io = null) {
         const room = roomManager.getRoom(roomCode); // redundant
         if (!room) return null;
 
@@ -65,6 +98,10 @@ class GameStateManager {
             return null; // Invalid position
         }
 
+        // Get player from room to check if they are unicorn
+        const player = room.players.find(p => p.id === playerId);
+        const isUnicorn = player ? player.isUnicorn : false;
+
         // Get last grid position for wrap detection
         const lastGridPos = this.lastGridPositions.get(playerId) || { row: validatedPosition.row, col: validatedPosition.col };
         const currentGridPos = { row: validatedPosition.row, col: validatedPosition.col };
@@ -80,12 +117,13 @@ class GameStateManager {
             }
         }
 
-        // Store position with timestamp and wrap flag
+        // Store position with timestamp, wrap flag, and unicorn status
         const positionState = {
             ...validatedPosition,
             playerId: playerId,
             timestamp: now,
-            isWrap: isWrap // Flag to help clients handle wrap smoothly
+            isWrap: isWrap, // Flag to help clients handle wrap smoothly
+            isUnicorn: isUnicorn // Include unicorn status
         };
 
         const roomPositions = this.playerPositions.get(roomCode);
@@ -95,6 +133,11 @@ class GameStateManager {
         // Update last grid position
         if (typeof validatedPosition.row === 'number' && typeof validatedPosition.col === 'number') {
             this.lastGridPositions.set(playerId, { row: validatedPosition.row, col: validatedPosition.col });
+        }
+
+        // Check for unicorn collision if this player is unicorn
+        if (isUnicorn && io) {
+            this.checkUnicornCollision(roomCode, playerId, positionState, io);
         }
 
         return positionState;
@@ -190,8 +233,12 @@ class GameStateManager {
             players: room.players.map(player => ({
                 id: player.id,
                 name: player.name,
+                isUnicorn: player.isUnicorn,
+                coins: player.coins,
                 position: this.getPlayerPosition(roomCode, player.id)
             })),
+            unicornId: room.unicornId,
+            leaderboard: roomManager.getLeaderboard(roomCode),
             timestamp: Date.now()
         };
     }
@@ -206,9 +253,69 @@ class GameStateManager {
             // Clear all player update times for this room
             roomPositions.forEach((_, playerId) => {
                 this.lastUpdateTime.delete(playerId);
+                this.lastGridPositions.delete(playerId);
             });
         }
         this.playerPositions.delete(roomCode);
+    }
+
+    /**
+     * Check for collision between unicorn and other players
+     * @param {string} roomCode - Room code
+     * @param {string} unicornId - Unicorn player socket ID
+     * @param {Object} unicornPosition - Unicorn position { x, y, row, col }
+     * @param {Object} io - Socket.IO server instance for emitting events
+     * @returns {Array} Array of caught player IDs
+     */
+    checkUnicornCollision(roomCode, unicornId, unicornPosition, io) {
+        const room = roomManager.getRoom(roomCode);
+        if (!room) return [];
+
+        const roomPositions = this.playerPositions.get(roomCode);
+        if (!roomPositions) return [];
+
+        const caughtPlayers = [];
+        const collisionRadius = 30; // Collision distance in pixels (adjust as needed)
+
+        // Check collision with all other players
+        room.players.forEach(player => {
+            if (player.id === unicornId || player.isUnicorn) return; // Skip unicorn itself
+
+            const playerPosition = roomPositions.get(player.id);
+            if (!playerPosition) return;
+
+            // Calculate distance between unicorn and player
+            // Handle wrap-around: consider both normal and wrapped positions
+            const dx = playerPosition.x - unicornPosition.x;
+            const dy = playerPosition.y - unicornPosition.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            // Check if collision occurred
+            if (distance < collisionRadius) {
+                caughtPlayers.push(player.id);
+                
+                // Update scores: Unicorn gets +10, caught player loses -10
+                const unicornPlayer = roomManager.updatePlayerCoins(roomCode, unicornId, 10);
+                const caughtPlayer = roomManager.updatePlayerCoins(roomCode, player.id, -10);
+                
+                console.log(`Unicorn ${unicornId} caught player ${player.id}! Coins: Unicorn +10 (${unicornPlayer?.coins}), Caught -10 (${caughtPlayer?.coins})`);
+                
+                // Emit score update event to all players in room
+                if (io) {
+                    const updatedRoom = roomManager.getRoom(roomCode);
+                    io.to(roomCode).emit('score_update', {
+                        unicornId: unicornId,
+                        caughtId: player.id,
+                        unicornCoins: unicornPlayer?.coins,
+                        caughtCoins: caughtPlayer?.coins,
+                        room: updatedRoom,
+                        leaderboard: roomManager.getLeaderboard(roomCode)
+                    });
+                }
+            }
+        });
+
+        return caughtPlayers;
     }
 }
 
