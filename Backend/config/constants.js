@@ -61,5 +61,13 @@ export const GAME_CONFIG = {
         MAX_Y: 10000,
         MIN_X: -10000,
         MIN_Y: -10000
-    }
+    },
+    // Fixed corner spawn positions for players (row, col)
+    // Each player spawns at a different corner
+    SPAWN_POSITIONS: [
+        { row: 1, col: 1 },      // Top-left corner
+        { row: 1, col: 30 },     // Top-right corner
+        { row: 26, col: 1 },     // Bottom-left corner
+        { row: 26, col: 30 }     // Bottom-right corner
+    ]
 };

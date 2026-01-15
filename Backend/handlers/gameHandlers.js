@@ -36,17 +36,33 @@ export function registerGameHandlers(socket, io) {
                 return;
             }
 
-            // Initialize game state for the room
+            // Initialize game state for the room (this assigns spawn positions)
             gameStateManager.initializeRoom(roomCode);
 
             log(`Game started in room: ${roomCode}`);
 
-            // Notify all players in the room with initial game state
+            // Get game state with spawn positions
             const gameState = gameStateManager.getGameState(roomCode);
+            
+            // Notify all players in the room with initial game state
             io.to(roomCode).emit(SOCKET_EVENTS.SERVER.GAME_STARTED, { 
                 room: room,
                 gameState: gameState
             });
+            
+            // Immediately broadcast initial spawn positions to all players
+            // This ensures all clients know where each player spawns before any movement
+            if (gameState && gameState.players) {
+                gameState.players.forEach(player => {
+                    if (player.position) {
+                        // Broadcast spawn position to all other players
+                        io.to(roomCode).emit(SOCKET_EVENTS.SERVER.PLAYER_POSITION_UPDATE, {
+                            playerId: player.id,
+                            position: player.position
+                        });
+                    }
+                });
+            }
         } catch (error) {
             log(`Error starting game: ${error.message}`);
             socket.emit(SOCKET_EVENTS.SERVER.START_ERROR, { message: 'Failed to start game' });

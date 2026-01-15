@@ -19,13 +19,45 @@ class GameStateManager {
     }
 
     /**
-     * Initialize game state for a room
+     * Initialize game state for a room and assign spawn positions
      * @param {string} roomCode - Room code
      */
     initializeRoom(roomCode) {
         if (!this.playerPositions.has(roomCode)) {
             this.playerPositions.set(roomCode, new Map());
         }
+
+        // Assign fixed corner spawn positions to all players in the room
+        const room = roomManager.getRoom(roomCode);
+        if (!room || !room.players) {
+            return;
+        }
+
+        const spawnPositions = GAME_CONFIG.SPAWN_POSITIONS;
+
+        // Assign spawn positions to each player based on their index
+        // Each player gets a different corner (cycles if more than 4 players)
+        room.players.forEach((player, index) => {
+            const spawnIndex = index % spawnPositions.length;
+            const spawnPos = spawnPositions[spawnIndex];
+
+            // Initialize player position at spawn point
+            // Note: x, y will be calculated on the client side from row/col
+            // We just store row/col here
+            const positionState = {
+                x: 0, // Will be calculated on client
+                y: 0, // Will be calculated on client
+                row: spawnPos.row,
+                col: spawnPos.col,
+                playerId: player.id,
+                timestamp: Date.now(),
+                isWrap: false
+            };
+
+            const roomPositions = this.playerPositions.get(roomCode);
+            roomPositions.set(player.id, positionState);
+            this.lastGridPositions.set(player.id, { row: spawnPos.row, col: spawnPos.col });
+        });
     }
 
     /**
