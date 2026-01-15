@@ -4,6 +4,7 @@
 
 import { SOCKET_EVENTS, ROOM_STATUS } from '../config/constants.js';
 import roomManager from '../services/RoomManager.js';
+import gameStateManager from '../services/GameStateManager.js';
 import { log } from 'console';
 
 /**
@@ -35,17 +36,58 @@ export function registerGameHandlers(socket, io) {
                 return;
             }
 
+            // Initialize game state for the room
+            gameStateManager.initializeRoom(roomCode);
+
             log(`Game started in room: ${roomCode}`);
 
-            // Notify all players in the room
-            io.to(roomCode).emit(SOCKET_EVENTS.SERVER.GAME_STARTED, { room: room });
+            // Notify all players in the room with initial game state
+            const gameState = gameStateManager.getGameState(roomCode);
+            io.to(roomCode).emit(SOCKET_EVENTS.SERVER.GAME_STARTED, { 
+                room: room,
+                gameState: gameState
+            });
         } catch (error) {
             log(`Error starting game: ${error.message}`);
             socket.emit(SOCKET_EVENTS.SERVER.START_ERROR, { message: 'Failed to start game' });
         }
     });
 
-    // GAME EVENTS: Handle in-game actions/updates
+    // UPDATE POSITION: Player sends their updated position
+    socket.on(SOCKET_EVENTS.CLIENT.UPDATE_POSITION, (positionData) => {
+        try {
+            const roomCode = roomManager.getRoomCodeForSocket(socket.id); // will return roomCode entry
+            if (!roomCode) {
+                return; // Silently ignore if not in a room
+            }
+
+            const room = roomManager.getRoom(roomCode); // getting the whole room object
+            if (!room || room.status !== ROOM_STATUS.PLAYING) {
+                return; // Silently ignore if game not playing
+            }
+
+            // Update position with validation and rate limiting
+            const updatedPosition = gameStateManager.updatePlayerPosition(
+                roomCode, 
+                socket.id, 
+                positionData
+            );
+
+            // If update was successful (not throttled), broadcast to other players
+            if (updatedPosition) {
+                // Broadcast to all other players in the room (excluding sender)
+                socket.to(roomCode).emit(SOCKET_EVENTS.SERVER.PLAYER_POSITION_UPDATE, {
+                    playerId: socket.id,
+                    position: updatedPosition
+                });
+            }
+        } catch (error) {
+            log(`Error handling position update: ${error.message}`);
+            // Silently fail to avoid disrupting gameplay
+        }
+    });
+
+    // GAME EVENTS: Handle in-game actions/updates (non-position actions)
     socket.on(SOCKET_EVENTS.CLIENT.GAME_ACTION, (actionData) => {
         try {
             const roomCode = roomManager.getRoomCodeForSocket(socket.id);
@@ -66,6 +108,29 @@ export function registerGameHandlers(socket, io) {
         } catch (error) {
             log(`Error handling game action: ${error.message}`);
             // Silently fail for game actions to avoid disrupting gameplay
+        }
+    });
+
+    // GET GAME STATE: Request current game state (for late joiners or reconnection)
+    socket.on(SOCKET_EVENTS.CLIENT.GET_GAME_STATE, () => {
+        try {
+            const roomCode = roomManager.getRoomCodeForSocket(socket.id);
+            if (!roomCode) {
+                socket.emit(SOCKET_EVENTS.SERVER.GAME_STATE_SYNC, { gameState: null });
+                return;
+            }
+
+            const room = roomManager.getRoom(roomCode);
+            if (!room || room.status !== ROOM_STATUS.PLAYING) {
+                socket.emit(SOCKET_EVENTS.SERVER.GAME_STATE_SYNC, { gameState: null });
+                return;
+            }
+
+            const gameState = gameStateManager.getGameState(roomCode);
+            socket.emit(SOCKET_EVENTS.SERVER.GAME_STATE_SYNC, { gameState: gameState });
+        } catch (error) {
+            log(`Error getting game state: ${error.message}`);
+            socket.emit(SOCKET_EVENTS.SERVER.GAME_STATE_SYNC, { gameState: null });
         }
     });
 }

@@ -4,6 +4,7 @@
 
 import { SOCKET_EVENTS } from '../config/constants.js';
 import roomManager from '../services/RoomManager.js';
+import gameStateManager from '../services/GameStateManager.js';
 import { log } from 'console';
 
 /**
@@ -88,6 +89,9 @@ export function registerRoomHandlers(socket, io) {
                 return;
             }
 
+            // Clean up player position from game state
+            gameStateManager.removePlayerPosition(roomCode, socket.id);
+
             const result = roomManager.removePlayerFromRoom(roomCode, socket.id);
             if (!result) {
                 socket.emit(SOCKET_EVENTS.SERVER.LEAVE_ERROR, { message: 'Failed to leave room' });
@@ -97,17 +101,18 @@ export function registerRoomHandlers(socket, io) {
             socket.leave(roomCode);
             log(`Player ${socket.id} left room: ${roomCode}`);
 
-            // If host left and there are other players, notify new host
-            if (result.wasHost && result.newHostId) {
-                io.to(result.newHostId).emit(SOCKET_EVENTS.SERVER.HOST_TRANSFERRED, {
-                    room: result.room
-                });
-            }
-
-            // If room is empty, it's already deleted
+            // If room is empty, clean up game state
             if (result.roomDeleted) {
+                gameStateManager.cleanupRoom(roomCode);
                 log(`Room ${roomCode} deleted (empty)`);
             } else {
+                // If host left and there are other players, notify new host
+                if (result.wasHost && result.newHostId) {
+                    io.to(result.newHostId).emit(SOCKET_EVENTS.SERVER.HOST_TRANSFERRED, {
+                        room: result.room
+                    });
+                }
+
                 // Notify remaining players
                 socket.to(roomCode).emit(SOCKET_EVENTS.SERVER.PLAYER_LEFT, {
                     playerId: socket.id,

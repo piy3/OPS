@@ -4,6 +4,7 @@
 
 import { SOCKET_EVENTS } from '../config/constants.js';
 import roomManager from '../services/RoomManager.js';
+import gameStateManager from '../services/GameStateManager.js';
 import { log } from 'console';
 
 /**
@@ -25,8 +26,18 @@ export function registerConnectionHandlers(socket, io) {
         }
 
         try {
+            // Clean up player position from game state
+            gameStateManager.removePlayerPosition(roomCode, socket.id);
+
             const result = roomManager.removePlayerFromRoom(roomCode, socket.id);
             if (!result) {
+                return;
+            }
+
+            // If room is empty, clean up game state
+            if (result.roomDeleted) {
+                gameStateManager.cleanupRoom(roomCode);
+                log(`Room ${roomCode} deleted (host disconnected)`);
                 return;
             }
 
@@ -37,17 +48,12 @@ export function registerConnectionHandlers(socket, io) {
                 });
             }
 
-            // If room is empty, it's already deleted
-            if (result.roomDeleted) {
-                log(`Room ${roomCode} deleted (host disconnected)`);
-            } else {
-                // Notify remaining players
-                io.to(roomCode).emit(SOCKET_EVENTS.SERVER.PLAYER_LEFT, {
-                    playerId: socket.id,
-                    room: result.room
-                });
-                io.to(roomCode).emit(SOCKET_EVENTS.SERVER.ROOM_UPDATE, { room: result.room });
-            }
+            // Notify remaining players about player leaving
+            io.to(roomCode).emit(SOCKET_EVENTS.SERVER.PLAYER_LEFT, {
+                playerId: socket.id,
+                room: result.room
+            });
+            io.to(roomCode).emit(SOCKET_EVENTS.SERVER.ROOM_UPDATE, { room: result.room });
         } catch (error) {
             log(`Error handling disconnect: ${error.message}`);
         }

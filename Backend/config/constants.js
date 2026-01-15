@@ -29,7 +29,9 @@ export const SOCKET_EVENTS = {
         LEAVE_ROOM: 'leave_room',
         START_GAME: 'start_game',
         GAME_ACTION: 'game_action',
-        GET_ROOM_INFO: 'get_room_info'
+        UPDATE_POSITION: 'update_position', // New: Position updates
+        GET_ROOM_INFO: 'get_room_info',
+        GET_GAME_STATE: 'get_game_state' // New: Get current game state
     },
     // Server -> Client
     SERVER: {
@@ -42,8 +44,22 @@ export const SOCKET_EVENTS = {
         GAME_STARTED: 'game_started',
         HOST_TRANSFERRED: 'host_transferred',
         ROOM_INFO: 'room_info',
+        PLAYER_POSITION_UPDATE: 'player_position_update', // New: Position update broadcast
+        GAME_STATE_SYNC: 'game_state_sync', // New: Full game state sync
         JOIN_ERROR: 'join_error',
         LEAVE_ERROR: 'leave_error',
         START_ERROR: 'start_error'
+    }
+};
+
+export const GAME_CONFIG = {
+    MAX_POSITION_UPDATE_RATE: 60, // Updates per second (throttle)
+    POSITION_UPDATE_INTERVAL: 1000 / 60, // ~16.67ms between updates
+    MAX_POSITION_HISTORY: 10, // Keep last N positions for lag compensation
+    POSITION_VALIDATION: {
+        MAX_X: 10000, // Adjust based on your game world
+        MAX_Y: 10000,
+        MIN_X: -10000,
+        MIN_Y: -10000
     }
 };
