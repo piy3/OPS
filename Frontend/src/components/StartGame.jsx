@@ -11,9 +11,11 @@ function StartGame() {
   const playerPixelPosRef = useRef({ x: 0, y: 0 })
   const targetGridPosRef = useRef({ row: 1, col: 1 })
   const animationFrameRef = useRef(null)
-  const moveSpeed = 100 // milliseconds per cell
+  const moveSpeed = 150 // milliseconds per cell
   const playerRef = useRef(null)
   const mazeContainerRef = useRef(null)
+  const pendingDirectionRef = useRef(null) // Store pending direction change
+  const lastFrameTimeRef = useRef(null) // Track time for smooth animation
 
   // Keep directionRef in sync with direction state
   useEffect(() => {
@@ -37,7 +39,49 @@ function StartGame() {
       }
 
       if (newDirection) {
-        setDirection(newDirection)
+        // Check if there's a wall in the new direction
+        const { row, col } = targetGridPosRef.current
+        let checkRow = row
+        let checkCol = col
+        
+        switch (newDirection) {
+          case 'up':
+            checkRow = row - 1
+            break
+          case 'down':
+            checkRow = row + 1
+            break
+          case 'left':
+            checkCol = col - 1
+            break
+          case 'right':
+            checkCol = col + 1
+            break
+        }
+        
+        // Only allow direction change if there's no wall
+        if (!isWall(checkRow, checkCol)) {
+          // Check if player is aligned with grid (at a turn point)
+          const cellSize = Math.min(window.innerWidth / MAZE_COLS, window.innerHeight / MAZE_ROWS)
+          const current = playerPixelPosRef.current
+          const targetX = targetGridPosRef.current.col * cellSize + cellSize / 2
+          const targetY = targetGridPosRef.current.row * cellSize + cellSize / 2
+          
+          // Use a more lenient threshold (30% of cell size) for better responsiveness
+          const threshold = cellSize * 0.3
+          const dx = Math.abs(current.x - targetX)
+          const dy = Math.abs(current.y - targetY)
+          const isAligned = dx < threshold && dy < threshold
+          
+          if (isAligned) {
+            // Player is at a turn point, apply direction immediately
+            setDirection(newDirection)
+            pendingDirectionRef.current = null
+          } else {
+            // Player is not aligned yet, queue the direction change
+            pendingDirectionRef.current = newDirection
+          }
+        }
       }
     }
 
@@ -92,28 +136,67 @@ function StartGame() {
       return Math.min(window.innerWidth / MAZE_COLS, window.innerHeight / MAZE_ROWS)
     }
     
-    const animate = () => {
+    const animate = (currentTime) => {
       const cellSize = calculateCellSize()
+      
+      // Initialize last frame time
+      if (lastFrameTimeRef.current === null) {
+        lastFrameTimeRef.current = currentTime
+      }
+      
+      // Calculate time delta for smooth, frame-rate independent movement
+      const deltaTime = currentTime - lastFrameTimeRef.current
+      lastFrameTimeRef.current = currentTime
       
       // Calculate target pixel position
       const targetX = targetGridPosRef.current.col * cellSize + cellSize / 2
       const targetY = targetGridPosRef.current.row * cellSize + cellSize / 2
       
-      // Smooth interpolation
+      // Smooth interpolation with time-based movement
       const current = playerPixelPosRef.current
       const dx = targetX - current.x
       const dy = targetY - current.y
       const distance = Math.sqrt(dx * dx + dy * dy)
       
-      // Use smooth interpolation (easing)
-      if (distance > 0.5) {
-        const speed = 0.25 // Interpolation speed (0-1) - higher = faster
-        current.x += dx * speed
-        current.y += dy * speed
+      // Use time-based interpolation for consistent smoothness
+      // Calculate velocity needed to reach target smoothly
+      if (distance > 0.1) {
+        // Calculate the speed (pixels per millisecond) needed to reach target
+        // We want to move at a rate that completes the cell movement in moveSpeed ms
+        const pixelsPerMs = cellSize / moveSpeed
+        
+        // Calculate how much to move this frame based on time delta
+        const moveAmount = pixelsPerMs * deltaTime
+        
+        // Move towards target, but don't overshoot
+        if (moveAmount >= distance) {
+          // Close enough, snap to target
+          current.x = targetX
+          current.y = targetY
+        } else {
+          // Move proportionally towards target
+          const ratio = moveAmount / distance
+          current.x += dx * ratio
+          current.y += dy * ratio
+        }
       } else {
         // Snap to target when very close
         current.x = targetX
         current.y = targetY
+      }
+      
+      // Check if we have a pending direction change and player is now aligned
+      if (pendingDirectionRef.current) {
+        const threshold = cellSize * 0.3
+        const dx = Math.abs(current.x - targetX)
+        const dy = Math.abs(current.y - targetY)
+        const isAligned = dx < threshold && dy < threshold
+        
+        if (isAligned) {
+          // Apply the pending direction change
+          setDirection(pendingDirectionRef.current)
+          pendingDirectionRef.current = null
+        }
       }
       
       // Update state for rendering
@@ -129,6 +212,7 @@ function StartGame() {
     playerPixelPosRef.current = { x: initialX, y: initialY }
     targetGridPosRef.current = { row: playerPos.row, col: playerPos.col }
     setPlayerPixelPos({ x: initialX, y: initialY })
+    lastFrameTimeRef.current = null // Reset frame time
     
     animationFrameRef.current = requestAnimationFrame(animate)
     
