@@ -38,6 +38,9 @@ export function registerGameHandlers(socket, io) {
 
             // Initialize game state for the room (this assigns spawn positions)
             gameStateManager.initializeRoom(roomCode);
+            
+            // Clear any stale quiz state from previous games
+            gameStateManager.clearQuizState(roomCode);
 
             log(`Game started in room: ${roomCode}`);
 
@@ -76,12 +79,16 @@ export function registerGameHandlers(socket, io) {
             if (!roomCode) {
                 return; // Silently ignore if not in a room
             }
-
+            
             const room = roomManager.getRoom(roomCode); // getting the whole room object
             if (!room || room.status !== ROOM_STATUS.PLAYING) {
                 return; // Silently ignore if game not playing
             }
-
+            
+            // Log received position data
+            const player = room.players.find(p => p.id === socket.id);
+            log(`📍 Position update from ${player?.name || socket.id}: row=${positionData.row}, col=${positionData.col}, x=${positionData.x?.toFixed(1)}, y=${positionData.y?.toFixed(1)}`);
+            
             // Update position with validation and rate limiting
             const updatedPosition = gameStateManager.updatePlayerPosition(
                 roomCode, 
@@ -89,7 +96,7 @@ export function registerGameHandlers(socket, io) {
                 positionData,
                 io // Pass io for collision detection
             );
-
+            
             // If update was successful (not throttled), broadcast to other players
             if (updatedPosition) {
                 // Broadcast to all other players in the room (excluding sender)
@@ -148,6 +155,54 @@ export function registerGameHandlers(socket, io) {
         } catch (error) {
             log(`Error getting game state: ${error.message}`);
             socket.emit(SOCKET_EVENTS.SERVER.GAME_STATE_SYNC, { gameState: null });
+        }
+    });
+
+    // SUBMIT QUIZ ANSWER: Player submits an answer to quiz question
+    socket.on(SOCKET_EVENTS.CLIENT.SUBMIT_QUIZ_ANSWER, (answerData) => {
+        try {
+            const roomCode = roomManager.getRoomCodeForSocket(socket.id);
+            if (!roomCode) {
+                return; // Silently ignore if not in a room
+            }
+
+            const room = roomManager.getRoom(roomCode);
+            if (!room || room.status !== ROOM_STATUS.PLAYING) {
+                return; // Silently ignore if game not playing
+            }
+
+            const { questionId, answerIndex } = answerData;
+
+            // Submit the answer
+            const result = gameStateManager.submitQuizAnswer(
+                roomCode,
+                socket.id,
+                questionId,
+                answerIndex
+            );
+
+            if (!result) {
+                log(`Invalid quiz answer submission from ${socket.id}`);
+                return;
+            }
+
+            log(`Quiz answer submitted: Player ${socket.id}, Q${questionId}, Answer ${answerIndex}, Correct: ${result.isCorrect}`);
+
+            // Send result back to the player
+            socket.emit('quiz_answer_result', {
+                questionId: questionId,
+                isCorrect: result.isCorrect,
+                totalAnswered: result.totalAnswered,
+                totalQuestions: result.totalQuestions
+            });
+
+            // If all questions answered, complete the quiz
+            if (result.totalAnswered === result.totalQuestions) {
+                log(`All questions answered in room ${roomCode}, completing quiz`);
+                gameStateManager.completeQuiz(roomCode, io, false);
+            }
+        } catch (error) {
+            log(`Error handling quiz answer: ${error.message}`);
         }
     });
 }

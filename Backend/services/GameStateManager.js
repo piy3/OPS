@@ -4,7 +4,8 @@
  */
 
 import roomManager from './RoomManager.js';
-import { GAME_CONFIG } from '../config/constants.js';
+import { GAME_CONFIG, SOCKET_EVENTS } from '../config/constants.js';
+import { getRandomQuestions, QUIZ_CONFIG } from '../config/questions.js';
 
 class GameStateManager {
     constructor() {
@@ -16,6 +17,15 @@ class GameStateManager {
         
         // Track last grid positions for wrap-around detection: playerId -> { row, col }
         this.lastGridPositions = new Map();
+        
+        // Track active quizzes: roomCode -> { unicornId, caughtId, questions, startTime, answers }
+        this.activeQuizzes = new Map();
+        
+        // Track frozen rooms: Set of roomCodes that are currently frozen
+        this.frozenRooms = new Set();
+        
+        // Track recently respawned players: playerId -> timestamp (ignore their position updates briefly)
+        this.respawnedPlayers = new Map();
     }
 
     /**
@@ -34,10 +44,18 @@ class GameStateManager {
         }
 
         const spawnPositions = GAME_CONFIG.SPAWN_POSITIONS;
+        const roomPositions = this.playerPositions.get(roomCode);
 
         // Assign spawn positions to each player based on their index
         // Each player gets a different corner (cycles if more than 4 players)
+        // ONLY initialize if player doesn't already have a position!
         room.players.forEach((player, index) => {
+            // Check if player already has a position - if so, DON'T reset it!
+            if (roomPositions.has(player.id)) {
+                console.log(`✓ Player ${player.id} already has position, skipping init`);
+                return; // Skip this player, they already have a position
+            }
+
             const spawnIndex = index % spawnPositions.length;
             const spawnPos = spawnPositions[spawnIndex];
 
@@ -54,7 +72,7 @@ class GameStateManager {
                 isWrap: false
             };
 
-            const roomPositions = this.playerPositions.get(roomCode);
+            console.log(`🎬 Initializing player ${player.id} at spawn: row=${spawnPos.row}, col=${spawnPos.col}`);
             roomPositions.set(player.id, positionState);
             this.lastGridPositions.set(player.id, { row: spawnPos.row, col: spawnPos.col });
         });
@@ -80,8 +98,31 @@ class GameStateManager {
         const room = roomManager.getRoom(roomCode); // redundant
         if (!room) return null;
 
+        // Block position updates if room is frozen (during quiz)
+        if (this.frozenRooms.has(roomCode)) {
+            console.log(`❄️ Room frozen, ignoring position update from ${playerId}`);
+            return null;
+        }
+
+        // Block position updates from recently respawned players (prevent override)
+        const respawnTime = this.respawnedPlayers.get(playerId);
+        if (respawnTime) {
+            const timeSinceRespawn = Date.now() - respawnTime;
+            if (timeSinceRespawn < 500) { // Ignore updates for 500ms after respawn
+                console.log(`🚫 Ignoring position update from recently respawned player ${playerId} (${timeSinceRespawn}ms ago)`);
+                return null;
+            } else {
+                // Enough time has passed, remove from respawned list
+                this.respawnedPlayers.delete(playerId);
+            }
+        }
+
         // Initialize room state if needed
         this.initializeRoom(roomCode);
+
+        // Get old position before updating
+        const oldPosition = this.getPlayerPosition(roomCode, playerId);
+        console.log(`📝 Update request for ${playerId}: OLD pos=(${oldPosition?.row},${oldPosition?.col}) → NEW pos=(${positionData.row},${positionData.col})`);
 
         // Rate limiting: Check if update is too frequent
         const now = Date.now();
@@ -89,14 +130,18 @@ class GameStateManager {
         const timeSinceLastUpdate = now - lastUpdate;
 
         if (timeSinceLastUpdate < GAME_CONFIG.POSITION_UPDATE_INTERVAL) {
+            console.log(`⚠️ THROTTLED: Update too fast (${timeSinceLastUpdate}ms < ${GAME_CONFIG.POSITION_UPDATE_INTERVAL}ms)`);
             return null; // Throttled
         }
 
         // Validate position data
         const validatedPosition = this.validatePosition(positionData);
         if (!validatedPosition) {
+            console.log(`⚠️ INVALID: Position validation failed for x=${positionData.x}, y=${positionData.y}, row=${positionData.row}, col=${positionData.col}`);
             return null; // Invalid position
         }
+        
+        console.log(`✅ Position update ACCEPTED: will store (${validatedPosition.row},${validatedPosition.col})`);
 
         // Get player from room to check if they are unicorn
         const player = room.players.find(p => p.id === playerId);
@@ -107,7 +152,7 @@ class GameStateManager {
         const currentGridPos = { row: validatedPosition.row, col: validatedPosition.col };
         
         // Detect wrap-around: if row/col are provided and changed significantly, it's a wrap
-        // This helps remote clients detect wraps properly
+        // // This helps remote clients detect wraps properly
         let isWrap = false;
         if (typeof validatedPosition.row === 'number' && typeof validatedPosition.col === 'number') {
             const colDiff = validatedPosition.col - lastGridPos.col;
@@ -117,7 +162,7 @@ class GameStateManager {
             }
         }
 
-        // Store position with timestamp, wrap flag, and unicorn status
+        // Store position with timestamp, wrap flag, and unicorn status FIRST
         const positionState = {
             ...validatedPosition,
             playerId: playerId,
@@ -130,14 +175,81 @@ class GameStateManager {
         roomPositions.set(playerId, positionState);
         this.lastUpdateTime.set(playerId, now);
         
+        // Verify what was actually stored by reading it back
+        const verifyStored = roomPositions.get(playerId);
+        console.log(`💾 Stored position for ${playerId}: row=${positionState.row}, col=${positionState.col}`);
+        console.log(`🔎 Verify stored: row=${verifyStored?.row}, col=${verifyStored?.col} (Match: ${verifyStored?.row === positionState.row && verifyStored?.col === positionState.col})`);
+        
         // Update last grid position
         if (typeof validatedPosition.row === 'number' && typeof validatedPosition.col === 'number') {
             this.lastGridPositions.set(playerId, { row: validatedPosition.row, col: validatedPosition.col });
         }
 
-        // Check for unicorn collision if this player is unicorn
-        if (isUnicorn && io) {
-            this.checkUnicornCollision(roomCode, playerId, positionState, io);
+        // Grid-based collision detection: Check AFTER storing position
+        // Game freeze prevents multiple simultaneous quizzes, so no need to check hasActiveQuiz
+        if (io && typeof validatedPosition.row === 'number' && typeof validatedPosition.col === 'number') {
+            console.log(`\n🔍 COLLISION CHECK for ${playerId} at row=${validatedPosition.row}, col=${validatedPosition.col}`);
+            
+            // Find the unicorn in this room
+            const unicornPlayer = room.players.find(p => p.isUnicorn);
+            console.log(`  Unicorn player: ${unicornPlayer ? unicornPlayer.name : 'NONE FOUND!'}`);
+            console.log(`  Current player isUnicorn: ${isUnicorn}`);
+            
+            if (unicornPlayer) {
+                const unicornPos = this.getPlayerPosition(roomCode, unicornPlayer.id);
+                console.log(`  Unicorn position: row=${unicornPos?.row}, col=${unicornPos?.col}`);
+                
+                // Check ALL other players against current position
+                console.log(`  Checking all players in room:`);
+                room.players.forEach(p => {
+                    const pos = this.getPlayerPosition(roomCode, p.id);
+                    console.log(`    ${p.name} (unicorn=${p.isUnicorn}): row=${pos?.row}, col=${pos?.col}`);
+                });
+                
+                // If this player (who just moved) is at same position as unicorn
+                if (!isUnicorn && unicornPos && 
+                    unicornPos.row === validatedPosition.row && 
+                    unicornPos.col === validatedPosition.col) {
+                    
+                    console.log(`\n🦄 ✅ COLLISION DETECTED: Player moved to unicorn position!`);
+                    console.log(`  Player at: row=${validatedPosition.row}, col=${validatedPosition.col}`);
+                    console.log(`  Unicorn at: row=${unicornPos.row}, col=${unicornPos.col}`);
+                    
+                    this.startQuiz(roomCode, unicornPlayer.id, playerId, io);
+                }
+                // If unicorn just moved, check if it's at same position as any other player
+                else if (isUnicorn) {
+                    console.log(`  Unicorn moved, checking for caught players...`);
+                    
+                    const caughtPlayer = room.players.find(p => {
+                        if (p.id === playerId || p.isUnicorn) return false;
+                        
+                        const playerPos = this.getPlayerPosition(roomCode, p.id);
+                        const matches = playerPos && 
+                               playerPos.row === validatedPosition.row && 
+                               playerPos.col === validatedPosition.col;
+                        
+                        console.log(`    Checking ${p.name}: row=${playerPos?.row}, col=${playerPos?.col}, matches=${matches}`);
+                        return matches;
+                    });
+                    
+                    if (caughtPlayer) {
+                        const caughtPos = this.getPlayerPosition(roomCode, caughtPlayer.id);
+                        console.log(`\n🦄 ✅ COLLISION DETECTED: Unicorn caught player!`);
+                        console.log(`  Unicorn at: row=${validatedPosition.row}, col=${validatedPosition.col}`);
+                        console.log(`  Player ${caughtPlayer.name} at: row=${caughtPos?.row}, col=${caughtPos?.col}`);
+                        
+                        this.startQuiz(roomCode, playerId, caughtPlayer.id, io);
+                    } else {
+                        console.log(`  No collision found with any player`);
+                    }
+                } else {
+                    console.log(`  Regular player moved, not at unicorn position`);
+                }
+            } else {
+                console.log(`  ⚠️ WARNING: No unicorn found in room!`);
+            }
+            console.log(`🔍 End collision check\n`);
         }
 
         return positionState;
@@ -260,14 +372,18 @@ class GameStateManager {
     }
 
     /**
-     * Check for collision between unicorn and other players
+     * OLD METHOD - NO LONGER USED
+     * Grid-based collision is now handled in updatePlayerPosition()
+     * Keeping this for reference/backup
+     * 
+     * Check for collision between unicorn and other players (PIXEL-BASED - DEPRECATED)
      * @param {string} roomCode - Room code
      * @param {string} unicornId - Unicorn player socket ID
      * @param {Object} unicornPosition - Unicorn position { x, y, row, col }
      * @param {Object} io - Socket.IO server instance for emitting events
      * @returns {Array} Array of caught player IDs
      */
-    checkUnicornCollision(roomCode, unicornId, unicornPosition, io) {
+    checkUnicornCollision_OLD_DEPRECATED(roomCode, unicornId, unicornPosition, io) {
         const room = roomManager.getRoom(roomCode);
         if (!room) return [];
 
@@ -316,6 +432,375 @@ class GameStateManager {
         });
 
         return caughtPlayers;
+    }
+
+    /**
+     * Find a free spawn position that's not occupied by any player
+     * @param {string} roomCode - Room code
+     * @param {string} excludePlayerId - Player ID to exclude from collision check
+     * @returns {Object} Free spawn position { row, col }
+     */
+    findFreeSpawnPosition(roomCode, excludePlayerId = null) {
+        const room = roomManager.getRoom(roomCode);
+        if (!room) return GAME_CONFIG.SPAWN_POSITIONS[0];
+
+        const spawnPositions = GAME_CONFIG.SPAWN_POSITIONS;
+        
+        // Try each spawn position
+        for (const spawnPos of spawnPositions) {
+            let isOccupied = false;
+            
+            // Check if any player is at this spawn position
+            for (const player of room.players) {
+                if (player.id === excludePlayerId) continue;
+                
+                const playerPos = this.getPlayerPosition(roomCode, player.id);
+                if (playerPos && playerPos.row === spawnPos.row && playerPos.col === spawnPos.col) {
+                    isOccupied = true;
+                    break;
+                }
+            }
+            
+            if (!isOccupied) {
+                console.log(`  ✅ Found free spawn: row=${spawnPos.row}, col=${spawnPos.col}`);
+                return spawnPos;
+            }
+        }
+        
+        // If all spawns occupied, return a random one anyway
+        const randomSpawn = spawnPositions[Math.floor(Math.random() * spawnPositions.length)];
+        console.log(`  ⚠️ All spawns occupied, using random: row=${randomSpawn.row}, col=${randomSpawn.col}`);
+        return randomSpawn;
+    }
+
+    /**
+     * Start a quiz when unicorn catches a player
+     * @param {string} roomCode - Room code
+     * @param {string} unicornId - Unicorn player socket ID
+     * @param {string} caughtId - Caught player socket ID
+     * @param {Object} io - Socket.IO server instance
+     */
+    startQuiz(roomCode, unicornId, caughtId, io) {
+        const room = roomManager.getRoom(roomCode);
+        if (!room) {
+            console.log(`❌ Cannot start quiz: Room ${roomCode} not found`);
+            return;
+        }
+
+        // Get player names
+        const unicornPlayer = room.players.find(p => p.id === unicornId);
+        const caughtPlayer = room.players.find(p => p.id === caughtId);
+        
+        if (!unicornPlayer || !caughtPlayer) {
+            console.log(`❌ Cannot start quiz: Players not found (unicorn=${!!unicornPlayer}, caught=${!!caughtPlayer})`);
+            return;
+        }
+
+        const unicornName = unicornPlayer.name || 'Unicorn';
+        const caughtName = caughtPlayer.name || 'Player';
+
+        // Generate random quiz questions FIRST
+        const questions = getRandomQuestions(QUIZ_CONFIG.QUESTIONS_PER_QUIZ);
+        
+        // Store quiz state
+        const quizData = {
+            unicornId: unicornId,
+            unicornName: unicornName,
+            caughtId: caughtId,
+            caughtName: caughtName,
+            questions: questions,
+            startTime: Date.now(),
+            timeLimit: QUIZ_CONFIG.TOTAL_TIME_LIMIT,
+            answers: [],
+            completed: false
+        };
+        
+        this.activeQuizzes.set(roomCode, quizData);
+
+        console.log(`\n🎯 ===== QUIZ STARTED =====`);
+        console.log(`Room: ${roomCode}`);
+        console.log(`Unicorn: ${unicornName} (${unicornId})`);
+        console.log(`Caught: ${caughtName} (${caughtId})`);
+        console.log(`Questions: ${questions.length}`);
+        console.log(`Time limit: ${QUIZ_CONFIG.TOTAL_TIME_LIMIT}ms`);
+        console.log(`Active quizzes in memory: ${this.activeQuizzes.size}`);
+        console.log(`===========================\n`);
+
+        // 1. FIRST: Mark room as frozen to block position updates
+        this.frozenRooms.add(roomCode);
+        console.log(`❄️ Room ${roomCode} frozen - blocking all position updates`);
+
+        // 2. Broadcast game freeze to ALL players
+        io.to(roomCode).emit(SOCKET_EVENTS.SERVER.GAME_FROZEN, {
+            message: `🦄 ${unicornName} caught ${caughtName}!`,
+            unicornId: unicornId,
+            unicornName: unicornName,
+            caughtId: caughtId,
+            caughtName: caughtName,
+            freezeReason: 'quiz_started'
+        });
+
+        // 3. Respawn BOTH unicorn and caught player to separate locations
+        console.log(`\n🔄 Respawning both players to break collision...`);
+        
+        const roomPositions = this.playerPositions.get(roomCode);
+        if (roomPositions) {
+            // Find two different free spawn positions
+            const unicornSpawn = this.findFreeSpawnPosition(roomCode, caughtId);
+            const caughtSpawn = this.findFreeSpawnPosition(roomCode, unicornId);
+            
+            // Make sure they're different - if same, use adjacent spawn
+            const spawnPositions = GAME_CONFIG.SPAWN_POSITIONS;
+            let finalCaughtSpawn = caughtSpawn;
+            if (unicornSpawn.row === caughtSpawn.row && unicornSpawn.col === caughtSpawn.col) {
+                // Find a different spawn
+                for (const spawn of spawnPositions) {
+                    if (spawn.row !== unicornSpawn.row || spawn.col !== unicornSpawn.col) {
+                        finalCaughtSpawn = spawn;
+                        break;
+                    }
+                }
+            }
+            
+            // Respawn unicorn
+            const unicornCurrentPos = roomPositions.get(unicornId);
+            const newUnicornPos = {
+                ...unicornCurrentPos,
+                row: unicornSpawn.row,
+                col: unicornSpawn.col,
+                x: 0,
+                y: 0,
+                timestamp: Date.now()
+            };
+            roomPositions.set(unicornId, newUnicornPos);
+            this.lastGridPositions.set(unicornId, { row: unicornSpawn.row, col: unicornSpawn.col });
+            this.respawnedPlayers.set(unicornId, Date.now());
+            
+            // Respawn caught player
+            const caughtCurrentPos = roomPositions.get(caughtId);
+            const newCaughtPos = {
+                ...caughtCurrentPos,
+                row: finalCaughtSpawn.row,
+                col: finalCaughtSpawn.col,
+                x: 0,
+                y: 0,
+                timestamp: Date.now()
+            };
+            roomPositions.set(caughtId, newCaughtPos);
+            this.lastGridPositions.set(caughtId, { row: finalCaughtSpawn.row, col: finalCaughtSpawn.col });
+            this.respawnedPlayers.set(caughtId, Date.now());
+            
+            console.log(`  Unicorn respawned: row=${unicornSpawn.row}, col=${unicornSpawn.col}`);
+            console.log(`  Caught player respawned: row=${finalCaughtSpawn.row}, col=${finalCaughtSpawn.col}`);
+            console.log(`  🔒 Both positions locked for 500ms to prevent override`);
+            
+            // Broadcast new positions to all players
+            io.to(roomCode).emit(SOCKET_EVENTS.SERVER.PLAYER_POSITION_UPDATE, {
+                playerId: unicornId,
+                position: newUnicornPos
+            });
+            io.to(roomCode).emit(SOCKET_EVENTS.SERVER.PLAYER_POSITION_UPDATE, {
+                playerId: caughtId,
+                position: newCaughtPos
+            });
+        }
+
+        // 2. Send quiz questions to the CAUGHT player only
+        // Don't send correct answers to client - only question text and options
+        const questionsForClient = questions.map(q => ({
+            id: q.id,
+            question: q.question,
+            options: q.options
+            // correctAnswer is NOT sent to prevent cheating
+        }));
+
+        io.to(caughtId).emit(SOCKET_EVENTS.SERVER.QUIZ_START, {
+            questions: questionsForClient,
+            totalTimeLimit: QUIZ_CONFIG.TOTAL_TIME_LIMIT,
+            timePerQuestion: QUIZ_CONFIG.TIME_PER_QUESTION,
+            unicornName: unicornName
+        });
+
+        // Set timeout to auto-complete quiz after time limit
+        setTimeout(() => {
+            if (this.activeQuizzes.has(roomCode)) {
+                const quiz = this.activeQuizzes.get(roomCode);
+                if (!quiz.completed) {
+                    console.log(`Quiz timeout in room ${roomCode}`);
+                    this.completeQuiz(roomCode, io, true); // true = timeout
+                }
+            }
+        }, QUIZ_CONFIG.TOTAL_TIME_LIMIT);
+    }
+
+    /**
+     * Submit an answer to the quiz
+     * @param {string} roomCode - Room code
+     * @param {string} playerId - Player socket ID (must be caught player)
+     * @param {number} questionId - Question ID
+     * @param {number} answerIndex - Selected answer index
+     * @returns {Object|null} Result or null
+     */
+    submitQuizAnswer(roomCode, playerId, questionId, answerIndex) {
+        const quiz = this.activeQuizzes.get(roomCode);
+        
+        if (!quiz) {
+            console.log('No active quiz found');
+            return null;
+        }
+
+        // Verify this is the caught player
+        if (playerId !== quiz.caughtId) {
+            console.log('Only caught player can answer');
+            return null;
+        }
+
+        // Find the question
+        const question = quiz.questions.find(q => q.id === questionId);
+        if (!question) {
+            console.log('Question not found');
+            return null;
+        }
+
+        // Check if already answered
+        const alreadyAnswered = quiz.answers.find(a => a.questionId === questionId);
+        if (alreadyAnswered) {
+            console.log('Question already answered');
+            return null;
+        }
+
+        // Record the answer
+        const isCorrect = answerIndex === question.correctAnswer;
+        quiz.answers.push({
+            questionId: questionId,
+            answerIndex: answerIndex,
+            isCorrect: isCorrect,
+            timestamp: Date.now()
+        });
+
+        console.log(`Answer recorded: Q${questionId}, Answer: ${answerIndex}, Correct: ${isCorrect}`);
+
+        return {
+            questionId: questionId,
+            isCorrect: isCorrect,
+            totalAnswered: quiz.answers.length,
+            totalQuestions: quiz.questions.length
+        };
+    }
+
+    /**
+     * Complete the quiz and unfreeze the game
+     * @param {string} roomCode - Room code
+     * @param {Object} io - Socket.IO server instance
+     * @param {boolean} isTimeout - Whether quiz ended due to timeout
+     */
+    completeQuiz(roomCode, io, isTimeout = false) {
+        console.log(`\n🏁 completeQuiz() called for room ${roomCode}, timeout=${isTimeout}`);
+        
+        const quiz = this.activeQuizzes.get(roomCode);
+        
+        if (!quiz) {
+            console.log(`❌ No active quiz found for room ${roomCode}`);
+            return;
+        }
+        
+        if (quiz.completed) {
+            console.log(`⚠️ Quiz already completed for room ${roomCode}`);
+            return;
+        }
+
+        quiz.completed = true;
+        const room = roomManager.getRoom(roomCode);
+        
+        if (!room) {
+            console.log(`❌ Room ${roomCode} not found, deleting quiz`);
+            this.activeQuizzes.delete(roomCode);
+            return;
+        }
+
+        // Calculate results
+        const totalQuestions = quiz.questions.length;
+        const correctAnswers = quiz.answers.filter(a => a.isCorrect).length;
+        const scorePercentage = Math.round((correctAnswers / totalQuestions) * 100);
+        const timeTaken = Date.now() - quiz.startTime;
+
+        console.log(`\n📊 ===== QUIZ COMPLETED =====`);
+        console.log(`Room: ${roomCode}`);
+        console.log(`Caught Player: ${quiz.caughtName}`);
+        console.log(`Score: ${correctAnswers}/${totalQuestions} (${scorePercentage}%)`);
+        console.log(`Time taken: ${timeTaken}ms`);
+        console.log(`Timeout: ${isTimeout}`);
+
+        // TODO: Add logic based on quiz results
+        // Examples:
+        // - If player passed (e.g., scorePercentage >= 60):
+        //   * Give caught player bonus coins
+        //   * Reduce unicorn's coins
+        //   * Maybe transfer unicorn status to caught player
+        // - If player failed:
+        //   * Give unicorn extra bonus coins
+        //   * Reduce caught player's coins more
+        //   * Unicorn remains unicorn
+        // - If timeout:
+        //   * Treat as failed or apply penalty
+
+        // Emit quiz completion to ALL players
+        io.to(roomCode).emit(SOCKET_EVENTS.SERVER.QUIZ_COMPLETE, {
+            caughtId: quiz.caughtId,
+            caughtName: quiz.caughtName,
+            unicornId: quiz.unicornId,
+            unicornName: quiz.unicornName,
+            correctAnswers: correctAnswers,
+            totalQuestions: totalQuestions,
+            scorePercentage: scorePercentage,
+            isTimeout: isTimeout,
+            timeTaken: timeTaken
+        });
+
+        // Unfreeze the room - allow position updates again
+        this.frozenRooms.delete(roomCode);
+        console.log(`🔓 Room ${roomCode} unfrozen - position updates enabled`);
+
+        // Clean up quiz state
+        console.log(`🗑️ Deleting quiz from activeQuizzes Map...`);
+        this.activeQuizzes.delete(roomCode);
+        console.log(`✅ Quiz deleted! Active quizzes remaining: ${this.activeQuizzes.size}`);
+        console.log(`Game unfrozen in room ${roomCode}`);
+        console.log(`============================\n`);
+    }
+
+    /**
+     * Get active quiz for a room
+     * @param {string} roomCode - Room code
+     * @returns {Object|null} Quiz data or null
+     */
+    getActiveQuiz(roomCode) {
+        return this.activeQuizzes.get(roomCode) || null;
+    }
+
+    /**
+     * Check if a room has an active quiz
+     * @param {string} roomCode - Room code
+     * @returns {boolean} True if quiz is active
+     */
+    hasActiveQuiz(roomCode) {
+        return this.activeQuizzes.has(roomCode);
+    }
+
+    /**
+     * Clear quiz state for a room (used when game starts/restarts)
+     * @param {string} roomCode - Room code
+     */
+    clearQuizState(roomCode) {
+        if (this.activeQuizzes.has(roomCode)) {
+            console.log(`🗑️ Clearing stale quiz state for room ${roomCode}`);
+            this.activeQuizzes.delete(roomCode);
+        }
+        // Also unfreeze the room
+        if (this.frozenRooms.has(roomCode)) {
+            console.log(`🔓 Unfreezing room ${roomCode}`);
+            this.frozenRooms.delete(roomCode);
+        }
     }
 }
 

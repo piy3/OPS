@@ -3,15 +3,28 @@ import { useNavigate } from 'react-router-dom'
 import { useSocket } from '../context/SocketContext'
 import '../App.css'
 import { maze, MAZE_ROWS, MAZE_COLS, isWall, hasWrapAround, getWrappedCol } from '../maze'
+import FreezeOverlay from './FreezeOverlay'
+import QuizModal from './QuizModal'
+import QuizResults from './QuizResults'
 
 function StartGame() {
   const navigate = useNavigate()
-  const { socketService, roomData, gameState, unicornId, leaderboard } = useSocket()
+  const { 
+    socketService, 
+    roomData, 
+    gameState, 
+    unicornId, 
+    leaderboard,
+    isGameFrozen,
+    freezeMessage,
+    quizActive,
+    quizResults
+  } = useSocket()
   const [showLeaderboard, setShowLeaderboard] = useState(true)
   const [showCoordinates, setShowCoordinates] = useState(true)
   
   // Player starting position (row 1, col 1 is an empty space)
-  const [playerPos, setPlayerPos] = useState({ row: 1, col: 1 })
+  const [playerPos, setPlayerPos] = useState({ row: null, col: null })
   const [playerPixelPos, setPlayerPixelPos] = useState({ x: 0, y: 0 })
   const [direction, setDirection] = useState(null) // null, 'up', 'down', 'left', 'right'
   const [remotePlayers, setRemotePlayers] = useState({}) // { playerId: { x, y, name } }
@@ -45,8 +58,25 @@ function StartGame() {
     const handlePositionUpdate = (data) => {
       const { playerId, position } = data
       
-      // Don't update our own position
-      if (playerId === socketService.getSocket()?.id) return
+      // IMPORTANT: If this is OUR position (e.g., server respawned us), update local position immediately
+      if (playerId === socketService.getSocket()?.id) {
+        console.log('🔄 Received position update for SELF (respawn):', position);
+        if (typeof position.row === 'number' && typeof position.col === 'number') {
+          const cellSize = Math.min(window.innerWidth / MAZE_COLS, window.innerHeight / MAZE_ROWS);
+          const newPixelX = position.col * cellSize + cellSize / 2;
+          const newPixelY = position.row * cellSize + cellSize / 2;
+          
+          // Update local player position immediately
+          setPlayerPos({ row: position.row, col: position.col });
+          targetGridPosRef.current = { row: position.row, col: position.col };
+          playerPixelPosRef.current = { x: newPixelX, y: newPixelY };
+          setPlayerPixelPos({ x: newPixelX, y: newPixelY });
+          lastGridPosRef.current = { row: position.row, col: position.col };
+          
+          console.log(`✅ Local position updated to: row=${position.row}, col=${position.col}`);
+        }
+        return; // Don't process as remote player
+      }
       
       // CRITICAL: Ignore position updates if we haven't initialized this player with spawn position yet
       // This prevents gliding from (1,1) or (0,0) to spawn position
@@ -307,9 +337,15 @@ function StartGame() {
 
   // Send position updates to server (more frequently for smoother remote player movement)
   const sendPositionUpdate = (pixelX, pixelY) => {
+    // Don't send position updates if game is frozen
+    if (isGameFrozen) {
+      // console.log('🚫 Game frozen, not sending position update'); // Commented to reduce spam
+      return;
+    }
+    
     const now = Date.now()
-    // Send updates every 33ms (~30 times per second) for very smooth remote player movement
-    if (now - lastPositionUpdateTimeRef.current > 33) {
+    // Send updates every 300ms for balance between smoothness and server load
+    if (now - lastPositionUpdateTimeRef.current > 300) {
       const currentGridPos = targetGridPosRef.current
       const lastGridPos = lastGridPosRef.current
       
@@ -352,6 +388,11 @@ function StartGame() {
   // Handle keyboard input
   useEffect(() => {
     const handleKeyPress = (e) => {
+      // Block all movement if game is frozen
+      if (isGameFrozen) {
+        return
+      }
+      
       const key = e.key.toLowerCase()
       let newDirection = null
 
@@ -422,11 +463,16 @@ function StartGame() {
 
     window.addEventListener('keydown', handleKeyPress)
     return () => window.removeEventListener('keydown', handleKeyPress)
-  }, [navigate, socketService])
+  }, [navigate, socketService, isGameFrozen])
 
   // Game loop for continuous movement (grid position updates)
   useEffect(() => {
     const moveInterval = setInterval(() => {
+      // Stop movement if game is frozen
+      if (isGameFrozen) {
+        console.log('❄️ Movement loop: Game is frozen, skipping movement');
+        return;
+      }
       if (!directionRef.current) return
 
       setPlayerPos((prevPos) => {
@@ -466,7 +512,7 @@ function StartGame() {
     }, moveSpeed)
 
     return () => clearInterval(moveInterval)
-  }, [])
+  }, [isGameFrozen])
 
   // Smooth animation loop using requestAnimationFrame
   useEffect(() => {
@@ -555,8 +601,10 @@ function StartGame() {
         }
       }
       
-      // Send position update for local player (more frequently for smoother remote movement)
-      sendPositionUpdate(current.x, current.y)
+      // Send position update for local player (only if game not frozen)
+      if (!isGameFrozen) {
+        sendPositionUpdate(current.x, current.y)
+      }
       
       // Check if we have a pending direction change and player is now aligned
       if (pendingDirectionRef.current) {
@@ -664,7 +712,7 @@ function StartGame() {
       }
       window.removeEventListener('resize', handleResize)
     }
-  }, [playerPos])
+  }, [playerPos, isGameFrozen])
 
   // Calculate player position as percentage
   const cellSize = Math.min(window.innerWidth / MAZE_COLS, window.innerHeight / MAZE_ROWS)
@@ -679,6 +727,17 @@ function StartGame() {
 
   return (
     <div className="game-container">
+      {/* Freeze Overlay - Shows when game is frozen but quiz not active yet */}
+      {isGameFrozen && !quizActive && !quizResults && (
+        <FreezeOverlay message={freezeMessage} />
+      )}
+
+      {/* Quiz Modal - Shows only for caught player */}
+      {quizActive && <QuizModal />}
+
+      {/* Quiz Results - Shows to all players after quiz completes */}
+      {quizResults && <QuizResults results={quizResults} />}
+
       {/* Game Info HUD */}
       <div className="game-hud">
         <div className="hud-item">

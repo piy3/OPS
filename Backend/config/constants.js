@@ -31,7 +31,8 @@ export const SOCKET_EVENTS = {
         GAME_ACTION: 'game_action',
         UPDATE_POSITION: 'update_position', // New: Position updates
         GET_ROOM_INFO: 'get_room_info',
-        GET_GAME_STATE: 'get_game_state' // New: Get current game state
+        GET_GAME_STATE: 'get_game_state', // New: Get current game state
+        SUBMIT_QUIZ_ANSWER: 'submit_quiz_answer' // New: Submit quiz answer
     },
     // Server -> Client
     SERVER: {
@@ -48,6 +49,9 @@ export const SOCKET_EVENTS = {
         ROOM_INFO: 'room_info',
         PLAYER_POSITION_UPDATE: 'player_position_update', // New: Position update broadcast
         GAME_STATE_SYNC: 'game_state_sync', // New: Full game state sync
+        GAME_FROZEN: 'game_frozen', // New: Game frozen for quiz
+        QUIZ_START: 'quiz_start', // New: Quiz started, send questions
+        QUIZ_COMPLETE: 'quiz_complete', // New: Quiz completed, game unfrozen
         JOIN_ERROR: 'join_error',
         LEAVE_ERROR: 'leave_error',
         START_ERROR: 'start_error'

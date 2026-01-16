@@ -27,6 +27,13 @@ export const SocketProvider = ({ children }) => {
   const [players, setPlayers] = useState([]);
   const [unicornId, setUnicornId] = useState(null);
   const [leaderboard, setLeaderboard] = useState([]);
+  
+  // Quiz state
+  const [isGameFrozen, setIsGameFrozen] = useState(false);
+  const [freezeMessage, setFreezeMessage] = useState(null);
+  const [quizActive, setQuizActive] = useState(false);
+  const [quizData, setQuizData] = useState(null);
+  const [quizResults, setQuizResults] = useState(null);
 
   useEffect(() => {
     // Connect to socket server (will reuse existing connection if available)
@@ -117,6 +124,67 @@ export const SocketProvider = ({ children }) => {
       }
     });
 
+    // Quiz Events
+    socketService.onGameFrozen((data) => {
+      console.log('🥶 ===== GAME FROZEN =====');
+      console.log('Freeze data:', data);
+      console.log('Message:', data.message);
+      console.log('Reason:', data.freezeReason);
+      console.log('=========================');
+      
+      setIsGameFrozen(true);
+      setFreezeMessage({
+        text: data.message,
+        unicornName: data.unicornName,
+        caughtName: data.caughtName,
+        reason: data.freezeReason
+      });
+    });
+
+    socketService.onQuizStart((data) => {
+      console.log('Quiz started:', data);
+      setQuizActive(true);
+      setQuizData({
+        questions: data.questions,
+        totalTimeLimit: data.totalTimeLimit,
+        timePerQuestion: data.timePerQuestion,
+        unicornName: data.unicornName,
+        currentQuestion: 0,
+        answers: []
+      });
+    });
+
+    socketService.onQuizAnswerResult((data) => {
+      console.log('Quiz answer result:', data);
+      // Update quiz data with answer result
+      setQuizData(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          answers: [...prev.answers, data]
+        };
+      });
+    });
+
+    socketService.onQuizComplete((data) => {
+      console.log('🏁 ===== QUIZ COMPLETE =====');
+      console.log('Results:', data);
+      console.log('Score:', data.correctAnswers, '/', data.totalQuestions, '(', data.scorePercentage, '%)');
+      console.log('===========================');
+      
+      setQuizResults(data);
+      setQuizActive(false);
+      
+      // Show results for 5 seconds, then unfreeze game
+      setTimeout(() => {
+        console.log('🔓 Game unfrozen on frontend');
+        setIsGameFrozen(false);
+        setFreezeMessage(null);
+        setQuizResults(null);
+        setQuizData(null);
+      }, 5000);
+    });
+
     // Cleanup on unmount - remove listeners only (keep connection alive)
     return () => {
       socketService.removeAllListeners('room_update');
@@ -126,6 +194,10 @@ export const SocketProvider = ({ children }) => {
       socketService.removeAllListeners('host_transferred');
       socketService.removeAllListeners('unicorn_transferred');
       socketService.removeAllListeners('score_update');
+      socketService.removeAllListeners('game_frozen');
+      socketService.removeAllListeners('quiz_start');
+      socketService.removeAllListeners('quiz_answer_result');
+      socketService.removeAllListeners('quiz_complete');
     };
   }, [navigate, location.pathname]);
 
@@ -142,6 +214,16 @@ export const SocketProvider = ({ children }) => {
     setUnicornId,
     leaderboard,
     setLeaderboard,
+    isGameFrozen,
+    setIsGameFrozen,
+    freezeMessage,
+    setFreezeMessage,
+    quizActive,
+    setQuizActive,
+    quizData,
+    setQuizData,
+    quizResults,
+    setQuizResults,
     socketService
   };
 

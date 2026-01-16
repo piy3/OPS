@@ -260,6 +260,46 @@ class SocketService {
   }
 
   /**
+   * Listen for game frozen event
+   */
+  onGameFrozen(callback) {
+    const socket = this.getSocket();
+    socket.on('game_frozen', callback);
+  }
+
+  /**
+   * Listen for quiz start event
+   */
+  onQuizStart(callback) {
+    const socket = this.getSocket();
+    socket.on('quiz_start', callback);
+  }
+
+  /**
+   * Listen for quiz answer result event
+   */
+  onQuizAnswerResult(callback) {
+    const socket = this.getSocket();
+    socket.on('quiz_answer_result', callback);
+  }
+
+  /**
+   * Listen for quiz complete event
+   */
+  onQuizComplete(callback) {
+    const socket = this.getSocket();
+    socket.on('quiz_complete', callback);
+  }
+
+  /**
+   * Submit quiz answer
+   */
+  submitQuizAnswer(questionId, answerIndex) {
+    const socket = this.getSocket();
+    socket.emit('submit_quiz_answer', { questionId, answerIndex });
+  }
+
+  /**
    * Remove event listener
    */
   off(eventName, callback) {

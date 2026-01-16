@@ -1,0 +1,153 @@
+/* Freeze Overlay */
+.freeze-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(10px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1500;
+  animation: fadeIn 0.5s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.freeze-content {
+  text-align: center;
+  animation: scaleIn 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes scaleIn {
+  from {
+    transform: scale(0.5);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.freeze-icon {
+  font-size: 6rem;
+  margin-bottom: 1rem;
+  animation: freeze-spin 3s linear infinite;
+}
+
+@keyframes freeze-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.freeze-message {
+  font-size: 3.5rem;
+  font-weight: 800;
+  color: white;
+  margin: 0 0 1rem 0;
+  text-shadow: 0 4px 20px rgba(0, 191, 255, 0.8), 0 0 40px rgba(0, 191, 255, 0.5);
+  animation: pulse 2s infinite ease-in-out;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+.freeze-subtitle {
+  font-size: 1.5rem;
+  color: rgba(255, 255, 255, 0.9);
+  margin: 0 0 2rem 0;
+  font-weight: 500;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8);
+}
+
+.freeze-details {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2rem;
+  margin-top: 2rem;
+}
+
+.freeze-player {
+  padding: 1rem 2rem;
+  border-radius: 15px;
+  font-size: 1.5rem;
+  font-weight: 700;
+  text-shadow: 0 2px 5px rgba(0, 0, 0, 0.8);
+  animation: playerFloat 2s ease-in-out infinite;
+}
+
+@keyframes playerFloat {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+.unicorn-badge {
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.8) 0%, rgba(118, 75, 162, 0.8) 100%);
+  border: 2px solid rgba(102, 126, 234, 0.5);
+  box-shadow: 0 0 30px rgba(102, 126, 234, 0.6);
+  color: white;
+}
+
+.caught-badge {
+  background: linear-gradient(135deg, rgba(255, 215, 0, 0.8) 0%, rgba(255, 165, 0, 0.8) 100%);
+  border: 2px solid rgba(255, 215, 0, 0.5);
+  box-shadow: 0 0 30px rgba(255, 215, 0, 0.6);
+  color: #333;
+}
+
+.freeze-vs {
+  font-size: 2rem;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.5);
+  text-transform: uppercase;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .freeze-icon {
+    font-size: 4rem;
+  }
+
+  .freeze-message {
+    font-size: 2rem;
+  }
+
+  .freeze-subtitle {
+    font-size: 1.2rem;
+  }
+
+  .freeze-details {
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .freeze-player {
+    font-size: 1.2rem;
+    padding: 0.75rem 1.5rem;
+  }
+}
