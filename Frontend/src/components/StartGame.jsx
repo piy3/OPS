@@ -8,6 +8,7 @@ function StartGame() {
   const navigate = useNavigate()
   const { socketService, roomData, gameState, unicornId, leaderboard } = useSocket()
   const [showLeaderboard, setShowLeaderboard] = useState(true)
+  const [showCoordinates, setShowCoordinates] = useState(true)
   
   // Player starting position (row 1, col 1 is an empty space)
   const [playerPos, setPlayerPos] = useState({ row: 1, col: 1 })
@@ -703,6 +704,12 @@ function StartGame() {
         >
           {showLeaderboard ? '📊 Hide' : '📊 Show'} Leaderboard
         </button>
+        <button 
+          className="hud-item coordinates-toggle"
+          onClick={() => setShowCoordinates(!showCoordinates)}
+        >
+          {showCoordinates ? '📍 Hide' : '📍 Show'} Coords
+        </button>
       </div>
 
       {/* Leaderboard */}
@@ -726,6 +733,62 @@ function StartGame() {
                 <span className="coins">💰 {player.coins}</span>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Coordinates Panel */}
+      {showCoordinates && (
+        <div className="coordinates-container">
+          <div className="coordinates-header">
+            <h3>📍 Player Coordinates</h3>
+          </div>
+          <div className="coordinates-list">
+            {/* Local Player */}
+            <div className="coordinate-item current-player-coord">
+              <div className="coord-player-name">
+                {unicornId === socketService.getSocket()?.id && '🦄 '}
+                {myPlayer?.name || 'You'} (You)
+              </div>
+              <div className="coord-details">
+                <div className="coord-row">
+                  <span className="coord-label">Grid:</span>
+                  <span className="coord-value">Row {playerPos.row}, Col {playerPos.col}</span>
+                </div>
+                <div className="coord-row">
+                  <span className="coord-label">Pixel:</span>
+                  <span className="coord-value">X {Math.round(playerPixelPos.x)}, Y {Math.round(playerPixelPos.y)}</span>
+                </div>
+              </div>
+            </div>
+            
+            {/* Remote Players */}
+            {Object.entries(remotePlayers).map(([playerId, player]) => {
+              const pixelPos = remotePlayerPixelPos[playerId] || { x: player.x, y: player.y }
+              const remotePos = remotePlayerPositionsRef.current[playerId]
+              const isUnicorn = player.isUnicorn || playerId === unicornId
+              
+              return (
+                <div key={playerId} className={`coordinate-item ${isUnicorn ? 'unicorn-player-coord' : ''}`}>
+                  <div className="coord-player-name">
+                    {isUnicorn && '🦄 '}
+                    {player.name}
+                  </div>
+                  <div className="coord-details">
+                    <div className="coord-row">
+                      <span className="coord-label">Grid:</span>
+                      <span className="coord-value">
+                        Row {remotePos?.row || 'N/A'}, Col {remotePos?.col || 'N/A'}
+                      </span>
+                    </div>
+                    <div className="coord-row">
+                      <span className="coord-label">Pixel:</span>
+                      <span className="coord-value">X {Math.round(pixelPos.x)}, Y {Math.round(pixelPos.y)}</span>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
           </div>
         </div>
       )}
