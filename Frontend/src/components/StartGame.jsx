@@ -20,15 +20,17 @@ function StartGame() {
     quizActive,
     quizResults
   } = useSocket()
-  const [showLeaderboard, setShowLeaderboard] = useState(true)
-  const [showCoordinates, setShowCoordinates] = useState(true)
+  const [showLeaderboard, setShowLeaderboard] = useState(false)
+  const [showCoordinates, setShowCoordinates] = useState(false)
   
   // Player starting position (row 1, col 1 is an empty space)
   const [playerPos, setPlayerPos] = useState({ row: null, col: null })
   const [playerPixelPos, setPlayerPixelPos] = useState({ x: 0, y: 0 })
   const [direction, setDirection] = useState(null) // null, 'up', 'down', 'left', 'right'
+  const [facingDirection, setFacingDirection] = useState('right') // Track which way the player is facing: 'up', 'down', 'left', 'right'
   const [remotePlayers, setRemotePlayers] = useState({}) // { playerId: { x, y, name } }
   const [remotePlayerPixelPos, setRemotePlayerPixelPos] = useState({}) // { playerId: { x, y } }
+  const [remotePlayerDirections, setRemotePlayerDirections] = useState({}) // { playerId: 'up' | 'down' | 'left' | 'right' }
   
   const directionRef = useRef(null)
   const playerPixelPosRef = useRef({ x: 0, y: 0 })
@@ -125,6 +127,7 @@ function StartGame() {
           row: position.row || 1,
           col: position.col || 1,
           lastCol: position.col || 1,
+          lastRow: position.row || 1,
           initialized: true,
           spawnInitialized: true
         }
@@ -150,6 +153,7 @@ function StartGame() {
           remotePlayerPos.row = spawnRow
           remotePlayerPos.col = spawnCol
           remotePlayerPos.lastCol = spawnCol
+          remotePlayerPos.lastRow = spawnRow
           remotePlayerPos.initialized = true
           remotePlayerPos.spawnInitialized = true
           
@@ -162,8 +166,35 @@ function StartGame() {
         
         // Normal update with interpolation
         const lastCol = remotePlayerPos.lastCol || remotePlayerPos.col
+        const lastRow = remotePlayerPos.lastRow || remotePlayerPos.row
         const newCol = position.col || remotePlayerPos.col
         const newRow = position.row || remotePlayerPos.row
+        
+        // Track facing direction for remote players based on movement
+        if (newCol !== lastCol) {
+          const colDiff = newCol - lastCol
+          // Handle wrap-around for direction detection
+          if (Math.abs(colDiff) < MAZE_COLS / 2) {
+            // Normal movement (no wrap)
+            setRemotePlayerDirections(prev => ({
+              ...prev,
+              [playerId]: colDiff > 0 ? 'right' : 'left'
+            }))
+          } else {
+            // Wrap-around movement
+            setRemotePlayerDirections(prev => ({
+              ...prev,
+              [playerId]: colDiff > 0 ? 'left' : 'right'
+            }))
+          }
+        } else if (newRow !== lastRow) {
+          // Vertical movement
+          const rowDiff = newRow - lastRow
+          setRemotePlayerDirections(prev => ({
+            ...prev,
+            [playerId]: rowDiff > 0 ? 'down' : 'up'
+          }))
+        }
         
         // Detect wrap-around for remote players
         const mazeWidth = cellSize * MAZE_COLS
@@ -224,6 +255,7 @@ function StartGame() {
         remotePlayerPos.row = newRow
         remotePlayerPos.col = newCol
         remotePlayerPos.lastCol = newCol
+        remotePlayerPos.lastRow = newRow
         
         // If wrap was detected, immediately update the pixel position to prevent gliding
         if (wrapDetected) {
@@ -243,6 +275,7 @@ function StartGame() {
         const newRemotePlayers = {}
         const newRemotePixelPos = {}
         const newRemotePositions = {}
+        const newRemoteDirections = {}
         
         data.gameState.players.forEach(player => {
           if (player.position) {
@@ -277,14 +310,18 @@ function StartGame() {
                 row: spawnRow,
                 col: spawnCol,
                 lastCol: spawnCol,
+                lastRow: spawnRow,
                 initialized: true, // Flag to prevent gliding on first position update
                 spawnInitialized: true // Flag to indicate spawn position has been set
               }
+              // Initialize all remote players facing right by default
+              newRemoteDirections[player.id] = 'right'
             }
           }
         })
         setRemotePlayers(newRemotePlayers)
         setRemotePlayerPixelPos(newRemotePixelPos)
+        setRemotePlayerDirections(newRemoteDirections)
         remotePlayerPositionsRef.current = newRemotePositions
       }
     }
@@ -296,6 +333,7 @@ function StartGame() {
       // This ensures we start fresh with spawn positions
       setRemotePlayers({})
       setRemotePlayerPixelPos({})
+      setRemotePlayerDirections({})
       remotePlayerPositionsRef.current = {}
       // Request initial game state
       socketService.getGameState()
@@ -317,6 +355,11 @@ function StartGame() {
         return updated
       })
       setRemotePlayerPixelPos(prev => {
+        const updated = { ...prev }
+        delete updated[playerId]
+        return updated
+      })
+      setRemotePlayerDirections(prev => {
         const updated = { ...prev }
         delete updated[playerId]
         return updated
@@ -452,6 +495,8 @@ function StartGame() {
           if (isAligned) {
             // Player is at a turn point, apply direction immediately
             setDirection(newDirection)
+            // Update facing direction for all directions
+            setFacingDirection(newDirection)
             pendingDirectionRef.current = null
           } else {
             // Player is not aligned yet, queue the direction change
@@ -614,7 +659,10 @@ function StartGame() {
         const isAligned = dx < threshold && dy < threshold
         
         if (isAligned) {
-          setDirection(pendingDirectionRef.current)
+          const newDir = pendingDirectionRef.current
+          setDirection(newDir)
+          // Update facing direction for all directions
+          setFacingDirection(newDir)
           pendingDirectionRef.current = null
         }
       }
@@ -724,6 +772,22 @@ function StartGame() {
   // Get current player's coins
   const myPlayer = roomData?.players?.find(p => p.id === socketService.getSocket()?.id)
   const myCoins = myPlayer?.coins || 100
+
+  // Helper function to get rotation transform based on facing direction
+  const getDirectionTransform = (direction) => {
+    // Default facing direction is 'right' (0 degrees)
+    switch (direction) {
+      case 'up':
+        return 'rotate(-90deg)'
+      case 'down':
+        return 'rotate(90deg)'
+      case 'left':
+        return 'rotate(180deg)'
+      case 'right':
+      default:
+        return 'rotate(0deg)'
+    }
+  }
 
   return (
     <div className="game-container">
@@ -871,7 +935,7 @@ function StartGame() {
           style={{
             left: `${playerLeftPercent}%`,
             top: `${playerTopPercent}%`,
-            transform: 'translate(-50%, -50%)',
+            transform: `translate(-50%, -50%) ${unicornId === socketService.getSocket()?.id ? getDirectionTransform(facingDirection) : ''}`,
           }}
         />
 
@@ -882,6 +946,7 @@ function StartGame() {
           const remoteLeftPercent = (pixelPos.x / mazeWidth) * 100
           const remoteTopPercent = (pixelPos.y / mazeHeight) * 100
           const isUnicorn = player.isUnicorn || playerId === unicornId
+          const playerDirection = remotePlayerDirections[playerId] || 'right'
           
           return (
             <div key={playerId}>
@@ -890,7 +955,7 @@ function StartGame() {
                 style={{
                   left: `${remoteLeftPercent}%`,
                   top: `${remoteTopPercent}%`,
-                  transform: 'translate(-50%, -50%)',
+                  transform: `translate(-50%, -50%) ${isUnicorn ? getDirectionTransform(playerDirection) : ''}`,
                 }}
               />
               <div

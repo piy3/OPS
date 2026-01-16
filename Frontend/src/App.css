@@ -47,12 +47,13 @@ body, html {
 }
 
 .maze-cell.wall {
-  background-color: #35063E;
+  background-color: #9024a5;
+  border-radius: 15%;
   /* border: 1px solid #000000; */
 }
 
 .maze-cell.empty {
-  background-color: #800080;
+  background-color: #FDF8D4;
 }
 
 .player {
@@ -79,21 +80,15 @@ body, html {
 }
 
 .unicorn-player {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  box-shadow: 0 0 20px rgba(102, 126, 234, 0.8), 0 0 40px rgba(118, 75, 162, 0.6);
-  animation: unicornPulse 2s ease-in-out infinite;
+  background-image: url('/src/assets/horse1.gif');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-color: transparent;
+  border-radius: 10%;
+  box-shadow: none;
 }
 
-@keyframes unicornPulse {
-  0%, 100% {
-    transform: translate(-50%, -50%) scale(1);
-    box-shadow: 0 0 20px rgba(102, 126, 234, 0.8), 0 0 40px rgba(118, 75, 162, 0.6);
-  }
-  50% {
-    transform: translate(-50%, -50%) scale(1.1);
-    box-shadow: 0 0 30px rgba(102, 126, 234, 1), 0 0 60px rgba(118, 75, 162, 0.8);
-  }
-}
 
 .player-name {
   position: absolute;
