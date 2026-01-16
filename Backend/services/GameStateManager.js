@@ -731,18 +731,64 @@ class GameStateManager {
         console.log(`Time taken: ${timeTaken}ms`);
         console.log(`Timeout: ${isTimeout}`);
 
-        // TODO: Add logic based on quiz results
-        // Examples:
-        // - If player passed (e.g., scorePercentage >= 60):
-        //   * Give caught player bonus coins
-        //   * Reduce unicorn's coins
-        //   * Maybe transfer unicorn status to caught player
-        // - If player failed:
-        //   * Give unicorn extra bonus coins
-        //   * Reduce caught player's coins more
-        //   * Unicorn remains unicorn
-        // - If timeout:
-        //   * Treat as failed or apply penalty
+        // Determine winner: Caught player wins if they pass (scorePercentage >= 60%)
+        // Otherwise, unicorn wins (including timeout cases)
+        const PASS_THRESHOLD = 60;
+        const caughtPlayerWins = scorePercentage >= PASS_THRESHOLD && !isTimeout;
+
+        if (caughtPlayerWins) {
+            // Caught player WINS - they escape and become unicorn!
+            console.log(`\n🎉 ${quiz.caughtName} WINS! (Score: ${scorePercentage}%)`);
+            console.log(`  → Caught player gets +20 coins`);
+            console.log(`  → Unicorn loses -20 coins`);
+            console.log(`  → Unicorn status transferred to ${quiz.caughtName}`);
+            
+            // Update coins: Winner +20, Loser -20
+            const updatedCaughtPlayer = roomManager.updatePlayerCoins(roomCode, quiz.caughtId, 20);
+            const updatedUnicorn = roomManager.updatePlayerCoins(roomCode, quiz.unicornId, -20);
+            
+            // Transfer unicorn status to caught player
+            roomManager.transferUnicorn(roomCode, quiz.caughtId);
+            
+            // Emit score update to notify all players
+            const updatedRoom = roomManager.getRoom(roomCode);
+            io.to(roomCode).emit(SOCKET_EVENTS.SERVER.SCORE_UPDATE, {
+                unicornId: quiz.caughtId, // New unicorn
+                caughtId: quiz.unicornId, // Old unicorn
+                unicornCoins: updatedCaughtPlayer?.coins,
+                caughtCoins: updatedUnicorn?.coins,
+                room: updatedRoom,
+                leaderboard: roomManager.getLeaderboard(roomCode)
+            });
+            
+            // Emit unicorn transfer event
+            io.to(roomCode).emit(SOCKET_EVENTS.SERVER.UNICORN_TRANSFERRED, {
+                newUnicornId: quiz.caughtId,
+                oldUnicornId: quiz.unicornId,
+                room: updatedRoom
+            });
+        } else {
+            // Unicorn WINS - caught player failed or timed out
+            console.log(`\n🦄 ${quiz.unicornName} WINS! (Caught player score: ${scorePercentage}%${isTimeout ? ', TIMEOUT' : ''})`);
+            console.log(`  → Unicorn gets +20 coins`);
+            console.log(`  → Caught player loses -20 coins`);
+            console.log(`  → Unicorn remains unicorn`);
+            
+            // Update coins: Winner +20, Loser -20
+            const updatedUnicorn = roomManager.updatePlayerCoins(roomCode, quiz.unicornId, 20);
+            const updatedCaughtPlayer = roomManager.updatePlayerCoins(roomCode, quiz.caughtId, -20);
+            
+            // Emit score update to notify all players
+            const updatedRoom = roomManager.getRoom(roomCode);
+            io.to(roomCode).emit(SOCKET_EVENTS.SERVER.SCORE_UPDATE, {
+                unicornId: quiz.unicornId, // Unicorn remains
+                caughtId: quiz.caughtId,
+                unicornCoins: updatedUnicorn?.coins,
+                caughtCoins: updatedCaughtPlayer?.coins,
+                room: updatedRoom,
+                leaderboard: roomManager.getLeaderboard(roomCode)
+            });
+        }
 
         // Emit quiz completion to ALL players
         io.to(roomCode).emit(SOCKET_EVENTS.SERVER.QUIZ_COMPLETE, {
