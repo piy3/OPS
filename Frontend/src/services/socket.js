@@ -4,8 +4,15 @@
 
 import { io } from 'socket.io-client';
 
-// Socket configuration
-const SOCKET_URL = 'http://localhost:3000';
+// Socket configuration from environment variable
+// In Vite, use import.meta.env (not process.env)
+const ENV = import.meta.env.VITE_ENV || 'dev';
+const SOCKET_URL = ENV === 'prod' 
+  ? import.meta.env.VITE_PROD_URL 
+  : import.meta.env.VITE_DEV_URL;
+
+console.log('Environment:', ENV);
+console.log('Socket URL:', SOCKET_URL);
 
 class SocketService {
   constructor() {
