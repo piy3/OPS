@@ -124,14 +124,12 @@ function HomePage() {
       <div className="homepage-content">
         <div className="logo-section">
           <h1 className="game-title">
+            <span className="title-letter">W</span>
+            <span className="title-letter">A</span>
+            <span className="title-letter">Y</span>
             <span className="title-letter">M</span>
             <span className="title-letter">A</span>
             <span className="title-letter">Z</span>
-            <span className="title-letter">E</span>
-            <span className="title-letter"> </span>
-            <span className="title-letter">G</span>
-            <span className="title-letter">A</span>
-            <span className="title-letter">M</span>
             <span className="title-letter">E</span>
           </h1>
           <p className="game-subtitle">Navigate through the labyrinth</p>
