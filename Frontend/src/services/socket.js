@@ -299,6 +299,166 @@ class SocketService {
     socket.emit('submit_quiz_answer', { questionId, answerIndex });
   }
 
+  // ========== BLITZ QUIZ EVENTS ==========
+
+  /**
+   * Submit Blitz Quiz answer
+   */
+  submitBlitzAnswer(answerIndex) {
+    const socket = this.getSocket();
+    socket.emit('blitz_answer', { answerIndex });
+  }
+
+  /**
+   * Listen for phase change event
+   */
+  onPhaseChange(callback) {
+    const socket = this.getSocket();
+    socket.on('phase_change', callback);
+  }
+
+  /**
+   * Listen for Blitz start event
+   */
+  onBlitzStart(callback) {
+    const socket = this.getSocket();
+    socket.on('blitz_start', callback);
+  }
+
+  /**
+   * Listen for Blitz Quiz answer result
+   */
+  onBlitzAnswerResult(callback) {
+    const socket = this.getSocket();
+    socket.on('blitz_answer_result', callback);
+  }
+
+  /**
+   * Listen for Blitz result event (role assignments)
+   */
+  onBlitzResult(callback) {
+    const socket = this.getSocket();
+    socket.on('blitz_result', callback);
+  }
+
+  /**
+   * Listen for Hunt phase start event
+   */
+  onHuntStart(callback) {
+    const socket = this.getSocket();
+    socket.on('hunt_start', callback);
+  }
+
+  /**
+   * Listen for Hunt end event
+   */
+  onHuntEnd(callback) {
+    const socket = this.getSocket();
+    socket.on('hunt_end', callback);
+  }
+
+  /**
+   * Listen for player tagged event
+   */
+  onPlayerTagged(callback) {
+    const socket = this.getSocket();
+    socket.on('player_tagged', callback);
+  }
+
+  /**
+   * Listen for reserve unicorn activated event
+   */
+  onReserveActivated(callback) {
+    const socket = this.getSocket();
+    socket.on('reserve_activated', callback);
+  }
+
+  // ========== COMBAT SYSTEM EVENTS ==========
+
+  /**
+   * Listen for player hit event
+   */
+  onPlayerHit(callback) {
+    const socket = this.getSocket();
+    socket.on('player_hit', callback);
+  }
+
+  /**
+   * Listen for player respawn event
+   */
+  onPlayerRespawn(callback) {
+    const socket = this.getSocket();
+    socket.on('player_respawn', callback);
+  }
+
+  /**
+   * Listen for player state change event
+   */
+  onPlayerStateChange(callback) {
+    const socket = this.getSocket();
+    socket.on('player_state_change', callback);
+  }
+
+  /**
+   * Listen for health update event
+   */
+  onHealthUpdate(callback) {
+    const socket = this.getSocket();
+    socket.on('health_update', callback);
+  }
+
+  // ========== COIN EVENTS ==========
+
+  /**
+   * Listen for coin spawned event (initial spawn and respawn)
+   */
+  onCoinSpawned(callback) {
+    const socket = this.getSocket();
+    socket.on('coin_spawned', callback);
+  }
+
+  /**
+   * Listen for coin collected event
+   */
+  onCoinCollected(callback) {
+    const socket = this.getSocket();
+    socket.on('coin_collected', callback);
+  }
+
+  // ========== POWERUP EVENTS ==========
+
+  /**
+   * Listen for powerup spawned event
+   */
+  onPowerupSpawned(callback) {
+    const socket = this.getSocket();
+    socket.on('powerup_spawned', callback);
+  }
+
+  /**
+   * Listen for powerup collected event
+   */
+  onPowerupCollected(callback) {
+    const socket = this.getSocket();
+    socket.on('powerup_collected', callback);
+  }
+
+  /**
+   * Listen for powerup activated event
+   */
+  onPowerupActivated(callback) {
+    const socket = this.getSocket();
+    socket.on('powerup_activated', callback);
+  }
+
+  /**
+   * Listen for powerup expired event
+   */
+  onPowerupExpired(callback) {
+    const socket = this.getSocket();
+    socket.on('powerup_expired', callback);
+  }
+
   /**
    * Remove event listener
    */

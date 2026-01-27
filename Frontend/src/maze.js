@@ -81,3 +81,29 @@ export const getWrappedCol = (row, col) => {
 // Maze dimensions
 export const MAZE_ROWS = 28;
 export const MAZE_COLS = 32;
+
+// Helper function to get border data for a wall cell
+// Returns object with which borders should be visible (adjacent to empty cells or maze edge)
+// Also returns corner info for rounded corners
+export const getWallBorders = (row, col) => {
+  if (maze[row][col] !== 1) return null; // Not a wall
+  
+  // Check each neighbor - also show border if at maze edge
+  const top = row === 0 || (row > 0 && maze[row - 1][col] === 0);
+  const bottom = row === MAZE_ROWS - 1 || (row < MAZE_ROWS - 1 && maze[row + 1][col] === 0);
+  const left = col === 0 || (col > 0 && maze[row][col - 1] === 0);
+  const right = col === MAZE_COLS - 1 || (col < MAZE_COLS - 1 && maze[row][col + 1] === 0);
+  
+  // If no borders visible, return null
+  if (!top && !bottom && !left && !right) return null;
+  
+  // Detect corners - where two perpendicular borders meet
+  const corners = {
+    topLeft: top && left,
+    topRight: top && right,
+    bottomLeft: bottom && left,
+    bottomRight: bottom && right
+  };
+  
+  return { top, bottom, left, right, corners };
+};

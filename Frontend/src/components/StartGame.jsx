@@ -1,11 +1,15 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useSocket } from '../context/SocketContext'
+import { useSocket, GAME_PHASE, PLAYER_STATE, COMBAT_CONFIG } from '../context/SocketContext'
+import { useSound } from '../context/SoundContext'
 import '../App.css'
-import { maze, MAZE_ROWS, MAZE_COLS, isWall, hasWrapAround, getWrappedCol } from '../maze'
+import { maze, MAZE_ROWS, MAZE_COLS, isWall, hasWrapAround, getWrappedCol, getWallBorders } from '../maze'
 import FreezeOverlay from './FreezeOverlay'
 import QuizModal from './QuizModal'
 import QuizResults from './QuizResults'
+import BlitzQuizModal from './BlitzQuizModal'
+import BlitzQuizResults from './BlitzQuizResults'
+import PhaserPlayerLayer from './PhaserPlayerLayer'
 
 function StartGame() {
   const navigate = useNavigate()
@@ -18,10 +22,40 @@ function StartGame() {
     isGameFrozen,
     freezeMessage,
     quizActive,
-    quizResults
+    quizResults,
+    // Game Loop state
+    gamePhase,
+    blitzQuizActive,
+    blitzQuizData,
+    blitzQuizResults,
+    huntData,
+    huntTimeRemaining,
+    reserveUnicornId,
+    tagNotification,
+    // Combat System state
+    playersHealth,
+    hitNotification,
+    myPlayerState,
+    myHealth,
+    inIFrames,
+    // Coin & Powerup state
+    coins,
+    powerups,
+    coinCollectNotification,
+    powerupCollectNotification,
+    isImmune,
+    immunePlayers,
+    // Knockback state
+    knockbackActive,
+    knockbackPlayers
   } = useSocket()
+  
+  // Sound controls
+  const { volume, muted, setVolume, toggleMute } = useSound()
+  
   const [showLeaderboard, setShowLeaderboard] = useState(false)
   const [showCoordinates, setShowCoordinates] = useState(false)
+  const [showSoundControls, setShowSoundControls] = useState(false)
   
   const [playerPos, setPlayerPos] = useState({ row: null, col: null })
   const [playerPixelPos, setPlayerPixelPos] = useState({ x: 0, y: 0 })
@@ -36,7 +70,7 @@ function StartGame() {
   const targetGridPosRef = useRef({ row: 1, col: 1 })
   const animationFrameRef = useRef(null)
   const moveSpeed = 150 // milliseconds per cell
-  const lerpSpeed = 0.1 // Lower = smoother glide (matches remote player smoothness)
+  const lerpSpeed = 0.15 // Increased for smoother Phaser-integrated movement
   const playerRef = useRef(null)
   const mazeContainerRef = useRef(null)
   const pendingDirectionRef = useRef(null) // Store pending direction change
@@ -44,6 +78,56 @@ function StartGame() {
   const lastGridPosRef = useRef({ row: 1, col: 1 }) // Track last grid position to detect wraps
   const remotePlayerPositionsRef = useRef({}) // { playerId: { current: {x,y}, target: {x,y}, row, col } }
   const lastPositionUpdateTimeRef = useRef(0) // Track when we last sent position update
+  const phaserLayerRef = useRef(null) // Phaser player layer reference
+  const previousPowerupsRef = useRef([]) // Track previous powerups for aura management
+  const [usePhaserRendering, setUsePhaserRendering] = useState(true) // Toggle between Phaser and DOM rendering
+  const [mazeDimensions, setMazeDimensions] = useState({ width: window.innerWidth, height: window.innerHeight })
+
+  // Memoize the maze grid since it never changes - prevents recalculating borders on every render
+  const mazeGrid = useMemo(() => {
+    return maze.map((row, rowIndex) => (
+      <div key={rowIndex} className="maze-row">
+        {row.map((cell, colIndex) => {
+          const borders = cell === 1 ? getWallBorders(rowIndex, colIndex) : null;
+          return (
+            <div
+              key={`${rowIndex}-${colIndex}`}
+              className={`maze-cell ${cell === 1 ? 'wall' : 'empty'}`}
+            >
+              {borders && (
+                <>
+                  {borders.top && (
+                    <div className={`wall-border wall-border-top${borders.corners.topLeft ? ' has-corner-left' : ''}${borders.corners.topRight ? ' has-corner-right' : ''}`} />
+                  )}
+                  {borders.bottom && (
+                    <div className={`wall-border wall-border-bottom${borders.corners.bottomLeft ? ' has-corner-left' : ''}${borders.corners.bottomRight ? ' has-corner-right' : ''}`} />
+                  )}
+                  {borders.left && (
+                    <div className={`wall-border wall-border-left${borders.corners.topLeft ? ' has-corner-top' : ''}${borders.corners.bottomLeft ? ' has-corner-bottom' : ''}`} />
+                  )}
+                  {borders.right && (
+                    <div className={`wall-border wall-border-right${borders.corners.topRight ? ' has-corner-top' : ''}${borders.corners.bottomRight ? ' has-corner-bottom' : ''}`} />
+                  )}
+                  {borders.corners.topLeft && (
+                    <div className="wall-corner wall-corner-top-left" />
+                  )}
+                  {borders.corners.topRight && (
+                    <div className="wall-corner wall-corner-top-right" />
+                  )}
+                  {borders.corners.bottomLeft && (
+                    <div className="wall-corner wall-corner-bottom-left" />
+                  )}
+                  {borders.corners.bottomRight && (
+                    <div className="wall-corner wall-corner-bottom-right" />
+                  )}
+                </>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    ));
+  }, []); // Empty deps - maze never changes
 
   // Check if we're in a game
   useEffect(() => {
@@ -824,6 +908,163 @@ function StartGame() {
     }
   }, [playerPos, isGameFrozen])
 
+  // Calculate maze dimensions based on cell size (same formula as CSS)
+  const calculateMazeDimensions = () => {
+    const cellSize = Math.min(window.innerWidth / MAZE_COLS, window.innerHeight / MAZE_ROWS)
+    return {
+      cellSize,
+      width: cellSize * MAZE_COLS,
+      height: cellSize * MAZE_ROWS
+    }
+  }
+
+  // Update maze dimensions on resize for Phaser layer
+  useEffect(() => {
+    const updateDimensions = () => {
+      const dims = calculateMazeDimensions()
+      setMazeDimensions({ width: dims.width, height: dims.height })
+    }
+    updateDimensions() // Initial calculation
+    window.addEventListener('resize', updateDimensions)
+    return () => window.removeEventListener('resize', updateDimensions)
+  }, [])
+
+  // Trigger coin collection effects (particles + floating number)
+  useEffect(() => {
+    if (coinCollectNotification && phaserLayerRef.current) {
+      const { row, col, value } = coinCollectNotification
+      if (row !== undefined && col !== undefined) {
+        // Trigger particle burst
+        phaserLayerRef.current.triggerCoinParticles(row, col)
+        // Show floating "+value" number in gold
+        phaserLayerRef.current.showCoinNumber(row, col, value || 5)
+      }
+    }
+  }, [coinCollectNotification])
+
+  // Trigger powerup collection particle effects
+  useEffect(() => {
+    if (powerupCollectNotification && phaserLayerRef.current) {
+      const { row, col, type, powerupId } = powerupCollectNotification
+      if (row !== undefined && col !== undefined) {
+        // Remove the aura first (if it exists)
+        if (powerupId) {
+          phaserLayerRef.current.removePowerupAura(powerupId)
+        }
+        // Trigger collection burst effect
+        phaserLayerRef.current.triggerPowerupCollect(row, col, type)
+        // Show floating text for powerup
+        const powerupText = type === 'immunity' ? '🛡️ SHIELD!' : '⚡ POWER!'
+        phaserLayerRef.current.showFloatingText(row, col, powerupText, {
+          color: '#00FFFF',
+          strokeColor: '#006666',
+          duration: 1200,
+          floatDistance: 60
+        })
+      }
+    }
+  }, [powerupCollectNotification])
+
+  // Track powerup spawns/removals and manage auras
+  useEffect(() => {
+    if (!phaserLayerRef.current) return
+    
+    const prevPowerups = previousPowerupsRef.current
+    const currentPowerups = powerups || []
+    
+    // Find newly added powerups (in current but not in previous)
+    const prevIds = new Set(prevPowerups.map(p => p.id))
+    const currentIds = new Set(currentPowerups.map(p => p.id))
+    
+    // Add auras for new powerups
+    currentPowerups.forEach(powerup => {
+      if (!prevIds.has(powerup.id)) {
+        // New powerup spawned - add aura
+        phaserLayerRef.current.addPowerupAura(
+          powerup.id,
+          powerup.row,
+          powerup.col,
+          powerup.type || 'immunity'
+        )
+      }
+    })
+    
+    // Remove auras for powerups that no longer exist
+    prevPowerups.forEach(powerup => {
+      if (!currentIds.has(powerup.id)) {
+        // Powerup was removed (collected by someone else or expired)
+        phaserLayerRef.current.removePowerupAura(powerup.id)
+      }
+    })
+    
+    // Update ref for next comparison
+    previousPowerupsRef.current = [...currentPowerups]
+  }, [powerups])
+
+  // Trigger hit effects (particles + floating damage number)
+  useEffect(() => {
+    if (hitNotification && phaserLayerRef.current) {
+      // Show hit particles and damage number at the victim's position
+      const victimId = hitNotification.victimId
+      const damage = hitNotification.damage
+      const myId = socketService.getSocket()?.id
+      
+      // Get the position - use local player position if it's us, otherwise use remote player position
+      if (victimId === myId) {
+        // Use local player grid position
+        const { row, col } = playerPos
+        if (row !== undefined && col !== undefined) {
+          phaserLayerRef.current.triggerHitParticles(row, col)
+          phaserLayerRef.current.showDamageNumber(row, col, damage || 25)
+        }
+      } else {
+        // Use remote player position
+        const remotePos = remotePlayerPositionsRef.current[victimId]
+        if (remotePos && remotePos.row !== undefined && remotePos.col !== undefined) {
+          phaserLayerRef.current.triggerHitParticles(remotePos.row, remotePos.col)
+          phaserLayerRef.current.showDamageNumber(remotePos.row, remotePos.col, damage || 25)
+        }
+      }
+    }
+  }, [hitNotification, playerPos, socketService])
+
+  // Manage unicorn speed trail
+  useEffect(() => {
+    if (!phaserLayerRef.current) return
+    
+    const myId = socketService.getSocket()?.id
+    
+    if (unicornId) {
+      // Start the trail for whoever is the unicorn
+      phaserLayerRef.current.startUnicornTrail(unicornId)
+      
+      // If local player became the unicorn, trigger a celebratory burst
+      if (unicornId === myId) {
+        phaserLayerRef.current.triggerUnicornBurst(playerPixelPos.x, playerPixelPos.y)
+      }
+    } else {
+      // No unicorn, stop the trail
+      phaserLayerRef.current.stopUnicornTrail()
+    }
+    
+    // Cleanup on unmount
+    return () => {
+      if (phaserLayerRef.current) {
+        phaserLayerRef.current.stopUnicornTrail()
+      }
+    }
+  }, [unicornId, socketService])
+
+  // Update unicorn trail position for local player
+  useEffect(() => {
+    const myId = socketService.getSocket()?.id
+    
+    // Only update trail if we are the unicorn and trail is active
+    if (unicornId === myId && phaserLayerRef.current) {
+      phaserLayerRef.current.updateUnicornTrailPosition(playerPixelPos.x, playerPixelPos.y)
+    }
+  }, [playerPixelPos, unicornId, socketService])
+
   // Calculate player position as percentage
   const cellSize = Math.min(window.innerWidth / MAZE_COLS, window.innerHeight / MAZE_ROWS)
   const mazeWidth = cellSize * MAZE_COLS
@@ -851,18 +1092,81 @@ function StartGame() {
     }
   }
 
+  // Format hunt time remaining
+  const formatHuntTime = (ms) => {
+    const seconds = Math.floor(ms / 1000);
+    return `${seconds}s`;
+  };
+
   return (
     <div className="game-container">
-      {/* Freeze Overlay - Shows when game is frozen but quiz not active yet */}
-      {isGameFrozen && !quizActive && !quizResults && (
+      {/* Blitz Quiz Modal - Shows to ALL players during Blitz Quiz phase */}
+      {blitzQuizActive && blitzQuizData && <BlitzQuizModal />}
+
+      {/* Blitz Quiz Results - Shows to ALL players after Blitz Quiz ends */}
+      {blitzQuizResults && <BlitzQuizResults results={blitzQuizResults} />}
+
+      {/* Freeze Overlay - Shows when game is frozen but quiz not active yet (legacy) */}
+      {isGameFrozen && !quizActive && !quizResults && !blitzQuizActive && !blitzQuizResults && (
         <FreezeOverlay message={freezeMessage} />
       )}
 
-      {/* Quiz Modal - Shows only for caught player */}
+      {/* Quiz Modal - Shows only for caught player (legacy collision quiz) */}
       {quizActive && <QuizModal />}
 
-      {/* Quiz Results - Shows to all players after quiz completes */}
+      {/* Quiz Results - Shows to all players after quiz completes (legacy) */}
       {quizResults && <QuizResults results={quizResults} />}
+
+      {/* Tag Notification - Shows when unicorn tags a survivor */}
+      {tagNotification && (
+        <div className="tag-notification">
+          <span className="tag-icon">🏷️</span>
+          <span className="tag-text">
+            {tagNotification.unicornName} tagged {tagNotification.survivorName}!
+          </span>
+          <span className="tag-points">-{tagNotification.points} pts</span>
+        </div>
+      )}
+
+      {/* Hit Notification - Shows when a player takes damage */}
+      {/* {hitNotification && (
+        <div className={`hit-notification ${hitNotification.victimId === socketService.getSocket()?.id ? 'hit-self' : ''}`}>
+          <span className="hit-icon">💥</span>
+          <span className="hit-text">
+            {hitNotification.attackerName} hit {hitNotification.victimName}!
+          </span>
+          <span className="hit-damage">-{hitNotification.damage} HP</span>
+        </div>
+      )} */}
+
+      {/* Coin collection now uses Phaser floating numbers at collection location */}
+
+      {/* Immunity Indicator - Shows when you have immunity shield */}
+      {/*{isImmune && (
+        <div className="immunity-indicator">
+          <span className="immunity-icon">🛡️</span>
+          <span className="immunity-text">IMMUNITY ACTIVE</span>
+        </div>
+      )}*/}
+
+      {/* Central Phase Timer - Prominent display at top */}
+      {gamePhase === GAME_PHASE.HUNT && huntData && (
+        <div className={`central-phase-timer ${huntTimeRemaining <= 10000 ? 'timer-ending' : ''}`}>
+          <div className="phase-timer-header">
+            <span className="phase-timer-icon">🏃</span>
+            <span className="phase-timer-label">HUNT PHASE</span>
+          </div>
+          <div className={`phase-timer-countdown ${huntTimeRemaining <= 10000 ? 'countdown-urgent' : ''}`}>
+            {formatHuntTime(huntTimeRemaining)}
+          </div>
+          <div className="phase-timer-bar">
+            <div 
+              className={`phase-timer-fill ${huntTimeRemaining <= 10000 ? 'fill-urgent' : ''}`}
+              style={{ width: `${(huntTimeRemaining / (huntData.duration || 60000)) * 100}%` }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Game Info HUD */}
       <div className="game-hud">
@@ -875,11 +1179,54 @@ function StartGame() {
         <div className="hud-item coins-display">
           💰 {myCoins} Coins
         </div>
-        {unicornId === socketService.getSocket()?.id && (
+
+        {/* Health Bar */}
+        <div className="hud-item health-display">
+          <div className="health-label">
+            ❤️ {myHealth}/{COMBAT_CONFIG.MAX_HEALTH}
+          </div>
+          <div className="health-bar-container">
+            <div 
+              className={`health-bar-fill ${myHealth <= 30 ? 'health-critical' : myHealth <= 60 ? 'health-warning' : ''}`}
+              style={{ width: `${(myHealth / COMBAT_CONFIG.MAX_HEALTH) * 100}%` }}
+            />
+          </div>
+          {inIFrames && <div className="iframe-indicator">INVINCIBLE</div>}
+          {myPlayerState === PLAYER_STATE.FROZEN && <div className="frozen-indicator">FROZEN</div>}
+        </div>
+        
+        {/* Phase Indicator */}
+        {gamePhase === GAME_PHASE.HUNT && huntData && (
+          <div className={`hud-item phase-indicator hunt-phase ${huntTimeRemaining <= 10000 ? 'phase-ending-soon' : ''}`}>
+            <span className="phase-icon">🏃</span>
+            <span className="phase-name">HUNT</span>
+            <span className={`phase-timer ${huntTimeRemaining <= 10000 ? 'timer-urgent' : ''}`}>
+              {formatHuntTime(huntTimeRemaining)}
+            </span>
+          </div>
+        )}
+        {gamePhase === GAME_PHASE.BLITZ_QUIZ && (
+          <div className="hud-item phase-indicator blitz-phase">
+            <span className="phase-icon">⚡</span>
+            <span className="phase-name">BLITZ QUIZ</span>
+          </div>
+        )}
+        
+        {/* Role Indicator */}
+        {unicornId === socketService.getSocket()?.id ? (
           <div className="hud-item unicorn-indicator">
             🦄 You are the Unicorn!
           </div>
+        ) : reserveUnicornId === socketService.getSocket()?.id ? (
+          <div className="hud-item reserve-indicator">
+            🥈 You are Reserve Unicorn
+          </div>
+        ) : (
+          <div className="hud-item survivor-indicator">
+            🏃 Survivor
+          </div>
         )}
+        
         <div className="hud-item">
           Press ESC to leave
         </div>
@@ -895,7 +1242,45 @@ function StartGame() {
         >
           {showCoordinates ? '📍 Hide' : '📍 Show'} Coords
         </button>
+        <button 
+          className="hud-item sound-toggle"
+          onClick={() => setShowSoundControls(!showSoundControls)}
+        >
+          {muted ? '🔇' : '🔊'} Sound
+        </button>
       </div>
+
+      {/* Sound Controls Panel */}
+      {showSoundControls && (
+        <div className="sound-controls-container">
+          <div className="sound-controls-header">
+            <h3>🔊 Sound Settings</h3>
+            <button className="sound-close-btn" onClick={() => setShowSoundControls(false)}>✕</button>
+          </div>
+          <div className="sound-controls-content">
+            <div className="sound-control-row">
+              <button 
+                className={`mute-btn ${muted ? 'muted' : ''}`}
+                onClick={toggleMute}
+              >
+                {muted ? '🔇 Unmute' : '🔊 Mute'}
+              </button>
+            </div>
+            <div className="sound-control-row">
+              <label className="volume-label">Volume: {Math.round(volume * 100)}%</label>
+              <input 
+                type="range" 
+                min="0" 
+                max="100" 
+                value={volume * 100}
+                onChange={(e) => setVolume(parseInt(e.target.value) / 100)}
+                className="volume-slider"
+                disabled={muted}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Leaderboard */}
       {showLeaderboard && (
@@ -979,30 +1364,109 @@ function StartGame() {
       )}
 
       <div className="maze-container" ref={mazeContainerRef}>
-        {maze.map((row, rowIndex) => (
-          <div key={rowIndex} className="maze-row">
-            {row.map((cell, colIndex) => (
-              <div
-                key={`${rowIndex}-${colIndex}`}
-                className={`maze-cell ${cell === 1 ? 'wall' : 'empty'}`}
-              />
-            ))}
-          </div>
-        ))}
+        {mazeGrid}
+
+        {/* Phaser Player Layer - Smooth interpolation for remote players */}
+        {usePhaserRendering && (
+          <PhaserPlayerLayer
+            ref={phaserLayerRef}
+            localPlayerId={socketService.getSocket()?.id}
+            remotePlayers={remotePlayers}
+            remotePlayerPositions={remotePlayerPositionsRef.current}
+            unicornId={unicornId}
+            playersHealth={playersHealth}
+            immunePlayers={immunePlayers}
+            knockbackPlayers={knockbackPlayers}
+            width={mazeDimensions.width}
+            height={mazeDimensions.height}
+          />
+        )}
+
+        {/* Coins */}
+        {coins.map(coin => {
+          const coinLeftPercent = ((coin.col * cellSize + cellSize / 2) / mazeWidth) * 100
+          const coinTopPercent = ((coin.row * cellSize + cellSize / 2) / mazeHeight) * 100
+          
+          return (
+            <div
+              key={coin.id}
+              className="coin"
+              style={{
+                left: `${coinLeftPercent}%`,
+                top: `${coinTopPercent}%`,
+              }}
+            >
+              💰
+            </div>
+          )
+        })}
+
+        {/* Powerups */}
+        {powerups.map(powerup => {
+          const powerupLeftPercent = ((powerup.col * cellSize + cellSize / 2) / mazeWidth) * 100
+          const powerupTopPercent = ((powerup.row * cellSize + cellSize / 2) / mazeHeight) * 100
+          
+          return (
+            <div
+              key={powerup.id}
+              className={`powerup powerup-${powerup.type}`}
+              style={{
+                left: `${powerupLeftPercent}%`,
+                top: `${powerupTopPercent}%`,
+              }}
+            >
+              🛡️
+            </div>
+          )
+        })}
         
-        {/* Local Player */}
+        {/* Local Player - Always use DOM rendering (already has smooth interpolation) */}
         <div
           ref={playerRef}
-          className={`player local-player ${unicornId === socketService.getSocket()?.id ? 'unicorn-player' : ''}`}
+          className={`player local-player ${unicornId === socketService.getSocket()?.id ? 'unicorn-player unicorn-speed' : ''} ${inIFrames ? 'player-iframes' : ''} ${myPlayerState === PLAYER_STATE.FROZEN ? 'player-frozen' : ''} ${isImmune ? 'player-immune' : ''} ${knockbackActive ? 'player-knockback' : ''}`}
           style={{
             left: `${playerLeftPercent}%`,
             top: `${playerTopPercent}%`,
             transform: `translate(-50%, -50%) ${unicornId === socketService.getSocket()?.id ? getDirectionTransform(facingDirection) : ''}`,
           }}
-        />
+        >
+          {/* Immunity Shield Visual */}
+          {isImmune && <div className="immunity-shield">🛡️</div>}
+          
+          {/* Unicorn Speed Lines */}
+          {unicornId === socketService.getSocket()?.id && (
+            <div className="speed-lines">
+              <div className="speed-line"></div>
+              <div className="speed-line"></div>
+              <div className="speed-line"></div>
+            </div>
+          )}
+          {/* Local Player Health Bar */}
+          {gamePhase === GAME_PHASE.HUNT && unicornId !== socketService.getSocket()?.id && (
+            <div className="player-health-bar">
+              <div 
+                className={`player-health-fill ${myHealth <= 30 ? 'health-critical' : myHealth <= 60 ? 'health-warning' : ''}`}
+                style={{ width: `${(myHealth / COMBAT_CONFIG.MAX_HEALTH) * 100}%` }}
+              />
+            </div>
+          )}
+        </div>
 
-        {/* Remote Players */}
-        {Object.entries(remotePlayers).map(([playerId, player]) => {
+        {/* Frozen Overlay for Local Player */}
+        {myPlayerState === PLAYER_STATE.FROZEN && (
+          <div 
+            className="frozen-player-overlay"
+            style={{
+              left: `${playerLeftPercent}%`,
+              top: `${playerTopPercent}%`,
+            }}
+          >
+            ❄️ FROZEN
+          </div>
+        )}
+
+        {/* Remote Players - DOM fallback when Phaser not used */}
+        {!usePhaserRendering && Object.entries(remotePlayers).map(([playerId, player]) => {
           // Use interpolated pixel position for smooth movement
           const pixelPos = remotePlayerPixelPos[playerId] || { x: player.x, y: player.y }
           const remoteLeftPercent = (pixelPos.x / mazeWidth) * 100
@@ -1010,26 +1474,112 @@ function StartGame() {
           const isUnicorn = player.isUnicorn || playerId === unicornId
           const playerDirection = remotePlayerDirections[playerId] || 'right'
           
+          // Get combat state for this player
+          const playerHealthData = playersHealth[playerId] || { health: COMBAT_CONFIG.MAX_HEALTH, maxHealth: COMBAT_CONFIG.MAX_HEALTH }
+          const isInIFrames = playerHealthData.inIFrames
+          const isFrozen = playerHealthData.state === PLAYER_STATE.FROZEN
+          const healthPercent = (playerHealthData.health / playerHealthData.maxHealth) * 100
+          const hasImmunity = immunePlayers.has(playerId)
+          const isKnockedBack = knockbackPlayers.has(playerId)
+          
           return (
             <div key={playerId}>
               <div
-                className={`player remote-player ${isUnicorn ? 'unicorn-player' : ''}`}
+                className={`player remote-player ${isUnicorn ? 'unicorn-player unicorn-speed' : ''} ${isInIFrames ? 'player-iframes' : ''} ${isFrozen ? 'player-frozen' : ''} ${hasImmunity ? 'player-immune' : ''} ${isKnockedBack ? 'player-knockback' : ''}`}
                 style={{
                   left: `${remoteLeftPercent}%`,
                   top: `${remoteTopPercent}%`,
                   transform: `translate(-50%, -50%) ${isUnicorn ? getDirectionTransform(playerDirection) : ''}`,
                 }}
-              />
+              >
+                {/* Immunity Shield Visual */}
+                {hasImmunity && <div className="immunity-shield">🛡️</div>}
+                
+                {/* Unicorn Speed Lines */}
+                {isUnicorn && (
+                  <div className="speed-lines">
+                    <div className="speed-line"></div>
+                    <div className="speed-line"></div>
+                    <div className="speed-line"></div>
+                  </div>
+                )}
+                
+                {/* Remote Player Health Bar (only for survivors during hunt) */}
+                {gamePhase === GAME_PHASE.HUNT && !isUnicorn && (
+                  <div className="player-health-bar">
+                    <div 
+                      className={`player-health-fill ${healthPercent <= 30 ? 'health-critical' : healthPercent <= 60 ? 'health-warning' : ''}`}
+                      style={{ width: `${healthPercent}%` }}
+                    />
+                  </div>
+                )}
+              </div>
+              
+              {/* Player Name */}
               <div
-                className={`player-name ${isUnicorn ? 'unicorn-name' : ''}`}
+                className={`player-name ${isUnicorn ? 'unicorn-name' : ''} ${isFrozen ? 'frozen-name' : ''}`}
                 style={{
                   left: `${remoteLeftPercent}%`,
                   top: `${remoteTopPercent}%`,
                   transform: 'translate(-50%, calc(-100% - 10px))',
                 }}
               >
+                {isFrozen && '❄️ '}
                 {isUnicorn && '🦄 '}{player.name}
               </div>
+              
+              {/* Frozen overlay for remote player */}
+              {isFrozen && (
+                <div 
+                  className="frozen-player-overlay remote-frozen"
+                  style={{
+                    left: `${remoteLeftPercent}%`,
+                    top: `${remoteTopPercent}%`,
+                  }}
+                >
+                  ❄️
+                </div>
+              )}
+            </div>
+          )
+        })}
+
+        {/* Player Names Overlay - Always visible even with Phaser rendering */}
+        {usePhaserRendering && Object.entries(remotePlayers).map(([playerId, player]) => {
+          const pixelPos = remotePlayerPixelPos[playerId] || { x: player.x, y: player.y }
+          const remoteLeftPercent = (pixelPos.x / mazeWidth) * 100
+          const remoteTopPercent = (pixelPos.y / mazeHeight) * 100
+          const isUnicorn = player.isUnicorn || playerId === unicornId
+          const playerHealthData = playersHealth[playerId] || { health: COMBAT_CONFIG.MAX_HEALTH, maxHealth: COMBAT_CONFIG.MAX_HEALTH }
+          const isFrozen = playerHealthData.state === PLAYER_STATE.FROZEN
+          
+          return (
+            <div key={`name-${playerId}`}>
+              {/* Player Name */}
+              <div
+                className={`player-name ${isUnicorn ? 'unicorn-name' : ''} ${isFrozen ? 'frozen-name' : ''}`}
+                style={{
+                  left: `${remoteLeftPercent}%`,
+                  top: `${remoteTopPercent}%`,
+                  transform: 'translate(-50%, calc(-100% - 10px))',
+                }}
+              >
+                {isFrozen && '❄️ '}
+                {isUnicorn && '🦄 '}{player.name}
+              </div>
+              
+              {/* Frozen overlay for remote player */}
+              {isFrozen && (
+                <div 
+                  className="frozen-player-overlay remote-frozen"
+                  style={{
+                    left: `${remoteLeftPercent}%`,
+                    top: `${remoteTopPercent}%`,
+                  }}
+                >
+                  ❄️
+                </div>
+              )}
             </div>
           )
         })}
