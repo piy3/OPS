@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useSocket } from '../context/SocketContext';
 import './QuizModal.css';
 
@@ -7,22 +7,15 @@ function QuizModal() {
   const [selectedAnswer, setSelectedAnswer] = useState(null);
   const [timeRemaining, setTimeRemaining] = useState(0);
   const [hasAnswered, setHasAnswered] = useState(false);
-  const timerInitializedRef = useRef(false);
 
-  // Initialize timer ONLY ONCE when quiz starts (not on every quizData change)
+  // Initialize timer
   useEffect(() => {
-    if (quizData && quizData.totalTimeLimit && !timerInitializedRef.current) {
+    if (quizData && quizData.totalTimeLimit) {
       setTimeRemaining(quizData.totalTimeLimit);
-      timerInitializedRef.current = true;
-    }
-    
-    // Reset the ref when quiz ends (quizData becomes null)
-    if (!quizData) {
-      timerInitializedRef.current = false;
     }
   }, [quizData]);
 
-  // Countdown timer - runs continuously
+  // Countdown timer
   useEffect(() => {
     if (timeRemaining <= 0) return;
 

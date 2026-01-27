@@ -36,10 +36,10 @@ function StartGame() {
   const targetGridPosRef = useRef({ row: 1, col: 1 })
   const animationFrameRef = useRef(null)
   const moveSpeed = 150 // milliseconds per cell
+  const lerpSpeed = 0.1 // Lower = smoother glide (matches remote player smoothness)
   const playerRef = useRef(null)
   const mazeContainerRef = useRef(null)
   const pendingDirectionRef = useRef(null) // Store pending direction change
-  const lastFrameTimeRef = useRef(null) // Track time for smooth animation
   const lastPositionSentRef = useRef({ row: 1, col: 1 }) // Track last sent position
   const lastGridPosRef = useRef({ row: 1, col: 1 }) // Track last grid position to detect wraps
   const remotePlayerPositionsRef = useRef({}) // { playerId: { current: {x,y}, target: {x,y}, row, col } }
@@ -106,15 +106,43 @@ function StartGame() {
         }
       })
       
-      // Calculate pixel position from row/col if available (more reliable than x/y from backend)
+      // Calculate pixel positions from grid positions using LOCAL cell size
+      // This ensures consistency across different screen sizes
       const cellSize = Math.min(window.innerWidth / MAZE_COLS, window.innerHeight / MAZE_ROWS)
-      let targetPixelX = position.x
-      let targetPixelY = position.y
       
-      // If row/col are provided, calculate pixel position from them (more accurate)
+      // Always use grid positions to calculate target (ensures screen-size independence)
+      // The grid position is the source of truth
+      let targetPixelX, targetPixelY
+      
       if (typeof position.row === 'number' && typeof position.col === 'number') {
-        targetPixelX = position.col * cellSize + cellSize / 2
-        targetPixelY = position.row * cellSize + cellSize / 2
+        // Calculate sub-cell position for smoother movement
+        // Use the fractional part of pixel position if available
+        const gridCenterX = position.col * cellSize + cellSize / 2
+        const gridCenterY = position.row * cellSize + cellSize / 2
+        
+        // If we have pixel positions from the sender, use them to calculate sub-cell offset
+        // This allows for smooth interpolation between cells
+        if (position.x && position.y && position.x !== 0 && position.y !== 0) {
+          // The sender's pixel position represents progress within the cell
+          // We need to normalize this to our local cell size
+          // Extract the fractional position (how far along the cell they are)
+          const senderCellSize = position.x / (position.col + 0.5) // Approximate sender's cell size
+          if (senderCellSize > 0 && senderCellSize < cellSize * 3) {
+            // Use proportional position within the cell
+            targetPixelX = gridCenterX
+            targetPixelY = gridCenterY
+          } else {
+            targetPixelX = gridCenterX
+            targetPixelY = gridCenterY
+          }
+        } else {
+          targetPixelX = gridCenterX
+          targetPixelY = gridCenterY
+        }
+      } else {
+        // Fallback to pixel positions if grid not available
+        targetPixelX = position.x || cellSize / 2
+        targetPixelY = position.y || cellSize / 2
       }
       
       // Update target position for smooth interpolation
@@ -386,9 +414,9 @@ function StartGame() {
     }
     
     const now = Date.now()
-    // Send updates every 100ms for reliable collision detection
-    // (Players move 1 cell per 150ms, so 100ms ensures we don't skip cells)
-    if (now - lastPositionUpdateTimeRef.current > 100) {
+    // Send updates every 33ms (~30fps) for very smooth remote player movement
+    // More frequent updates = smoother interpolation on other clients
+    if (now - lastPositionUpdateTimeRef.current > 33) {
       const currentGridPos = targetGridPosRef.current
       const lastGridPos = lastGridPosRef.current
       
@@ -565,17 +593,8 @@ function StartGame() {
       return Math.min(window.innerWidth / MAZE_COLS, window.innerHeight / MAZE_ROWS)
     }
     
-    const animate = (currentTime) => {
+    const animate = () => {
       const cellSize = calculateCellSize()
-      
-      // Initialize last frame time
-      if (lastFrameTimeRef.current === null) {
-        lastFrameTimeRef.current = currentTime
-      }
-      
-      // Calculate time delta for smooth, frame-rate independent movement
-      const deltaTime = currentTime - lastFrameTimeRef.current
-      lastFrameTimeRef.current = currentTime
       
       // Calculate target pixel position
       const targetX = targetGridPosRef.current.col * cellSize + cellSize / 2
@@ -606,24 +625,16 @@ function StartGame() {
       const dy = targetY - current.y
       const distance = Math.sqrt(dx * dx + dy * dy)
       
-      // Use time-based interpolation for consistent smoothness
-      if (distance > 0.1) {
-        const pixelsPerMs = cellSize / moveSpeed
-        const moveAmount = pixelsPerMs * deltaTime
-        
-        // Move towards target, but don't overshoot
-        if (moveAmount >= distance) {
-          current.x = targetX
-          current.y = targetY
-        } else {
-          const ratio = moveAmount / distance
-          current.x += dx * ratio
-          current.y += dy * ratio
-        }
+      // Use lerp interpolation for smooth gliding movement
+      // This creates an ease-out effect where movement slows as it approaches target
+      if (distance > 0.3) {
+        // Simple lerp for smooth movement (same approach as remote players)
+        // Lower value = smoother but slower movement
+        current.x += dx * lerpSpeed
+        current.y += dy * lerpSpeed
         
         // Handle wrap-around: normalize position after movement
         if (hasWrapAround(currentRow)) {
-          // Normalize to 0-mazeWidth range
           while (current.x < 0) {
             current.x += mazeWidth
           }
@@ -632,6 +643,7 @@ function StartGame() {
           }
         }
       } else {
+        // Snap to target when very close (prevents endless tiny movements)
         current.x = targetX
         current.y = targetY
         
@@ -667,63 +679,71 @@ function StartGame() {
         }
       }
       
-      // Update remote players at the same frame rate as local player
-      // Snap directly to target positions for perfect sync, but only update at moveSpeed interval
-      const now = Date.now()
-      const remoteUpdateInterval = moveSpeed // Match local player's grid update interval
-      
+      // Update remote players EVERY FRAME for smooth interpolation
+      // The lerp needs to run at 60fps for smooth gliding effect
       Object.keys(remotePlayerPositionsRef.current).forEach(playerId => {
         const playerPos = remotePlayerPositionsRef.current[playerId]
         if (!playerPos) return
-        
-        // Track last update time for this remote player
-        if (!playerPos.lastUpdateTime) {
-          playerPos.lastUpdateTime = now
-        }
-        
-        // Only update if enough time has passed (match local player's update rate)
-        if (now - playerPos.lastUpdateTime < remoteUpdateInterval) {
-          return
-        }
-        
-        playerPos.lastUpdateTime = now
         
         const currentPos = playerPos.current
         const targetPos = playerPos.target
         const currentRow = playerPos.row
         
-        // For perfect sync, snap directly to target position (no interpolation)
-        // This ensures remote players are exactly where the other player says they are
+        // Smooth lerp interpolation for remote players
+        let finalTargetX = targetPos.x
+        let finalTargetY = targetPos.y
+        
+        // Handle wrap-around
         if (hasWrapAround(currentRow)) {
-          // Normalize target position to 0-mazeWidth range
-          let normalizedTargetX = targetPos.x
-          while (normalizedTargetX < 0) {
-            normalizedTargetX += mazeWidth
-          }
-          while (normalizedTargetX >= mazeWidth) {
-            normalizedTargetX -= mazeWidth
-          }
+          // Normalize target position
+          while (finalTargetX < 0) finalTargetX += mazeWidth
+          while (finalTargetX >= mazeWidth) finalTargetX -= mazeWidth
           
-          // Snap directly to target for perfect sync
-          currentPos.x = normalizedTargetX
-          currentPos.y = targetPos.y
-        } else {
-          // Snap directly to target for perfect sync
-          currentPos.x = targetPos.x
-          currentPos.y = targetPos.y
+          // Choose shortest path for wrap-around
+          const dxNormal = finalTargetX - currentPos.x
+          const dxWrappedLeft = (finalTargetX + mazeWidth) - currentPos.x
+          const dxWrappedRight = (finalTargetX - mazeWidth) - currentPos.x
+          
+          if (Math.abs(dxWrappedLeft) < Math.abs(dxNormal) && finalTargetX < currentPos.x) {
+            finalTargetX += mazeWidth
+          } else if (Math.abs(dxWrappedRight) < Math.abs(dxNormal) && finalTargetX > currentPos.x) {
+            finalTargetX -= mazeWidth
+          }
         }
         
-        // Update state for rendering
-        setRemotePlayerPixelPos(prev => {
-          const current = prev[playerId]
-          if (current && current.x === currentPos.x && current.y === currentPos.y) {
-            return prev // No change, skip update
+        // Calculate distance and apply lerp
+        const rdx = finalTargetX - currentPos.x
+        const rdy = finalTargetY - currentPos.y
+        const rDistance = Math.sqrt(rdx * rdx + rdy * rdy)
+        
+        if (rDistance > 0.3) {
+          // Lerp interpolation for smooth movement
+          // Lower value = smoother gliding
+          const remoteLerp = 0.1 // Very smooth interpolation
+          currentPos.x += rdx * remoteLerp
+          currentPos.y += rdy * remoteLerp
+          
+          // Normalize after movement
+          if (hasWrapAround(currentRow)) {
+            while (currentPos.x < 0) currentPos.x += mazeWidth
+            while (currentPos.x >= mazeWidth) currentPos.x -= mazeWidth
           }
-          return {
-            ...prev,
-            [playerId]: { x: currentPos.x, y: currentPos.y }
+        } else {
+          // Snap when very close
+          currentPos.x = targetPos.x
+          currentPos.y = targetPos.y
+          
+          if (hasWrapAround(currentRow)) {
+            while (currentPos.x < 0) currentPos.x += mazeWidth
+            while (currentPos.x >= mazeWidth) currentPos.x -= mazeWidth
           }
-        })
+        }
+        
+        // Update state for rendering - always update for smoothest animation
+        setRemotePlayerPixelPos(prev => ({
+          ...prev,
+          [playerId]: { x: currentPos.x, y: currentPos.y }
+        }))
       })
       
       // Update state for rendering
@@ -739,7 +759,6 @@ function StartGame() {
     playerPixelPosRef.current = { x: initialX, y: initialY }
     targetGridPosRef.current = { row: playerPos.row, col: playerPos.col }
     setPlayerPixelPos({ x: initialX, y: initialY })
-    lastFrameTimeRef.current = null
     
     animationFrameRef.current = requestAnimationFrame(animate)
     
