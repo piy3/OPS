@@ -3,7 +3,7 @@
  * Handles all room-related business logic
  */
 
-import { ROOM_CONFIG, ROOM_STATUS } from '../config/constants.js';
+import { ROOM_CONFIG, ROOM_STATUS, COMBAT_CONFIG, PLAYER_STATE } from '../config/constants.js';
 import { generateRoomCode, generateDefaultPlayerName } from '../utils/roomUtils.js';
 
 class RoomManager {
@@ -27,7 +27,11 @@ class RoomManager {
                 name: playerData?.name || generateDefaultPlayerName(socketId),
                 isHost: true,
                 isUnicorn: false, // Will be assigned when game starts
-                coins: 100 // Starting coins
+                coins: 100, // Starting coins
+                health: COMBAT_CONFIG.STARTING_HEALTH, // Starting health
+                state: PLAYER_STATE.ACTIVE, // Player state
+                isImmune: false, // Immunity powerup
+                inIFrames: false // Invincibility frames
             }],
             status: ROOM_STATUS.WAITING,
             createdAt: Date.now(),
@@ -106,7 +110,11 @@ class RoomManager {
             name: playerName || generateDefaultPlayerName(socketId),
             isHost: false,
             isUnicorn: false,
-            coins: 100 // Starting coins
+            coins: 100, // Starting coins
+            health: COMBAT_CONFIG.STARTING_HEALTH, // Starting health
+            state: PLAYER_STATE.ACTIVE, // Player state
+            isImmune: false, // Immunity powerup
+            inIFrames: false // Invincibility frames
         };
 
         room.players.push(player);
@@ -296,6 +304,128 @@ class RoomManager {
         if (!room) return [];
 
         return [...room.players].sort((a, b) => b.coins - a.coins);
+    }
+
+    // ========== COMBAT SYSTEM METHODS ==========
+
+    /**
+     * Update player health
+     * @param {string} roomCode - Room code
+     * @param {string} playerId - Player socket ID
+     * @param {number} healthChange - Amount to change (positive or negative)
+     * @returns {Object|null} Updated player object or null
+     */
+    updatePlayerHealth(roomCode, playerId, healthChange) {
+        const room = this.rooms.get(roomCode);
+        if (!room) return null;
+
+        const player = room.players.find(p => p.id === playerId);
+        if (!player) return null;
+
+        // Clamp health between 0 and MAX_HEALTH
+        player.health = Math.max(0, Math.min(COMBAT_CONFIG.MAX_HEALTH, player.health + healthChange));
+        return player;
+    }
+
+    /**
+     * Set player health to a specific value
+     * @param {string} roomCode - Room code
+     * @param {string} playerId - Player socket ID
+     * @param {number} health - New health value
+     * @returns {Object|null} Updated player object or null
+     */
+    setPlayerHealth(roomCode, playerId, health) {
+        const room = this.rooms.get(roomCode);
+        if (!room) return null;
+
+        const player = room.players.find(p => p.id === playerId);
+        if (!player) return null;
+
+        player.health = Math.max(0, Math.min(COMBAT_CONFIG.MAX_HEALTH, health));
+        return player;
+    }
+
+    /**
+     * Update player state
+     * @param {string} roomCode - Room code
+     * @param {string} playerId - Player socket ID
+     * @param {string} state - New state (ACTIVE, FROZEN, etc.)
+     * @returns {Object|null} Updated player object or null
+     */
+    setPlayerState(roomCode, playerId, state) {
+        const room = this.rooms.get(roomCode);
+        if (!room) return null;
+
+        const player = room.players.find(p => p.id === playerId);
+        if (!player) return null;
+
+        player.state = state;
+        return player;
+    }
+
+    /**
+     * Set player i-frames status
+     * @param {string} roomCode - Room code
+     * @param {string} playerId - Player socket ID
+     * @param {boolean} inIFrames - Whether player is in i-frames
+     * @returns {Object|null} Updated player object or null
+     */
+    setPlayerIFrames(roomCode, playerId, inIFrames) {
+        const room = this.rooms.get(roomCode);
+        if (!room) return null;
+
+        const player = room.players.find(p => p.id === playerId);
+        if (!player) return null;
+
+        player.inIFrames = inIFrames;
+        return player;
+    }
+
+    /**
+     * Set player immunity status
+     * @param {string} roomCode - Room code
+     * @param {string} playerId - Player socket ID
+     * @param {boolean} isImmune - Whether player is immune
+     * @returns {Object|null} Updated player object or null
+     */
+    setPlayerImmunity(roomCode, playerId, isImmune) {
+        const room = this.rooms.get(roomCode);
+        if (!room) return null;
+
+        const player = room.players.find(p => p.id === playerId);
+        if (!player) return null;
+
+        player.isImmune = isImmune;
+        return player;
+    }
+
+    /**
+     * Get player by ID
+     * @param {string} roomCode - Room code
+     * @param {string} playerId - Player socket ID
+     * @returns {Object|null} Player object or null
+     */
+    getPlayer(roomCode, playerId) {
+        const room = this.rooms.get(roomCode);
+        if (!room) return null;
+
+        return room.players.find(p => p.id === playerId) || null;
+    }
+
+    /**
+     * Reset all players' health for a new round
+     * @param {string} roomCode - Room code
+     */
+    resetPlayersHealth(roomCode) {
+        const room = this.rooms.get(roomCode);
+        if (!room) return;
+
+        room.players.forEach(player => {
+            player.health = COMBAT_CONFIG.STARTING_HEALTH;
+            player.state = PLAYER_STATE.ACTIVE;
+            player.inIFrames = false;
+            player.isImmune = false;
+        });
     }
 }
 

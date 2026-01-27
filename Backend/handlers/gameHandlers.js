@@ -2,7 +2,7 @@
  * Socket event handlers for game operations
  */
 
-import { SOCKET_EVENTS, ROOM_STATUS } from '../config/constants.js';
+import { SOCKET_EVENTS, ROOM_STATUS, GAME_PHASE } from '../config/constants.js';
 import roomManager from '../services/RoomManager.js';
 import gameStateManager from '../services/GameStateManager.js';
 import { log } from 'console';
@@ -66,9 +66,54 @@ export function registerGameHandlers(socket, io) {
                     }
                 });
             }
+
+            // Start the game loop (Blitz Quiz + Hunt cycle)
+            // This begins with the first Blitz Quiz
+            gameStateManager.startGameLoop(roomCode, io);
+            
         } catch (error) {
             log(`Error starting game: ${error.message}`);
             socket.emit(SOCKET_EVENTS.SERVER.START_ERROR, { message: 'Failed to start game' });
+        }
+    });
+
+    // BLITZ ANSWER: Player submits answer to Blitz Quiz
+    socket.on(SOCKET_EVENTS.CLIENT.BLITZ_ANSWER, (answerData) => {
+        try {
+            const roomCode = roomManager.getRoomCodeForSocket(socket.id);
+            if (!roomCode) {
+                return; // Silently ignore if not in a room
+            }
+
+            const room = roomManager.getRoom(roomCode);
+            if (!room || room.status !== ROOM_STATUS.PLAYING) {
+                return; // Silently ignore if game not playing
+            }
+
+            // Verify we're in Blitz Quiz phase
+            const currentPhase = gameStateManager.getGamePhase(roomCode);
+            if (currentPhase !== GAME_PHASE.BLITZ_QUIZ) {
+                log(`⚠️ Blitz answer rejected: Not in Blitz Quiz phase (current: ${currentPhase})`);
+                return;
+            }
+
+            const { answerIndex } = answerData;
+
+            // Submit the Blitz answer
+            const result = gameStateManager.submitBlitzAnswer(
+                roomCode,
+                socket.id,
+                answerIndex,
+                io
+            );
+
+            if (!result) {
+                // log(`Invalid Blitz answer submission from ${socket.id}`);
+                return;
+            }
+
+        } catch (error) {
+            log(`Error handling Blitz answer: ${error.message}`);
         }
     });
 

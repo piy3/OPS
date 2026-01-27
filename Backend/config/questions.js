@@ -52,10 +52,36 @@ export function getRandomQuestions(count = 5) {
 }
 
 /**
- * Quiz configuration
+ * Quiz configuration for collision quiz (original system)
  */
 export const QUIZ_CONFIG = {
     QUESTIONS_PER_QUIZ: 5,
     TOTAL_TIME_LIMIT: 120000, // 2 minutes in milliseconds
     TIME_PER_QUESTION: 24000 // 24 seconds per question (120s / 5 questions)
 };
+
+/**
+ * Blitz Quiz configuration for game loop system
+ * Single question, all players answer simultaneously
+ */
+export const BLITZ_QUIZ_CONFIG = {
+    QUESTIONS_PER_BLITZ: 1,           // Single question per Blitz
+    TIME_LIMIT: 15000,                // 15 seconds total
+    COUNTDOWN_BEFORE_START: 3000,     // 3 second countdown before question shows
+    MIN_PLAYERS_FOR_RESERVE: 3        // Need at least 3 players for reserve unicorn
+};
+
+/**
+ * Get a single random question for Blitz Quiz
+ * @returns {Object} Single question with id
+ */
+export function getBlitzQuestion() {
+    const randomIndex = Math.floor(Math.random() * QUIZ_QUESTIONS.length);
+    const q = QUIZ_QUESTIONS[randomIndex];
+    return {
+        id: randomIndex,
+        question: q.q,
+        options: q.options,
+        correctAnswer: q.a
+    };
+}

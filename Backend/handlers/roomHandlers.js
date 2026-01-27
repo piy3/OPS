@@ -89,6 +89,14 @@ export function registerRoomHandlers(socket, io) {
                 return;
             }
 
+            const room = roomManager.getRoom(roomCode);
+            const wasUnicornDuringGame = room && room.unicornId === socket.id && room.status === 'playing';
+
+            // Handle unicorn disconnect during active game (promotes reserve or triggers new quiz)
+            if (wasUnicornDuringGame) {
+                gameStateManager.checkAndHandleUnicornLeave(roomCode, socket.id, io);
+            }
+
             // Clean up player position from game state
             gameStateManager.removePlayerPosition(roomCode, socket.id);
 
@@ -113,8 +121,9 @@ export function registerRoomHandlers(socket, io) {
                     });
                 }
 
-                // If unicorn left and there are other players, notify all about new unicorn
-                if (result.wasUnicorn && result.newUnicornId) {
+                // If unicorn left during WAITING phase (not during active game),
+                // use simple transfer logic
+                if (result.wasUnicorn && result.newUnicornId && !wasUnicornDuringGame) {
                     io.to(roomCode).emit(SOCKET_EVENTS.SERVER.UNICORN_TRANSFERRED, {
                         newUnicornId: result.newUnicornId,
                         room: result.room

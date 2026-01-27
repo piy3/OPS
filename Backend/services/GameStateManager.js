@@ -1,11 +1,11 @@
 /**
  * Game State Management Service
- * Handles player positions and game state synchronization
+ * Handles player positions, game state synchronization, and game loop
  */
 
 import roomManager from './RoomManager.js';
-import { GAME_CONFIG, SOCKET_EVENTS } from '../config/constants.js';
-import { getRandomQuestions, QUIZ_CONFIG } from '../config/questions.js';
+import { GAME_CONFIG, SOCKET_EVENTS, GAME_PHASE, GAME_LOOP_CONFIG, COMBAT_CONFIG, PLAYER_STATE, ROLE_CONFIG, COIN_CONFIG, POWERUP_CONFIG } from '../config/constants.js';
+import { getRandomQuestions, QUIZ_CONFIG, getBlitzQuestion, BLITZ_QUIZ_CONFIG } from '../config/questions.js';
 
 class GameStateManager {
     constructor() {
@@ -29,6 +29,1046 @@ class GameStateManager {
         
         // Track recently respawned players: playerId -> timestamp (ignore their position updates briefly)
         this.respawnedPlayers = new Map();
+        
+        // ========== NEW: Game Loop State ==========
+        // Track game phases: roomCode -> { phase, phaseStartTime, huntEndTime, etc. }
+        this.gamePhases = new Map();
+        
+        // Track Blitz Quiz state: roomCode -> { question, answers: Map<playerId, { answer, timestamp, isCorrect }>, startTime }
+        this.blitzQuizzes = new Map();
+        
+        // Track game loop timers: roomCode -> { huntTimer, blitzTimer }
+        this.gameLoopTimers = new Map();
+        
+        // Track reserve unicorn: roomCode -> { playerId, activationTime }
+        this.reserveUnicorns = new Map();
+
+        // ========== COMBAT SYSTEM State ==========
+        // Track i-frames: playerId -> { endTime, timeoutId }
+        this.playerIFrames = new Map();
+        
+        // Track frozen players: playerId -> { endTime, timeoutId }
+        this.frozenPlayers = new Map();
+        
+        // Track knockback: playerId -> { direction, endTime }
+        this.playerKnockbacks = new Map();
+
+        // ========== COIN & POWERUP State ==========
+        // Track coins in each room: roomCode -> Map<coinId, { row, col, collected, respawnTimeoutId }>
+        this.roomCoins = new Map();
+        
+        // Track powerups in each room: roomCode -> Map<powerupId, { row, col, type, collected }>
+        this.roomPowerups = new Map();
+        
+        // Track powerup spawn timers: roomCode -> timeoutId
+        this.powerupSpawnTimers = new Map();
+        
+        // Track active immunity effects: playerId -> { endTime, timeoutId }
+        this.playerImmunity = new Map();
+
+        // ========== RACE CONDITION PREVENTION ==========
+        // Track coin pickup locks: coinId -> playerId (first to process wins)
+        this.coinLocks = new Map();
+        
+        // Track powerup pickup locks: powerupId -> playerId
+        this.powerupLocks = new Map();
+        
+        // Track collision cooldowns: `${attackerId}-${victimId}` -> timestamp
+        this.collisionCooldowns = new Map();
+    }
+
+    // ========== GAME LOOP METHODS ==========
+
+    /**
+     * Get current game phase for a room
+     * @param {string} roomCode - Room code
+     * @returns {string} Current game phase
+     */
+    getGamePhase(roomCode) {
+        const phaseData = this.gamePhases.get(roomCode);
+        return phaseData?.phase || GAME_PHASE.WAITING;
+    }
+
+    /**
+     * Set game phase for a room
+     * @param {string} roomCode - Room code
+     * @param {string} phase - New game phase
+     * @param {Object} io - Socket.IO server instance
+     */
+    setGamePhase(roomCode, phase, io) {
+        const now = Date.now();
+        const phaseData = {
+            phase: phase,
+            phaseStartTime: now,
+            previousPhase: this.getGamePhase(roomCode)
+        };
+        
+        this.gamePhases.set(roomCode, phaseData);
+        
+        // console.log(`\n🔄 ===== PHASE CHANGE =====`);
+        // console.log(`Room: ${roomCode}`);
+        // console.log(`Phase: ${phaseData.previousPhase} → ${phase}`);
+        // console.log(`Time: ${new Date(now).toISOString()}`);
+        // console.log(`===========================\n`);
+        
+        // Notify all clients of phase change
+        if (io) {
+            io.to(roomCode).emit(SOCKET_EVENTS.SERVER.PHASE_CHANGE, {
+                phase: phase,
+                previousPhase: phaseData.previousPhase,
+                timestamp: now
+            });
+        }
+    }
+
+    /**
+     * Start the game loop for a room
+     * Called when game starts - begins with Blitz Quiz
+     * @param {string} roomCode - Room code
+     * @param {Object} io - Socket.IO server instance
+     */
+    startGameLoop(roomCode, io) {
+        // console.log(`\n🎮 ===== STARTING GAME LOOP =====`);
+        // console.log(`Room: ${roomCode}`);
+        // console.log(`================================\n`);
+        
+        // Clear any existing timers
+        this.clearGameLoopTimers(roomCode);
+        
+        // Start with Blitz Quiz immediately
+        this.startBlitzQuiz(roomCode, io);
+    }
+
+    /**
+     * Clear all game loop timers for a room
+     * @param {string} roomCode - Room code
+     */
+    clearGameLoopTimers(roomCode) {
+        const timers = this.gameLoopTimers.get(roomCode);
+        if (timers) {
+            if (timers.huntTimer) clearTimeout(timers.huntTimer);
+            if (timers.blitzTimer) clearTimeout(timers.blitzTimer);
+            if (timers.huntUpdateInterval) clearInterval(timers.huntUpdateInterval);
+            this.gameLoopTimers.delete(roomCode);
+        }
+    }
+
+    /**
+     * Start Blitz Quiz phase
+     * All players answer the same question simultaneously
+     * @param {string} roomCode - Room code
+     * @param {Object} io - Socket.IO server instance
+     */
+    startBlitzQuiz(roomCode, io) {
+        const room = roomManager.getRoom(roomCode);
+        if (!room || room.status !== 'playing') {
+            // console.log(`❌ Cannot start Blitz Quiz: Room ${roomCode} not found or not playing`);
+            return;
+        }
+
+        // Set phase to BLITZ_QUIZ
+        this.setGamePhase(roomCode, GAME_PHASE.BLITZ_QUIZ, io);
+        
+        // Freeze the game during quiz
+        this.frozenRooms.add(roomCode);
+        // console.log(`❄️ Room ${roomCode} frozen for Blitz Quiz`);
+
+        // Get a random question
+        const question = getBlitzQuestion();
+        const now = Date.now();
+        
+        // Store Blitz Quiz state
+        const blitzData = {
+            question: question,
+            answers: new Map(), // playerId -> { answer, timestamp, isCorrect }
+            startTime: now,
+            timeLimit: BLITZ_QUIZ_CONFIG.TIME_LIMIT,
+            completed: false
+        };
+        this.blitzQuizzes.set(roomCode, blitzData);
+
+        // console.log(`\n⚡ ===== BLITZ QUIZ STARTED =====`);
+        // console.log(`Room: ${roomCode}`);
+        // console.log(`Question: ${question.question}`);
+        // console.log(`Players: ${room.players.length}`);
+        // console.log(`Time Limit: ${BLITZ_QUIZ_CONFIG.TIME_LIMIT}ms`);
+        // console.log(`=================================\n`);
+
+        // Send quiz to ALL players (without correct answer)
+        const questionForClients = {
+            id: question.id,
+            question: question.question,
+            options: question.options
+            // correctAnswer NOT sent to clients
+        };
+
+        io.to(roomCode).emit(SOCKET_EVENTS.SERVER.BLITZ_START, {
+            question: questionForClients,
+            timeLimit: BLITZ_QUIZ_CONFIG.TIME_LIMIT,
+            playerCount: room.players.length,
+            timestamp: now
+        });
+
+        // Set timeout to end quiz
+        const timers = this.gameLoopTimers.get(roomCode) || {};
+        timers.blitzTimer = setTimeout(() => {
+            this.endBlitzQuiz(roomCode, io);
+        }, BLITZ_QUIZ_CONFIG.TIME_LIMIT);
+        this.gameLoopTimers.set(roomCode, timers);
+    }
+
+    /**
+     * Submit a Blitz Quiz answer
+     * @param {string} roomCode - Room code
+     * @param {string} playerId - Player socket ID
+     * @param {number} answerIndex - Selected answer index
+     * @param {Object} io - Socket.IO server instance
+     * @returns {Object|null} Result or null
+     */
+    submitBlitzAnswer(roomCode, playerId, answerIndex, io) {
+        const blitz = this.blitzQuizzes.get(roomCode);
+        
+        if (!blitz || blitz.completed) {
+            // console.log(`❌ No active Blitz Quiz in room ${roomCode}`);
+            return null;
+        }
+
+        // Check if player already answered
+        if (blitz.answers.has(playerId)) {
+            // console.log(`⚠️ Player ${playerId} already answered Blitz Quiz`);
+            return null;
+        }
+
+        const now = Date.now();
+        const responseTime = now - blitz.startTime;
+        const isCorrect = answerIndex === blitz.question.correctAnswer;
+
+        // Record the answer
+        blitz.answers.set(playerId, {
+            answer: answerIndex,
+            timestamp: now,
+            responseTime: responseTime,
+            isCorrect: isCorrect
+        });
+
+        const room = roomManager.getRoom(roomCode);
+        const player = room?.players.find(p => p.id === playerId);
+        
+        // console.log(`⚡ Blitz Answer: ${player?.name || playerId} - ${isCorrect ? '✅ Correct' : '❌ Wrong'} (${responseTime}ms)`);
+
+        // Send individual feedback
+        if (io) {
+            io.to(playerId).emit(SOCKET_EVENTS.SERVER.BLITZ_ANSWER_RESULT, {
+                isCorrect: isCorrect,
+                responseTime: responseTime,
+                answersReceived: blitz.answers.size,
+                totalPlayers: room?.players.length || 0
+            });
+        }
+
+        // Check if all players have answered
+        if (room && blitz.answers.size >= room.players.length) {
+            // console.log(`✅ All players answered Blitz Quiz, ending early`);
+            // Clear the timeout since all answered
+            const timers = this.gameLoopTimers.get(roomCode);
+            if (timers?.blitzTimer) {
+                clearTimeout(timers.blitzTimer);
+            }
+            this.endBlitzQuiz(roomCode, io);
+        }
+
+        return {
+            isCorrect: isCorrect,
+            responseTime: responseTime
+        };
+    }
+
+    /**
+     * End Blitz Quiz and determine roles
+     * Fastest correct answer becomes Unicorn
+     * Second fastest becomes Reserve Unicorn
+     * @param {string} roomCode - Room code
+     * @param {Object} io - Socket.IO server instance
+     */
+    endBlitzQuiz(roomCode, io) {
+        const blitz = this.blitzQuizzes.get(roomCode);
+        
+        if (!blitz || blitz.completed) {
+            // console.log(`⚠️ Blitz Quiz already completed or not found for room ${roomCode}`);
+            return;
+        }
+
+        blitz.completed = true;
+
+        const room = roomManager.getRoom(roomCode);
+        if (!room) {
+            // console.log(`❌ Room ${roomCode} not found`);
+            return;
+        }
+
+        // console.log(`\n⚡ ===== BLITZ QUIZ ENDED =====`);
+        // console.log(`Room: ${roomCode}`);
+        // console.log(`Answers received: ${blitz.answers.size}/${room.players.length}`);
+
+        // Get all correct answers sorted by response time (fastest first)
+        const correctAnswers = [];
+        blitz.answers.forEach((answerData, playerId) => {
+            if (answerData.isCorrect) {
+                const player = room.players.find(p => p.id === playerId);
+                correctAnswers.push({
+                    playerId: playerId,
+                    playerName: player?.name || 'Unknown',
+                    responseTime: answerData.responseTime
+                });
+            }
+        });
+        correctAnswers.sort((a, b) => a.responseTime - b.responseTime);
+
+        // console.log(`Correct answers: ${correctAnswers.length}`);
+        correctAnswers.forEach((a, i) => {
+            // console.log(`  ${i + 1}. ${a.playerName} (${a.responseTime}ms)`);
+        });
+
+        // Determine new Unicorn (fastest correct answer)
+        let newUnicornId = null;
+        let newUnicornName = null;
+        let reserveId = null;
+        let reserveName = null;
+
+        if (correctAnswers.length > 0) {
+            // Fastest correct answer becomes Unicorn
+            newUnicornId = correctAnswers[0].playerId;
+            newUnicornName = correctAnswers[0].playerName;
+            
+            // Second fastest becomes Reserve (if enabled and enough players)
+            if (GAME_LOOP_CONFIG.RESERVE_UNICORN_ENABLED && 
+                correctAnswers.length > 1 && 
+                room.players.length >= BLITZ_QUIZ_CONFIG.MIN_PLAYERS_FOR_RESERVE) {
+                reserveId = correctAnswers[1].playerId;
+                reserveName = correctAnswers[1].playerName;
+                this.reserveUnicorns.set(roomCode, {
+                    playerId: reserveId,
+                    playerName: reserveName,
+                    activationTime: null
+                });
+            }
+        } else {
+            // No correct answers - pick random player as Unicorn
+            const randomIndex = Math.floor(Math.random() * room.players.length);
+            newUnicornId = room.players[randomIndex].id;
+            newUnicornName = room.players[randomIndex].name;
+            // console.log(`⚠️ No correct answers, random Unicorn: ${newUnicornName}`);
+        }
+
+        // Transfer Unicorn role
+        const oldUnicornId = room.unicornId;
+        if (newUnicornId && newUnicornId !== oldUnicornId) {
+            roomManager.transferUnicorn(roomCode, newUnicornId);
+            
+            // Give bonus to Blitz winner
+            roomManager.updatePlayerCoins(roomCode, newUnicornId, GAME_LOOP_CONFIG.BLITZ_WINNER_BONUS);
+        }
+
+        // console.log(`🦄 New Unicorn: ${newUnicornName} (${newUnicornId})`);
+        if (reserveId) {
+            // console.log(`🦄 Reserve Unicorn: ${reserveName} (${reserveId})`);
+        }
+        // console.log(`==============================\n`);
+
+        // Build results for all players
+        const results = {
+            question: blitz.question.question,
+            correctAnswer: blitz.question.options[blitz.question.correctAnswer],
+            correctAnswerIndex: blitz.question.correctAnswer,
+            rankings: correctAnswers.map((a, i) => ({
+                rank: i + 1,
+                playerId: a.playerId,
+                playerName: a.playerName,
+                responseTime: a.responseTime,
+                isUnicorn: a.playerId === newUnicornId,
+                isReserve: a.playerId === reserveId
+            })),
+            newUnicornId: newUnicornId,
+            newUnicornName: newUnicornName,
+            reserveUnicornId: reserveId,
+            reserveUnicornName: reserveName,
+            oldUnicornId: oldUnicornId,
+            totalPlayers: room.players.length,
+            correctCount: correctAnswers.length
+        };
+
+        // Notify all players of results
+        io.to(roomCode).emit(SOCKET_EVENTS.SERVER.BLITZ_RESULT, results);
+
+        // Also emit unicorn transfer event
+        if (newUnicornId !== oldUnicornId) {
+            const updatedRoom = roomManager.getRoom(roomCode);
+            io.to(roomCode).emit(SOCKET_EVENTS.SERVER.UNICORN_TRANSFERRED, {
+                newUnicornId: newUnicornId,
+                oldUnicornId: oldUnicornId,
+                room: updatedRoom
+            });
+        }
+
+        // Clean up Blitz state
+        this.blitzQuizzes.delete(roomCode);
+
+        // Start Hunt phase after a brief delay to show results
+        setTimeout(() => {
+            this.startHuntPhase(roomCode, io);
+        }, GAME_LOOP_CONFIG.ROUND_END_DURATION);
+    }
+
+    /**
+     * Start Hunt phase
+     * Unicorn hunts survivors, survivors evade and collect coins
+     * @param {string} roomCode - Room code
+     * @param {Object} io - Socket.IO server instance
+     */
+    startHuntPhase(roomCode, io) {
+        const room = roomManager.getRoom(roomCode);
+        if (!room || room.status !== 'playing') {
+            // console.log(`❌ Cannot start Hunt: Room ${roomCode} not found or not playing`);
+            return;
+        }
+
+        // Set phase to HUNT
+        this.setGamePhase(roomCode, GAME_PHASE.HUNT, io);
+        
+        // Unfreeze the game
+        this.frozenRooms.delete(roomCode);
+        // console.log(`🔓 Room ${roomCode} unfrozen for Hunt phase`);
+
+        // Reset all players' health and combat states for new round
+        roomManager.resetPlayersHealth(roomCode);
+        
+        // Clear any lingering combat states (i-frames, frozen players, knockbacks)
+        room.players.forEach(player => {
+            this.cleanupPlayerCombatState(player.id);
+        });
+
+        const now = Date.now();
+        const huntEndTime = now + GAME_LOOP_CONFIG.HUNT_DURATION;
+
+        // console.log(`\n🏃 ===== HUNT PHASE STARTED =====`);
+        // console.log(`Room: ${roomCode}`);
+        // console.log(`Duration: ${GAME_LOOP_CONFIG.HUNT_DURATION}ms`);
+        // console.log(`Ends at: ${new Date(huntEndTime).toISOString()}`);
+        // console.log(`All players health reset to ${COMBAT_CONFIG.STARTING_HEALTH}`);
+        // console.log(`=================================\n`);
+
+        // Notify clients
+        const unicornPlayer = room.players.find(p => p.id === room.unicornId);
+        const reserve = this.reserveUnicorns.get(roomCode);
+
+        // Build player health data for clients
+        const playersHealth = room.players.map(p => ({
+            playerId: p.id,
+            health: p.health,
+            maxHealth: COMBAT_CONFIG.MAX_HEALTH,
+            state: p.state
+        }));
+
+        io.to(roomCode).emit(SOCKET_EVENTS.SERVER.HUNT_START, {
+            duration: GAME_LOOP_CONFIG.HUNT_DURATION,
+            endTime: huntEndTime,
+            unicornId: room.unicornId,
+            unicornName: unicornPlayer?.name || 'Unknown',
+            reserveUnicornId: reserve?.playerId || null,
+            reserveUnicornName: reserve?.playerName || null,
+            timestamp: now,
+            playersHealth: playersHealth // Include health data
+        });
+
+        // Initialize coins and powerups for the Hunt phase
+        this.initializeCoins(roomCode, io);
+        this.startPowerupSpawning(roomCode, io);
+
+        // Set timer for next Blitz Quiz
+        const timers = this.gameLoopTimers.get(roomCode) || {};
+        timers.huntTimer = setTimeout(() => {
+            this.startBlitzQuiz(roomCode, io);
+        }, GAME_LOOP_CONFIG.HUNT_DURATION);
+
+        // Set interval to update hunt timer (every 5 seconds)
+        timers.huntUpdateInterval = setInterval(() => {
+            const remaining = huntEndTime - Date.now();
+            if (remaining > 0) {
+                io.to(roomCode).emit(SOCKET_EVENTS.SERVER.PHASE_CHANGE, {
+                    remainingTime: remaining,
+                    endTime: huntEndTime
+                });
+            }
+        }, 5000);
+
+        this.gameLoopTimers.set(roomCode, timers);
+    }
+
+    /**
+     * Handle unicorn tagging a survivor during Hunt phase
+     * Now uses health-based combat system with i-frames and knockback
+     * @param {string} roomCode - Room code
+     * @param {string} unicornId - Unicorn player ID
+     * @param {string} survivorId - Tagged survivor player ID
+     * @param {Object} io - Socket.IO server instance
+     */
+    handleTag(roomCode, unicornId, survivorId, io) {
+        const room = roomManager.getRoom(roomCode);
+        if (!room) return;
+
+        // Verify we're in Hunt phase
+        if (this.getGamePhase(roomCode) !== GAME_PHASE.HUNT) {
+            return;
+        }
+
+        // Verify unicorn is correct
+        if (room.unicornId !== unicornId) {
+            // console.log(`⚠️ Tag rejected: ${unicornId} is not the unicorn`);
+            return;
+        }
+
+        // ========== COLLISION COOLDOWN (Race Condition Prevention) ==========
+        const collisionKey = `${unicornId}-${survivorId}`;
+        const now = Date.now();
+        const lastCollision = this.collisionCooldowns.get(collisionKey);
+        
+        // Minimum 500ms between collisions with same player pair
+        const COLLISION_COOLDOWN = 500;
+        if (lastCollision && (now - lastCollision) < COLLISION_COOLDOWN) {
+            return; // Ignore duplicate collision
+        }
+        
+        // Update collision timestamp
+        this.collisionCooldowns.set(collisionKey, now);
+        
+        // Clean up old cooldowns periodically
+        if (this.collisionCooldowns.size > 100) {
+            const cutoff = now - 5000; // Remove entries older than 5 seconds
+            for (const [key, timestamp] of this.collisionCooldowns) {
+                if (timestamp < cutoff) {
+                    this.collisionCooldowns.delete(key);
+                }
+            }
+        }
+
+        const unicornPlayer = room.players.find(p => p.id === unicornId);
+        const survivorPlayer = room.players.find(p => p.id === survivorId);
+
+        if (!unicornPlayer || !survivorPlayer) return;
+
+        // ========== COMBAT VALIDATION ==========
+        
+        // Check if survivor is immune (has immunity powerup)
+        if (survivorPlayer.isImmune) {
+            // console.log(`🛡️ Tag blocked: ${survivorPlayer.name} is IMMUNE`);
+            return;
+        }
+
+        // Check if survivor is in i-frames
+        if (survivorPlayer.inIFrames || this.playerIFrames.has(survivorId)) {
+            // console.log(`⚡ Tag blocked: ${survivorPlayer.name} is in I-FRAMES`);
+            return;
+        }
+
+        // Check if survivor is already frozen
+        if (survivorPlayer.state === PLAYER_STATE.FROZEN || this.frozenPlayers.has(survivorId)) {
+            // console.log(`❄️ Tag blocked: ${survivorPlayer.name} is already FROZEN`);
+            return;
+        }
+
+        // console.log(`\n💥 ===== COMBAT: HIT =====`);
+        // console.log(`Attacker: ${unicornPlayer.name} (Unicorn)`);
+        // console.log(`Victim: ${survivorPlayer.name} (${survivorPlayer.health} HP)`);
+
+        // ========== EXECUTE COMBAT ==========
+        
+        // Deal damage to survivor
+        const oldHealth = survivorPlayer.health;
+        roomManager.updatePlayerHealth(roomCode, survivorId, -COMBAT_CONFIG.TAG_DAMAGE);
+        
+        // Heal/Score for unicorn
+        roomManager.updatePlayerCoins(roomCode, unicornId, COMBAT_CONFIG.TAG_HEAL);
+        
+        // Refresh player data after updates
+        const updatedSurvivor = roomManager.getPlayer(roomCode, survivorId);
+        const updatedUnicorn = roomManager.getPlayer(roomCode, unicornId);
+
+        // console.log(`Damage dealt: ${COMBAT_CONFIG.TAG_DAMAGE}`);
+        // console.log(`Survivor health: ${oldHealth} → ${updatedSurvivor.health}`);
+        // console.log(`Unicorn score: +${COMBAT_CONFIG.TAG_HEAL}`);
+
+        // ========== APPLY KNOCKBACK ==========
+        let knockbackData = null;
+        if (COMBAT_CONFIG.KNOCKBACK_ENABLED) {
+            knockbackData = this.applyKnockback(roomCode, survivorId, unicornId, io);
+        }
+
+        // ========== GRANT I-FRAMES ==========
+        this.grantIFrames(roomCode, survivorId, io);
+
+        // ========== BROADCAST HIT EVENT ==========
+        io.to(roomCode).emit(SOCKET_EVENTS.SERVER.PLAYER_HIT, {
+            attackerId: unicornId,
+            attackerName: unicornPlayer.name,
+            victimId: survivorId,
+            victimName: survivorPlayer.name,
+            damage: COMBAT_CONFIG.TAG_DAMAGE,
+            newHealth: updatedSurvivor.health,
+            maxHealth: COMBAT_CONFIG.MAX_HEALTH,
+            knockback: knockbackData,
+            iframeDuration: COMBAT_CONFIG.IFRAME_DURATION
+        });
+
+        // Emit health update
+        io.to(roomCode).emit(SOCKET_EVENTS.SERVER.HEALTH_UPDATE, {
+            playerId: survivorId,
+            health: updatedSurvivor.health,
+            maxHealth: COMBAT_CONFIG.MAX_HEALTH
+        });
+
+        // ========== CHECK FOR ZERO HEALTH ==========
+        if (updatedSurvivor.health <= 0) {
+            // console.log(`💀 ${survivorPlayer.name} health reached ZERO!`);
+            this.handleZeroHealth(roomCode, survivorId, io);
+        }
+
+        // Also emit score update for leaderboard
+        const updatedRoom = roomManager.getRoom(roomCode);
+        io.to(roomCode).emit(SOCKET_EVENTS.SERVER.SCORE_UPDATE, {
+            unicornId: unicornId,
+            caughtId: survivorId,
+            unicornCoins: updatedUnicorn.coins,
+            caughtCoins: updatedSurvivor.coins,
+            room: updatedRoom,
+            leaderboard: roomManager.getLeaderboard(roomCode)
+        });
+
+        // console.log(`==========================\n`);
+    }
+
+    /**
+     * Grant invincibility frames to a player
+     * @param {string} roomCode - Room code
+     * @param {string} playerId - Player ID
+     * @param {Object} io - Socket.IO server instance
+     */
+    grantIFrames(roomCode, playerId, io) {
+        // Set i-frames on player
+        roomManager.setPlayerIFrames(roomCode, playerId, true);
+        
+        // Clear any existing i-frame timeout
+        const existing = this.playerIFrames.get(playerId);
+        if (existing?.timeoutId) {
+            clearTimeout(existing.timeoutId);
+        }
+
+        // Set timeout to remove i-frames
+        const timeoutId = setTimeout(() => {
+            roomManager.setPlayerIFrames(roomCode, playerId, false);
+            this.playerIFrames.delete(playerId);
+            
+            // console.log(`⚡ I-frames expired for ${playerId}`);
+            
+            // Notify clients
+            if (io) {
+                io.to(roomCode).emit(SOCKET_EVENTS.SERVER.PLAYER_STATE_CHANGE, {
+                    playerId: playerId,
+                    state: PLAYER_STATE.ACTIVE,
+                    inIFrames: false
+                });
+            }
+        }, COMBAT_CONFIG.IFRAME_DURATION);
+
+        this.playerIFrames.set(playerId, {
+            endTime: Date.now() + COMBAT_CONFIG.IFRAME_DURATION,
+            timeoutId: timeoutId
+        });
+
+        // console.log(`⚡ I-frames granted to ${playerId} for ${COMBAT_CONFIG.IFRAME_DURATION}ms`);
+    }
+
+    /**
+     * Apply knockback to a player
+     * @param {string} roomCode - Room code
+     * @param {string} victimId - Player being knocked back
+     * @param {string} attackerId - Player doing the knockback
+     * @param {Object} io - Socket.IO server instance
+     * @returns {Object} Knockback data
+     */
+    applyKnockback(roomCode, victimId, attackerId, io) {
+        const victimPos = this.getPlayerPosition(roomCode, victimId);
+        const attackerPos = this.getPlayerPosition(roomCode, attackerId);
+        
+        if (!victimPos || !attackerPos) return null;
+
+        // Calculate knockback direction (away from attacker)
+        let knockbackDirection = { row: 0, col: 0 };
+        
+        if (victimPos.row !== attackerPos.row) {
+            knockbackDirection.row = victimPos.row > attackerPos.row ? 1 : -1;
+        }
+        if (victimPos.col !== attackerPos.col) {
+            knockbackDirection.col = victimPos.col > attackerPos.col ? 1 : -1;
+        }
+        
+        // If same position, push in a default direction
+        if (knockbackDirection.row === 0 && knockbackDirection.col === 0) {
+            knockbackDirection.col = 1; // Push right by default
+        }
+
+        // Calculate new position after knockback
+        const newRow = victimPos.row + (knockbackDirection.row * COMBAT_CONFIG.KNOCKBACK_DISTANCE);
+        const newCol = victimPos.col + (knockbackDirection.col * COMBAT_CONFIG.KNOCKBACK_DISTANCE);
+
+        // Store knockback data
+        const knockbackData = {
+            direction: knockbackDirection,
+            fromRow: victimPos.row,
+            fromCol: victimPos.col,
+            toRow: newRow,
+            toCol: newCol,
+            duration: COMBAT_CONFIG.KNOCKBACK_DURATION
+        };
+
+        this.playerKnockbacks.set(victimId, {
+            direction: knockbackDirection,
+            endTime: Date.now() + COMBAT_CONFIG.KNOCKBACK_DURATION
+        });
+
+        // Clear knockback after duration
+        setTimeout(() => {
+            this.playerKnockbacks.delete(victimId);
+        }, COMBAT_CONFIG.KNOCKBACK_DURATION);
+
+        // console.log(`🏃 Knockback: ${victimId} pushed from (${victimPos.row},${victimPos.col}) direction (${knockbackDirection.row},${knockbackDirection.col})`);
+
+        return knockbackData;
+    }
+
+    /**
+     * Handle player reaching zero health
+     * Freezes player, then respawns after delay
+     * @param {string} roomCode - Room code
+     * @param {string} playerId - Player ID
+     * @param {Object} io - Socket.IO server instance
+     */
+    handleZeroHealth(roomCode, playerId, io) {
+        const player = roomManager.getPlayer(roomCode, playerId);
+        if (!player) return;
+
+        // console.log(`\n❄️ ===== ZERO HEALTH: FREEZE =====`);
+        // console.log(`Player: ${player.name}`);
+        // console.log(`Freeze duration: ${COMBAT_CONFIG.FREEZE_DURATION}ms`);
+
+        // Set player state to FROZEN
+        roomManager.setPlayerState(roomCode, playerId, PLAYER_STATE.FROZEN);
+        
+        // Clear any existing i-frames (frozen state takes priority)
+        const existingIFrames = this.playerIFrames.get(playerId);
+        if (existingIFrames?.timeoutId) {
+            clearTimeout(existingIFrames.timeoutId);
+            this.playerIFrames.delete(playerId);
+        }
+        roomManager.setPlayerIFrames(roomCode, playerId, false);
+
+        // Notify clients of freeze
+        io.to(roomCode).emit(SOCKET_EVENTS.SERVER.PLAYER_STATE_CHANGE, {
+            playerId: playerId,
+            playerName: player.name,
+            state: PLAYER_STATE.FROZEN,
+            freezeDuration: COMBAT_CONFIG.FREEZE_DURATION
+        });
+
+        // Set timeout for respawn
+        const timeoutId = setTimeout(() => {
+            this.respawnAfterFreeze(roomCode, playerId, io);
+        }, COMBAT_CONFIG.FREEZE_DURATION);
+
+        this.frozenPlayers.set(playerId, {
+            endTime: Date.now() + COMBAT_CONFIG.FREEZE_DURATION,
+            timeoutId: timeoutId
+        });
+
+        // console.log(`==================================\n`);
+    }
+
+    /**
+     * Respawn player after freeze duration
+     * @param {string} roomCode - Room code
+     * @param {string} playerId - Player ID
+     * @param {Object} io - Socket.IO server instance
+     */
+    respawnAfterFreeze(roomCode, playerId, io) {
+        const player = roomManager.getPlayer(roomCode, playerId);
+        if (!player) return;
+
+        // console.log(`\n🔄 ===== RESPAWN AFTER FREEZE =====`);
+        // console.log(`Player: ${player.name}`);
+
+        // Clear frozen state
+        this.frozenPlayers.delete(playerId);
+        
+        // Set state to ACTIVE
+        roomManager.setPlayerState(roomCode, playerId, PLAYER_STATE.ACTIVE);
+        
+        // Restore health to RESPAWN_HEALTH
+        roomManager.setPlayerHealth(roomCode, playerId, COMBAT_CONFIG.RESPAWN_HEALTH);
+        
+        // Get new spawn position
+        const spawnPos = this.findFreeSpawnPosition(roomCode, playerId);
+        
+        // Update position
+        const roomPositions = this.playerPositions.get(roomCode);
+        if (roomPositions) {
+            const currentPos = roomPositions.get(playerId);
+            const newPos = {
+                ...currentPos,
+                row: spawnPos.row,
+                col: spawnPos.col,
+                x: 0,
+                y: 0,
+                timestamp: Date.now()
+            };
+            
+            roomPositions.set(playerId, newPos);
+            this.lastGridPositions.set(playerId, { row: spawnPos.row, col: spawnPos.col });
+            this.respawnedPlayers.set(playerId, Date.now());
+
+            // Grant i-frames after respawn
+            this.grantIFrames(roomCode, playerId, io);
+
+            // Broadcast new position
+            io.to(roomCode).emit(SOCKET_EVENTS.SERVER.PLAYER_POSITION_UPDATE, {
+                playerId: playerId,
+                position: newPos
+            });
+        }
+
+        // Get updated player
+        const updatedPlayer = roomManager.getPlayer(roomCode, playerId);
+
+        // Notify clients of respawn
+        io.to(roomCode).emit(SOCKET_EVENTS.SERVER.PLAYER_RESPAWN, {
+            playerId: playerId,
+            playerName: player.name,
+            health: updatedPlayer.health,
+            maxHealth: COMBAT_CONFIG.MAX_HEALTH,
+            position: spawnPos,
+            state: PLAYER_STATE.ACTIVE
+        });
+
+        // Also emit health update
+        io.to(roomCode).emit(SOCKET_EVENTS.SERVER.HEALTH_UPDATE, {
+            playerId: playerId,
+            health: updatedPlayer.health,
+            maxHealth: COMBAT_CONFIG.MAX_HEALTH
+        });
+
+        // console.log(`Respawn position: row=${spawnPos.row}, col=${spawnPos.col}`);
+        // console.log(`Health restored: ${COMBAT_CONFIG.RESPAWN_HEALTH}/${COMBAT_CONFIG.MAX_HEALTH}`);
+        // console.log(`====================================\n`);
+    }
+
+    /**
+     * Check if player can move (not frozen)
+     * @param {string} roomCode - Room code
+     * @param {string} playerId - Player ID
+     * @returns {boolean} True if player can move
+     */
+    canPlayerMove(roomCode, playerId) {
+        const player = roomManager.getPlayer(roomCode, playerId);
+        if (!player) return false;
+
+        // Check if frozen
+        if (player.state === PLAYER_STATE.FROZEN || this.frozenPlayers.has(playerId)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Clean up combat state for a player
+     * @param {string} playerId - Player ID
+     */
+    cleanupPlayerCombatState(playerId) {
+        // Clear i-frames
+        const iframes = this.playerIFrames.get(playerId);
+        if (iframes?.timeoutId) {
+            clearTimeout(iframes.timeoutId);
+        }
+        this.playerIFrames.delete(playerId);
+
+        // Clear frozen state
+        const frozen = this.frozenPlayers.get(playerId);
+        if (frozen?.timeoutId) {
+            clearTimeout(frozen.timeoutId);
+        }
+        this.frozenPlayers.delete(playerId);
+
+        // Clear knockback
+        this.playerKnockbacks.delete(playerId);
+    }
+
+    /**
+     * Respawn a player to a free position
+     * @param {string} roomCode - Room code
+     * @param {string} playerId - Player to respawn
+     * @param {Object} io - Socket.IO server instance
+     */
+    respawnPlayer(roomCode, playerId, io) {
+        const roomPositions = this.playerPositions.get(roomCode);
+        if (!roomPositions) return;
+
+        const spawnPos = this.findFreeSpawnPosition(roomCode, playerId);
+        
+        const currentPos = roomPositions.get(playerId);
+        const newPos = {
+            ...currentPos,
+            row: spawnPos.row,
+            col: spawnPos.col,
+            x: 0,
+            y: 0,
+            timestamp: Date.now()
+        };
+        
+        roomPositions.set(playerId, newPos);
+        this.lastGridPositions.set(playerId, { row: spawnPos.row, col: spawnPos.col });
+        this.respawnedPlayers.set(playerId, Date.now());
+
+        // Broadcast new position
+        io.to(roomCode).emit(SOCKET_EVENTS.SERVER.PLAYER_POSITION_UPDATE, {
+            playerId: playerId,
+            position: newPos
+        });
+    }
+
+    /**
+     * Clean up game loop state for a room
+     * @param {string} roomCode - Room code
+     */
+    cleanupGameLoop(roomCode) {
+        this.clearGameLoopTimers(roomCode);
+        this.gamePhases.delete(roomCode);
+        this.blitzQuizzes.delete(roomCode);
+        this.reserveUnicorns.delete(roomCode);
+        this.cleanupMapInteractions(roomCode);
+    }
+
+    // ========== EDGE CASE HANDLING ==========
+
+    /**
+     * Handle unicorn disconnect during Hunt phase
+     * Promotes reserve unicorn or triggers new Blitz Quiz
+     * @param {string} roomCode - Room code
+     * @param {string} disconnectedUnicornId - The disconnected unicorn's ID
+     * @param {Object} io - Socket.IO server instance
+     */
+    handleUnicornDisconnect(roomCode, disconnectedUnicornId, io) {
+        const room = roomManager.getRoom(roomCode);
+        if (!room) return;
+
+        const currentPhase = this.getGamePhase(roomCode);
+        
+        // Only handle during active Hunt phase
+        if (currentPhase !== GAME_PHASE.HUNT) {
+            // console.log(`⚠️ Unicorn disconnect ignored - not in HUNT phase (current: ${currentPhase})`);
+            return;
+        }
+
+        // console.log(`\n🦄❌ ===== UNICORN DISCONNECTED =====`);
+        // console.log(`Room: ${roomCode}`);
+        // console.log(`Disconnected Unicorn: ${disconnectedUnicornId}`);
+
+        const reserve = this.reserveUnicorns.get(roomCode);
+
+        if (reserve && reserve.playerId) {
+            // Check if reserve player is still in the room
+            const reservePlayer = room.players.find(p => p.id === reserve.playerId);
+            
+            if (reservePlayer) {
+                // Promote reserve to unicorn
+                // console.log(`🥈➡️🦄 Promoting reserve unicorn: ${reserve.playerName}`);
+                
+                // Update room state
+                roomManager.setUnicorn(roomCode, reserve.playerId);
+                
+                // Clear reserve
+                this.reserveUnicorns.delete(roomCode);
+                
+                // Notify clients
+                io.to(roomCode).emit(SOCKET_EVENTS.SERVER.UNICORN_TRANSFERRED, {
+                    newUnicornId: reserve.playerId,
+                    newUnicornName: reserve.playerName,
+                    reason: 'unicorn_disconnected',
+                    previousUnicornId: disconnectedUnicornId
+                });
+
+                io.to(roomCode).emit(SOCKET_EVENTS.SERVER.RESERVE_ACTIVATED, {
+                    newUnicornId: reserve.playerId,
+                    newUnicornName: reserve.playerName,
+                    reason: 'unicorn_disconnected'
+                });
+
+                // console.log(`✅ Reserve ${reserve.playerName} is now the Unicorn!`);
+                // console.log(`=====================================\n`);
+                return;
+            }
+        }
+
+        // No valid reserve - end Hunt phase early and start new Blitz Quiz
+        // console.log(`⚠️ No reserve unicorn available - triggering new Blitz Quiz`);
+        // console.log(`=====================================\n`);
+
+        // Clear current hunt timers
+        this.clearGameLoopTimers(roomCode);
+
+        // Emit hunt end event
+        io.to(roomCode).emit(SOCKET_EVENTS.SERVER.HUNT_END, {
+            reason: 'unicorn_disconnected',
+            message: 'Unicorn disconnected! New Blitz Quiz starting...'
+        });
+
+        // Clean up map interactions (coins, powerups)
+        this.cleanupMapInteractions(roomCode);
+
+        // Short delay before new Blitz Quiz
+        setTimeout(() => {
+            this.startBlitzQuiz(roomCode, io);
+        }, 2000);
+    }
+
+    /**
+     * Check if a player leaving is the unicorn and handle accordingly
+     * @param {string} roomCode - Room code
+     * @param {string} playerId - Leaving player's ID
+     * @param {Object} io - Socket.IO server instance
+     * @returns {boolean} True if unicorn disconnect was handled
+     */
+    checkAndHandleUnicornLeave(roomCode, playerId, io) {
+        const room = roomManager.getRoom(roomCode);
+        if (!room) return false;
+
+        // Check if leaving player is the unicorn
+        if (room.unicornId === playerId) {
+            this.handleUnicornDisconnect(roomCode, playerId, io);
+            return true;
+        }
+
+        // Check if leaving player is the reserve unicorn
+        const reserve = this.reserveUnicorns.get(roomCode);
+        if (reserve && reserve.playerId === playerId) {
+            // console.log(`🥈❌ Reserve unicorn ${reserve.playerName} disconnected`);
+            this.reserveUnicorns.delete(roomCode);
+            
+            // Notify clients that reserve is gone
+            io.to(roomCode).emit(SOCKET_EVENTS.SERVER.RESERVE_ACTIVATED, {
+                newUnicornId: null,
+                reason: 'reserve_disconnected'
+            });
+        }
+
+        return false;
     }
 
     /**
@@ -63,7 +1103,7 @@ class GameStateManager {
         room.players.forEach((player) => {
             // Check if player already has a position - if so, DON'T reset it!
             if (roomPositions.has(player.id)) {
-                console.log(`✓ Player ${player.id} already has position, skipping init`);
+                // console.log(`✓ Player ${player.id} already has position, skipping init`);
                 return; // Skip this player, they already have a position
             }
 
@@ -91,7 +1131,7 @@ class GameStateManager {
                 };
                 const posKey = `${spawnPos.row},${spawnPos.col}`;
                 usedSpawnPositions.add(posKey);
-                console.log(`⚠️ Using fallback spawn position for player ${player.id}`);
+                // console.log(`⚠️ Using fallback spawn position for player ${player.id}`);
             }
 
             // Initialize player position at spawn point
@@ -107,7 +1147,7 @@ class GameStateManager {
                 isWrap: false
             };
 
-            console.log(`🎬 Initializing player ${player.id} at spawn: row=${spawnPos.row}, col=${spawnPos.col}`);
+            // console.log(`🎬 Initializing player ${player.id} at spawn: row=${spawnPos.row}, col=${spawnPos.col}`);
             roomPositions.set(player.id, positionState);
             this.lastGridPositions.set(player.id, { row: spawnPos.row, col: spawnPos.col });
         });
@@ -119,6 +1159,7 @@ class GameStateManager {
      */
     cleanupRoom(roomCode) {
         this.playerPositions.delete(roomCode);
+        this.cleanupGameLoop(roomCode);
     }
 
     /**
@@ -134,6 +1175,12 @@ class GameStateManager {
         if (!room) return null;
 
         if (this.frozenRooms.has(roomCode)) {
+            return null;
+        }
+
+        // Block position updates if player is frozen (zero health)
+        if (!this.canPlayerMove(roomCode, playerId)) {
+            // console.log(`❄️ Position update blocked: Player ${playerId} is frozen`);
             return null;
         }
 
@@ -219,32 +1266,31 @@ class GameStateManager {
         }
 
         // Grid-based collision detection with PATH checking
+        // In HUNT phase: Unicorn tags survivors for instant point steal
         // Check not just the current position, but also cells crossed between old and new positions
-        // Game freeze prevents multiple simultaneous quizzes, so no need to check hasActiveQuiz
         if (io && typeof validatedPosition.row === 'number' && typeof validatedPosition.col === 'number') {
-            // console.log(`\n🔍 COLLISION CHECK for ${playerId} at row=${validatedPosition.row}, col=${validatedPosition.col}`);
+            // Only process collisions during HUNT phase
+            const currentPhase = this.getGamePhase(roomCode);
+            if (currentPhase !== GAME_PHASE.HUNT) {
+                return positionState;
+            }
+
+            // Check for coin collection (survivors only)
+            this.checkCoinCollection(roomCode, playerId, validatedPosition, io);
+            
+            // Check for powerup collection (survivors only)
+            this.checkPowerupCollection(roomCode, playerId, validatedPosition, io);
             
             // Find the unicorn in this room
             const unicornPlayer = room.players.find(p => p.isUnicorn);
-            // console.log(`  Unicorn player: ${unicornPlayer ? unicornPlayer.name : 'NONE FOUND!'}`);
-            // console.log(`  Current player isUnicorn: ${isUnicorn}`);
             
             if (unicornPlayer) {
                 const unicornPos = this.getPlayerPosition(roomCode, unicornPlayer.id);
-                // console.log(`  Unicorn position: row=${unicornPos?.row}, col=${unicornPos?.col}`);
-                
-                // Check ALL other players against current position
-                // console.log(`  Checking all players in room:`);
-                // room.players.forEach(p => {
-                //     const pos = this.getPlayerPosition(roomCode, p.id);
-                //     console.log(`    ${p.name} (unicorn=${p.isUnicorn}): row=${pos?.row}, col=${pos?.col}`);
-                // });
                 
                 // Get the path of cells this player crossed (from old position to new position)
                 const oldPos = oldPosition || lastGridPos;
                 const newPos = { row: validatedPosition.row, col: validatedPosition.col };
                 const pathCells = this.getCellsInPath(oldPos, newPos);
-                // console.log(`  Path crossed: ${pathCells.map(c => `(${c.row},${c.col})`).join(' -> ')}`);
                 
                 // If this player (who just moved) is a regular player, check if they crossed the unicorn
                 if (!isUnicorn && unicornPos) {
@@ -253,21 +1299,13 @@ class GameStateManager {
                         cell.row === unicornPos.row && cell.col === unicornPos.col
                     );
                     
-                    // Also check proximity (adjacent cells) for near-miss collision
-                    const isAdjacent = this.isAdjacent(newPos, unicornPos);
-                    
                     if (crossedUnicorn || (newPos.row === unicornPos.row && newPos.col === unicornPos.col)) {
-                    //     console.log(`\n🦄 ✅ COLLISION DETECTED: Player crossed unicorn path!`);
-                    //     console.log(`  Player path: ${pathCells.map(c => `(${c.row},${c.col})`).join(' -> ')}`);
-                    //     console.log(`  Unicorn at: row=${unicornPos.row}, col=${unicornPos.col}`);
-                        this.startQuiz(roomCode, unicornPlayer.id, playerId, io);
-                    } else {
-                        // console.log(`  Regular player moved, did not cross unicorn position`);
+                        // Survivor collided with unicorn - they get tagged!
+                        this.handleTag(roomCode, unicornPlayer.id, playerId, io);
                     }
                 }
                 // If unicorn just moved, check if it crossed any other player's position
                 else if (isUnicorn) {
-                    // console.log(`  Unicorn moved, checking for crossed players...`);
                     const caughtPlayer = room.players.find(p => {
                         if (p.id === playerId || p.isUnicorn) return false;
                         
@@ -282,25 +1320,15 @@ class GameStateManager {
                         // Also check direct position match
                         const directMatch = playerPos.row === newPos.row && playerPos.col === newPos.col;
                         
-                        // console.log(`    Checking ${p.name}: pos=(${playerPos?.row},${playerPos?.col}), crossed=${crossedPlayer}, direct=${directMatch}`);
                         return crossedPlayer || directMatch;
                     });
                     
                     if (caughtPlayer) {
-                        // const caughtPos = this.getPlayerPosition(roomCode, caughtPlayer.id);
-                        // console.log(`\n🦄 ✅ COLLISION DETECTED: Unicorn crossed player!`);
-                        // console.log(`  Unicorn path: ${pathCells.map(c => `(${c.row},${c.col})`).join(' -> ')}`);
-                        // console.log(`  Player ${caughtPlayer.name} at: row=${caughtPos?.row}, col=${caughtPos?.col}`);
-                        
-                        this.startQuiz(roomCode, playerId, caughtPlayer.id, io);
-                    } else {
-                        // console.log(`  No collision found with any player`);
+                        // Unicorn tagged a survivor!
+                        this.handleTag(roomCode, playerId, caughtPlayer.id, io);
                     }
                 }
-            } else {
-                // console.log(`  ⚠️ WARNING: No unicorn found in room!`);
             }
-            // console.log(`🔍 End collision check\n`);
         }
 
         return positionState;
@@ -448,6 +1476,9 @@ class GameStateManager {
         }
         this.lastUpdateTime.delete(playerId);
         this.lastGridPositions.delete(playerId);
+        
+        // Clean up combat state
+        this.cleanupPlayerCombatState(playerId);
     }
 
     /**
@@ -488,6 +1519,7 @@ class GameStateManager {
             });
         }
         this.playerPositions.delete(roomCode);
+        this.cleanupGameLoop(roomCode);
     }
 
     /**
@@ -618,7 +1650,7 @@ class GameStateManager {
     startQuiz(roomCode, unicornId, caughtId, io) {
         const room = roomManager.getRoom(roomCode);
         if (!room) {
-            console.log(`❌ Cannot start quiz: Room ${roomCode} not found`);
+            // console.log(`❌ Cannot start quiz: Room ${roomCode} not found`);
             return;
         }
 
@@ -627,7 +1659,7 @@ class GameStateManager {
         const caughtPlayer = room.players.find(p => p.id === caughtId);
         
         if (!unicornPlayer || !caughtPlayer) {
-            console.log(`❌ Cannot start quiz: Players not found (unicorn=${!!unicornPlayer}, caught=${!!caughtPlayer})`);
+            // console.log(`❌ Cannot start quiz: Players not found (unicorn=${!!unicornPlayer}, caught=${!!caughtPlayer})`);
             return;
         }
 
@@ -652,18 +1684,18 @@ class GameStateManager {
         
         this.activeQuizzes.set(roomCode, quizData);
 
-        console.log(`\n🎯 ===== QUIZ STARTED =====`);
-        console.log(`Room: ${roomCode}`);
-        console.log(`Unicorn: ${unicornName} (${unicornId})`);
-        console.log(`Caught: ${caughtName} (${caughtId})`);
-        console.log(`Questions: ${questions.length}`);
-        console.log(`Time limit: ${QUIZ_CONFIG.TOTAL_TIME_LIMIT}ms`);
-        console.log(`Active quizzes in memory: ${this.activeQuizzes.size}`);
-        console.log(`===========================\n`);
+        // console.log(`\n🎯 ===== QUIZ STARTED =====`);
+        // console.log(`Room: ${roomCode}`);
+        // console.log(`Unicorn: ${unicornName} (${unicornId})`);
+        // console.log(`Caught: ${caughtName} (${caughtId})`);
+        // console.log(`Questions: ${questions.length}`);
+        // console.log(`Time limit: ${QUIZ_CONFIG.TOTAL_TIME_LIMIT}ms`);
+        // console.log(`Active quizzes in memory: ${this.activeQuizzes.size}`);
+        // console.log(`===========================\n`);
 
         // 1. FIRST: Mark room as frozen to block position updates
         this.frozenRooms.add(roomCode);
-        console.log(`❄️ Room ${roomCode} frozen - blocking all position updates`);
+        // console.log(`❄️ Room ${roomCode} frozen - blocking all position updates`);
 
         // 2. Broadcast game freeze to ALL players
         io.to(roomCode).emit(SOCKET_EVENTS.SERVER.GAME_FROZEN, {
@@ -759,7 +1791,7 @@ class GameStateManager {
         // Clear any existing timeout for this room (prevents stale timeouts)
         if (this.quizTimeouts.has(roomCode)) {
             clearTimeout(this.quizTimeouts.get(roomCode));
-            console.log(`🗑️ Cleared existing quiz timeout for room ${roomCode}`);
+            // console.log(`🗑️ Cleared existing quiz timeout for room ${roomCode}`);
         }
 
         // Set timeout to auto-complete quiz after time limit
@@ -767,7 +1799,7 @@ class GameStateManager {
             if (this.activeQuizzes.has(roomCode)) {
                 const quiz = this.activeQuizzes.get(roomCode);
                 if (!quiz.completed) {
-                    console.log(`⏰ Quiz timeout in room ${roomCode} (${QUIZ_CONFIG.TOTAL_TIME_LIMIT}ms elapsed)`);
+                    // console.log(`⏰ Quiz timeout in room ${roomCode} (${QUIZ_CONFIG.TOTAL_TIME_LIMIT}ms elapsed)`);
                     this.completeQuiz(roomCode, io, true); // true = timeout
                 }
             }
@@ -777,7 +1809,7 @@ class GameStateManager {
         
         // Store timeout ID so we can clear it later
         this.quizTimeouts.set(roomCode, timeoutId);
-        console.log(`⏱️ Quiz timeout set for ${QUIZ_CONFIG.TOTAL_TIME_LIMIT}ms (${QUIZ_CONFIG.TOTAL_TIME_LIMIT / 1000}s)`);
+        // console.log(`⏱️ Quiz timeout set for ${QUIZ_CONFIG.TOTAL_TIME_LIMIT}ms (${QUIZ_CONFIG.TOTAL_TIME_LIMIT / 1000}s)`);
     }
 
     /**
@@ -792,27 +1824,27 @@ class GameStateManager {
         const quiz = this.activeQuizzes.get(roomCode);
         
         if (!quiz) {
-            console.log('No active quiz found');
+            // console.log('No active quiz found');
             return null;
         }
 
         // Verify this is the caught player
         if (playerId !== quiz.caughtId) {
-            console.log('Only caught player can answer');
+            // console.log('Only caught player can answer');
             return null;
         }
 
         // Find the question
         const question = quiz.questions.find(q => q.id === questionId);
         if (!question) {
-            console.log('Question not found');
+            // console.log('Question not found');
             return null;
         }
 
         // Check if already answered
         const alreadyAnswered = quiz.answers.find(a => a.questionId === questionId);
         if (alreadyAnswered) {
-            console.log('Question already answered');
+            // console.log('Question already answered');
             return null;
         }
 
@@ -825,7 +1857,7 @@ class GameStateManager {
             timestamp: Date.now()
         });
 
-        console.log(`Answer recorded: Q${questionId}, Answer: ${answerIndex}, Correct: ${isCorrect}`);
+        // console.log(`Answer recorded: Q${questionId}, Answer: ${answerIndex}, Correct: ${isCorrect}`);
 
         return {
             questionId: questionId,
@@ -842,17 +1874,17 @@ class GameStateManager {
      * @param {boolean} isTimeout - Whether quiz ended due to timeout
      */
     completeQuiz(roomCode, io, isTimeout = false) {
-        console.log(`\n🏁 completeQuiz() called for room ${roomCode}, timeout=${isTimeout}`);
+        // console.log(`\n🏁 completeQuiz() called for room ${roomCode}, timeout=${isTimeout}`);
         
         const quiz = this.activeQuizzes.get(roomCode);
         
         if (!quiz) {
-            console.log(`❌ No active quiz found for room ${roomCode}`);
+            // console.log(`❌ No active quiz found for room ${roomCode}`);
             return;
         }
         
         if (quiz.completed) {
-            console.log(`⚠️ Quiz already completed for room ${roomCode}`);
+            // console.log(`⚠️ Quiz already completed for room ${roomCode}`);
             return;
         }
 
@@ -860,14 +1892,14 @@ class GameStateManager {
         if (this.quizTimeouts.has(roomCode)) {
             clearTimeout(this.quizTimeouts.get(roomCode));
             this.quizTimeouts.delete(roomCode);
-            console.log(`🗑️ Cleared quiz timeout for room ${roomCode}`);
+            // console.log(`🗑️ Cleared quiz timeout for room ${roomCode}`);
         }
 
         quiz.completed = true;
         const room = roomManager.getRoom(roomCode);
         
         if (!room) {
-            console.log(`❌ Room ${roomCode} not found, deleting quiz`);
+            // console.log(`❌ Room ${roomCode} not found, deleting quiz`);
             this.activeQuizzes.delete(roomCode);
             return;
         }
@@ -878,12 +1910,12 @@ class GameStateManager {
         const scorePercentage = Math.round((correctAnswers / totalQuestions) * 100);
         const timeTaken = Date.now() - quiz.startTime;
 
-        console.log(`\n📊 ===== QUIZ COMPLETED =====`);
-        console.log(`Room: ${roomCode}`);
-        console.log(`Caught Player: ${quiz.caughtName}`);
-        console.log(`Score: ${correctAnswers}/${totalQuestions} (${scorePercentage}%)`);
-        console.log(`Time taken: ${timeTaken}ms`);
-        console.log(`Timeout: ${isTimeout}`);
+        // console.log(`\n📊 ===== QUIZ COMPLETED =====`);
+        // console.log(`Room: ${roomCode}`);
+        // console.log(`Caught Player: ${quiz.caughtName}`);
+        // console.log(`Score: ${correctAnswers}/${totalQuestions} (${scorePercentage}%)`);
+        // console.log(`Time taken: ${timeTaken}ms`);
+        // console.log(`Timeout: ${isTimeout}`);
 
         // Determine winner: Caught player wins if they pass (scorePercentage >= 60%)
         // Otherwise, unicorn wins (including timeout cases)
@@ -891,11 +1923,11 @@ class GameStateManager {
         const caughtPlayerWins = scorePercentage >= PASS_THRESHOLD && !isTimeout;
 
         if (caughtPlayerWins) {
-            // Caught player WINS - they escape and become unicorn!
-            console.log(`\n🎉 ${quiz.caughtName} WINS! (Score: ${scorePercentage}%)`);
-            console.log(`  → Caught player gets +20 coins`);
-            console.log(`  → Unicorn loses -20 coins`);
-            console.log(`  → Unicorn status transferred to ${quiz.caughtName}`);
+            // // Caught player WINS - they escape and become unicorn!
+            // console.log(`\n🎉 ${quiz.caughtName} WINS! (Score: ${scorePercentage}%)`);
+            // console.log(`  → Caught player gets +20 coins`);
+            // console.log(`  → Unicorn loses -20 coins`);
+            // console.log(`  → Unicorn status transferred to ${quiz.caughtName}`);
             
             // Update coins: Winner +20, Loser -20
             const updatedCaughtPlayer = roomManager.updatePlayerCoins(roomCode, quiz.caughtId, 20);
@@ -923,10 +1955,10 @@ class GameStateManager {
             });
         } else {
             // Unicorn WINS - caught player failed or timed out
-            console.log(`\n🦄 ${quiz.unicornName} WINS! (Caught player score: ${scorePercentage}%${isTimeout ? ', TIMEOUT' : ''})`);
-            console.log(`  → Unicorn gets +20 coins`);
-            console.log(`  → Caught player loses -20 coins`);
-            console.log(`  → Unicorn remains unicorn`);
+            // console.log(`\n🦄 ${quiz.unicornName} WINS! (Caught player score: ${scorePercentage}%${isTimeout ? ', TIMEOUT' : ''})`);
+            // console.log(`  → Unicorn gets +20 coins`);
+            // console.log(`  → Caught player loses -20 coins`);
+            // console.log(`  → Unicorn remains unicorn`);
             
             // Update coins: Winner +20, Loser -20
             const updatedUnicorn = roomManager.updatePlayerCoins(roomCode, quiz.unicornId, 20);
@@ -959,14 +1991,14 @@ class GameStateManager {
 
         // Unfreeze the room - allow position updates again
         this.frozenRooms.delete(roomCode);
-        console.log(`🔓 Room ${roomCode} unfrozen - position updates enabled`);
+        // console.log(`🔓 Room ${roomCode} unfrozen - position updates enabled`);
 
         // Clean up quiz state
-        console.log(`🗑️ Deleting quiz from activeQuizzes Map...`);
+        // console.log(`🗑️ Deleting quiz from activeQuizzes Map...`);
         this.activeQuizzes.delete(roomCode);
-        console.log(`✅ Quiz deleted! Active quizzes remaining: ${this.activeQuizzes.size}`);
-        console.log(`Game unfrozen in room ${roomCode}`);
-        console.log(`============================\n`);
+        // console.log(`✅ Quiz deleted! Active quizzes remaining: ${this.activeQuizzes.size}`);
+        // console.log(`Game unfrozen in room ${roomCode}`);
+        // console.log(`============================\n`);
     }
 
     /**
@@ -996,18 +2028,586 @@ class GameStateManager {
         if (this.quizTimeouts.has(roomCode)) {
             clearTimeout(this.quizTimeouts.get(roomCode));
             this.quizTimeouts.delete(roomCode);
-            console.log(`🗑️ Cleared quiz timeout for room ${roomCode}`);
+            // console.log(`🗑️ Cleared quiz timeout for room ${roomCode}`);
         }
         
         if (this.activeQuizzes.has(roomCode)) {
-            console.log(`🗑️ Clearing stale quiz state for room ${roomCode}`);
+            // console.log(`🗑️ Clearing stale quiz state for room ${roomCode}`);
             this.activeQuizzes.delete(roomCode);
         }
         // Also unfreeze the room
         if (this.frozenRooms.has(roomCode)) {
-            console.log(`🔓 Unfreezing room ${roomCode}`);
+            // console.log(`🔓 Unfreezing room ${roomCode}`);
             this.frozenRooms.delete(roomCode);
         }
+    }
+
+    // ========== COIN SYSTEM METHODS ==========
+
+    /**
+     * Initialize coins for a room at Hunt start
+     * @param {string} roomCode - Room code
+     * @param {Object} io - Socket.IO server instance
+     */
+    initializeCoins(roomCode, io) {
+        // console.log(`\n💰 ===== INITIALIZING COINS =====`);
+        // console.log(`Room: ${roomCode}`);
+
+        // Create coin map for this room
+        const coinMap = new Map();
+        
+        // Shuffle spawn slots and pick initial coins
+        const shuffledSlots = [...COIN_CONFIG.SPAWN_SLOTS].sort(() => Math.random() - 0.5);
+        const initialCoins = shuffledSlots.slice(0, COIN_CONFIG.INITIAL_SPAWN_COUNT);
+        
+        initialCoins.forEach((slot, index) => {
+            const coinId = `coin_${index}`;
+            coinMap.set(coinId, {
+                id: coinId,
+                row: slot.row,
+                col: slot.col,
+                collected: false,
+                respawnTimeoutId: null
+            });
+        });
+
+        this.roomCoins.set(roomCode, coinMap);
+
+        // console.log(`Spawned ${initialCoins.length} coins`);
+        // console.log(`=================================\n`);
+
+        // Notify clients of initial coins
+        const coinsData = Array.from(coinMap.values()).map(coin => ({
+            id: coin.id,
+            row: coin.row,
+            col: coin.col
+        }));
+
+        io.to(roomCode).emit(SOCKET_EVENTS.SERVER.COIN_SPAWNED, {
+            coins: coinsData
+        });
+    }
+
+    /**
+     * Check if a player is near a coin and can collect it
+     * Called from position update
+     * @param {string} roomCode - Room code
+     * @param {string} playerId - Player ID
+     * @param {Object} position - Player position { row, col }
+     * @param {Object} io - Socket.IO server instance
+     */
+    checkCoinCollection(roomCode, playerId, position, io) {
+        const room = roomManager.getRoom(roomCode);
+        if (!room) return;
+
+        const player = room.players.find(p => p.id === playerId);
+        if (!player) return;
+
+        // Unicorns cannot collect coins
+        if (player.isUnicorn) return;
+
+        const coinMap = this.roomCoins.get(roomCode);
+        if (!coinMap) return;
+
+        // Check each coin
+        coinMap.forEach((coin, coinId) => {
+            if (coin.collected) return;
+
+            // Check if player is within collection radius
+            const rowDiff = Math.abs(position.row - coin.row);
+            const colDiff = Math.abs(position.col - coin.col);
+            
+            if (rowDiff <= COIN_CONFIG.COLLECTION_RADIUS && colDiff <= COIN_CONFIG.COLLECTION_RADIUS) {
+                this.collectCoin(roomCode, playerId, coinId, io);
+            }
+        });
+    }
+
+    /**
+     * Collect a coin with race condition prevention
+     * Uses locks to ensure only one player can collect a coin at a time
+     * @param {string} roomCode - Room code
+     * @param {string} playerId - Player ID
+     * @param {string} coinId - Coin ID
+     * @param {Object} io - Socket.IO server instance
+     * @returns {boolean} True if collection was successful
+     */
+    collectCoin(roomCode, playerId, coinId, io) {
+        const lockKey = `${roomCode}:${coinId}`;
+        
+        // Check if coin is already being processed (race condition prevention)
+        if (this.coinLocks.has(lockKey)) {
+            // console.log(`🔒 Coin ${coinId} already being collected by another player`);
+            return false;
+        }
+
+        const coinMap = this.roomCoins.get(roomCode);
+        if (!coinMap) return false;
+
+        const coin = coinMap.get(coinId);
+        if (!coin || coin.collected) return false;
+
+        const room = roomManager.getRoom(roomCode);
+        const player = room?.players.find(p => p.id === playerId);
+        if (!player) return false;
+
+        // Acquire lock - first player to get here wins
+        this.coinLocks.set(lockKey, playerId);
+
+        try {
+            // Double-check coin isn't collected (belt and suspenders)
+            if (coin.collected) {
+                return false;
+            }
+
+            // Mark coin as collected
+            coin.collected = true;
+
+            // Award score to player
+            roomManager.updatePlayerCoins(roomCode, playerId, COIN_CONFIG.VALUE);
+            const updatedPlayer = roomManager.getPlayer(roomCode, playerId);
+
+            // console.log(`💰 ${player.name} collected coin! +${COIN_CONFIG.VALUE} score (total: ${updatedPlayer.coins})`);
+
+            // Notify clients
+            io.to(roomCode).emit(SOCKET_EVENTS.SERVER.COIN_COLLECTED, {
+                coinId: coinId,
+                playerId: playerId,
+                playerName: player.name,
+                value: COIN_CONFIG.VALUE,
+                newScore: updatedPlayer.coins,
+                leaderboard: roomManager.getLeaderboard(roomCode)
+            });
+
+            // Schedule respawn
+            coin.respawnTimeoutId = setTimeout(() => {
+                this.respawnCoin(roomCode, coinId, io);
+            }, COIN_CONFIG.RESPAWN_TIME);
+
+            return true;
+        } finally {
+            // Always release lock
+            this.coinLocks.delete(lockKey);
+        }
+    }
+
+    /**
+     * Respawn a coin after collection
+     * @param {string} roomCode - Room code
+     * @param {string} coinId - Coin ID
+     * @param {Object} io - Socket.IO server instance
+     */
+    respawnCoin(roomCode, coinId, io) {
+        const coinMap = this.roomCoins.get(roomCode);
+        if (!coinMap) return;
+
+        const coin = coinMap.get(coinId);
+        if (!coin) return;
+
+        // Find a new spawn position that's not occupied
+        const usedPositions = new Set();
+        coinMap.forEach(c => {
+            if (!c.collected) {
+                usedPositions.add(`${c.row},${c.col}`);
+            }
+        });
+
+        // Find available spawn slot
+        const availableSlots = COIN_CONFIG.SPAWN_SLOTS.filter(
+            slot => !usedPositions.has(`${slot.row},${slot.col}`)
+        );
+
+        if (availableSlots.length === 0) {
+            // No available slots, keep same position
+            coin.collected = false;
+        } else {
+            // Pick random available slot
+            const newSlot = availableSlots[Math.floor(Math.random() * availableSlots.length)];
+            coin.row = newSlot.row;
+            coin.col = newSlot.col;
+            coin.collected = false;
+        }
+
+        coin.respawnTimeoutId = null;
+
+        // console.log(`💰 Coin ${coinId} respawned at (${coin.row}, ${coin.col})`);
+
+        // Notify clients
+        io.to(roomCode).emit(SOCKET_EVENTS.SERVER.COIN_SPAWNED, {
+            coinId: coinId,
+            row: coin.row,
+            col: coin.col
+        });
+    }
+
+    /**
+     * Get all active coins in a room
+     * @param {string} roomCode - Room code
+     * @returns {Array} Array of coin objects
+     */
+    getActiveCoins(roomCode) {
+        const coinMap = this.roomCoins.get(roomCode);
+        if (!coinMap) return [];
+
+        return Array.from(coinMap.values())
+            .filter(coin => !coin.collected)
+            .map(coin => ({
+                id: coin.id,
+                row: coin.row,
+                col: coin.col
+            }));
+    }
+
+    /**
+     * Clean up coins for a room
+     * @param {string} roomCode - Room code
+     */
+    cleanupCoins(roomCode) {
+        const coinMap = this.roomCoins.get(roomCode);
+        if (coinMap) {
+            // Clear all respawn timers
+            coinMap.forEach(coin => {
+                if (coin.respawnTimeoutId) {
+                    clearTimeout(coin.respawnTimeoutId);
+                }
+            });
+        }
+        this.roomCoins.delete(roomCode);
+    }
+
+    // ========== POWERUP SYSTEM METHODS ==========
+
+    /**
+     * Start spawning powerups for a room
+     * @param {string} roomCode - Room code
+     * @param {Object} io - Socket.IO server instance
+     */
+    startPowerupSpawning(roomCode, io) {
+        // console.log(`⚡ Starting powerup spawning for room ${roomCode}`);
+        
+        // Initialize powerup map
+        this.roomPowerups.set(roomCode, new Map());
+        
+        // Schedule first powerup spawn
+        this.schedulePowerupSpawn(roomCode, io);
+    }
+
+    /**
+     * Schedule next powerup spawn
+     * @param {string} roomCode - Room code
+     * @param {Object} io - Socket.IO server instance
+     */
+    schedulePowerupSpawn(roomCode, io) {
+        // Clear existing timer
+        if (this.powerupSpawnTimers.has(roomCode)) {
+            clearTimeout(this.powerupSpawnTimers.get(roomCode));
+        }
+
+        // Random interval between min and max
+        const interval = POWERUP_CONFIG.SPAWN_INTERVAL_MIN + 
+            Math.random() * (POWERUP_CONFIG.SPAWN_INTERVAL_MAX - POWERUP_CONFIG.SPAWN_INTERVAL_MIN);
+
+        const timeoutId = setTimeout(() => {
+            this.spawnPowerup(roomCode, io);
+        }, interval);
+
+        this.powerupSpawnTimers.set(roomCode, timeoutId);
+    }
+
+    /**
+     * Spawn a powerup
+     * @param {string} roomCode - Room code
+     * @param {Object} io - Socket.IO server instance
+     */
+    spawnPowerup(roomCode, io) {
+        // Check if we're still in Hunt phase
+        if (this.getGamePhase(roomCode) !== GAME_PHASE.HUNT) {
+            return;
+        }
+
+        const powerupMap = this.roomPowerups.get(roomCode);
+        if (!powerupMap) return;
+
+        // Check if max powerups already on map
+        const activePowerups = Array.from(powerupMap.values()).filter(p => !p.collected);
+        if (activePowerups.length >= POWERUP_CONFIG.MAX_POWERUPS) {
+            // Schedule next spawn check
+            this.schedulePowerupSpawn(roomCode, io);
+            return;
+        }
+
+        // Find available spawn slot
+        const usedPositions = new Set();
+        powerupMap.forEach(p => {
+            if (!p.collected) {
+                usedPositions.add(`${p.row},${p.col}`);
+            }
+        });
+
+        const availableSlots = POWERUP_CONFIG.SPAWN_SLOTS.filter(
+            slot => !usedPositions.has(`${slot.row},${slot.col}`)
+        );
+
+        if (availableSlots.length === 0) {
+            this.schedulePowerupSpawn(roomCode, io);
+            return;
+        }
+
+        // Pick random slot
+        const slot = availableSlots[Math.floor(Math.random() * availableSlots.length)];
+        
+        // Create powerup
+        const powerupId = `powerup_${Date.now()}`;
+        const powerup = {
+            id: powerupId,
+            row: slot.row,
+            col: slot.col,
+            type: 'immunity', // Currently only type
+            collected: false
+        };
+
+        powerupMap.set(powerupId, powerup);
+
+        // console.log(`⚡ Powerup spawned at (${slot.row}, ${slot.col})`);
+
+        // Notify clients
+        io.to(roomCode).emit(SOCKET_EVENTS.SERVER.POWERUP_SPAWNED, {
+            id: powerupId,
+            row: slot.row,
+            col: slot.col,
+            type: 'immunity'
+        });
+
+        // Schedule next spawn
+        this.schedulePowerupSpawn(roomCode, io);
+    }
+
+    /**
+     * Check if a player is near a powerup and can collect it
+     * @param {string} roomCode - Room code
+     * @param {string} playerId - Player ID
+     * @param {Object} position - Player position { row, col }
+     * @param {Object} io - Socket.IO server instance
+     */
+    checkPowerupCollection(roomCode, playerId, position, io) {
+        const room = roomManager.getRoom(roomCode);
+        if (!room) return;
+
+        const player = room.players.find(p => p.id === playerId);
+        if (!player) return;
+
+        // Unicorns cannot collect powerups
+        if (player.isUnicorn) return;
+
+        const powerupMap = this.roomPowerups.get(roomCode);
+        if (!powerupMap) return;
+
+        // Check each powerup
+        powerupMap.forEach((powerup, powerupId) => {
+            if (powerup.collected) return;
+
+            // Check if player is within collection radius
+            const rowDiff = Math.abs(position.row - powerup.row);
+            const colDiff = Math.abs(position.col - powerup.col);
+            
+            if (rowDiff <= POWERUP_CONFIG.COLLECTION_RADIUS && colDiff <= POWERUP_CONFIG.COLLECTION_RADIUS) {
+                this.collectPowerup(roomCode, playerId, powerupId, io);
+            }
+        });
+    }
+
+    /**
+     * Collect a powerup with race condition prevention
+     * Uses locks to ensure only one player can collect a powerup at a time
+     * @param {string} roomCode - Room code
+     * @param {string} playerId - Player ID
+     * @param {string} powerupId - Powerup ID
+     * @param {Object} io - Socket.IO server instance
+     * @returns {boolean} True if collection was successful
+     */
+    collectPowerup(roomCode, playerId, powerupId, io) {
+        const lockKey = `${roomCode}:${powerupId}`;
+        
+        // Check if powerup is already being processed (race condition prevention)
+        if (this.powerupLocks.has(lockKey)) {
+            // console.log(`🔒 Powerup ${powerupId} already being collected by another player`);
+            return false;
+        }
+
+        const powerupMap = this.roomPowerups.get(roomCode);
+        if (!powerupMap) return false;
+
+        const powerup = powerupMap.get(powerupId);
+        if (!powerup || powerup.collected) return false;
+
+        const room = roomManager.getRoom(roomCode);
+        const player = room?.players.find(p => p.id === playerId);
+        if (!player) return false;
+
+        // Acquire lock - first player to get here wins
+        this.powerupLocks.set(lockKey, playerId);
+
+        try {
+            // Double-check powerup isn't collected
+            if (powerup.collected) {
+                return false;
+            }
+
+            // Mark as collected
+            powerup.collected = true;
+
+            // console.log(`⚡ ${player.name} collected ${powerup.type} powerup!`);
+
+            // Notify clients of collection
+            io.to(roomCode).emit(SOCKET_EVENTS.SERVER.POWERUP_COLLECTED, {
+                powerupId: powerupId,
+                playerId: playerId,
+                playerName: player.name,
+                type: powerup.type
+            });
+
+            // Activate the powerup effect
+            this.activatePowerup(roomCode, playerId, powerup.type, io);
+
+            // Remove powerup from map after short delay
+            setTimeout(() => {
+                powerupMap.delete(powerupId);
+            }, 100);
+
+            return true;
+        } finally {
+            // Always release lock
+            this.powerupLocks.delete(lockKey);
+        }
+    }
+
+    /**
+     * Activate a powerup effect
+     * @param {string} roomCode - Room code
+     * @param {string} playerId - Player ID
+     * @param {string} type - Powerup type
+     * @param {Object} io - Socket.IO server instance
+     */
+    activatePowerup(roomCode, playerId, type, io) {
+        const room = roomManager.getRoom(roomCode);
+        const player = room?.players.find(p => p.id === playerId);
+        if (!player) return;
+
+        if (type === 'immunity') {
+            const duration = POWERUP_CONFIG.TYPES.IMMUNITY.duration;
+
+            // Clear any existing immunity
+            const existingImmunity = this.playerImmunity.get(playerId);
+            if (existingImmunity?.timeoutId) {
+                clearTimeout(existingImmunity.timeoutId);
+            }
+
+            // Set immunity
+            roomManager.setPlayerImmunity(roomCode, playerId, true);
+
+            // console.log(`🛡️ ${player.name} is now IMMUNE for ${duration}ms`);
+
+            // Notify clients
+            io.to(roomCode).emit(SOCKET_EVENTS.SERVER.POWERUP_ACTIVATED, {
+                playerId: playerId,
+                playerName: player.name,
+                type: 'immunity',
+                duration: duration,
+                visual: POWERUP_CONFIG.TYPES.IMMUNITY.visual
+            });
+
+            // Set expiration timer
+            const timeoutId = setTimeout(() => {
+                this.expirePowerup(roomCode, playerId, 'immunity', io);
+            }, duration);
+
+            this.playerImmunity.set(playerId, {
+                endTime: Date.now() + duration,
+                timeoutId: timeoutId
+            });
+        }
+    }
+
+    /**
+     * Expire a powerup effect
+     * @param {string} roomCode - Room code
+     * @param {string} playerId - Player ID
+     * @param {string} type - Powerup type
+     * @param {Object} io - Socket.IO server instance
+     */
+    expirePowerup(roomCode, playerId, type, io) {
+        const room = roomManager.getRoom(roomCode);
+        const player = room?.players.find(p => p.id === playerId);
+
+        if (type === 'immunity') {
+            // Remove immunity
+            roomManager.setPlayerImmunity(roomCode, playerId, false);
+            this.playerImmunity.delete(playerId);
+
+            // console.log(`🛡️ ${player?.name || playerId}'s immunity expired`);
+
+            // Notify clients
+            io.to(roomCode).emit(SOCKET_EVENTS.SERVER.POWERUP_EXPIRED, {
+                playerId: playerId,
+                playerName: player?.name || 'Unknown',
+                type: 'immunity'
+            });
+        }
+    }
+
+    /**
+     * Get all active powerups in a room
+     * @param {string} roomCode - Room code
+     * @returns {Array} Array of powerup objects
+     */
+    getActivePowerups(roomCode) {
+        const powerupMap = this.roomPowerups.get(roomCode);
+        if (!powerupMap) return [];
+
+        return Array.from(powerupMap.values())
+            .filter(powerup => !powerup.collected)
+            .map(powerup => ({
+                id: powerup.id,
+                row: powerup.row,
+                col: powerup.col,
+                type: powerup.type
+            }));
+    }
+
+    /**
+     * Clean up powerups for a room
+     * @param {string} roomCode - Room code
+     */
+    cleanupPowerups(roomCode) {
+        // Clear spawn timer
+        if (this.powerupSpawnTimers.has(roomCode)) {
+            clearTimeout(this.powerupSpawnTimers.get(roomCode));
+            this.powerupSpawnTimers.delete(roomCode);
+        }
+
+        // Clear powerup map
+        this.roomPowerups.delete(roomCode);
+    }
+
+    /**
+     * Clean up player's immunity effect
+     * @param {string} playerId - Player ID
+     */
+    cleanupPlayerImmunity(playerId) {
+        const immunity = this.playerImmunity.get(playerId);
+        if (immunity?.timeoutId) {
+            clearTimeout(immunity.timeoutId);
+        }
+        this.playerImmunity.delete(playerId);
+    }
+
+    /**
+     * Clean up all coin/powerup state for a room
+     * @param {string} roomCode - Room code
+     */
+    cleanupMapInteractions(roomCode) {
+        this.cleanupCoins(roomCode);
+        this.cleanupPowerups(roomCode);
     }
 }
 
