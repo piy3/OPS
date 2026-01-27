@@ -23,7 +23,6 @@ function StartGame() {
   const [showLeaderboard, setShowLeaderboard] = useState(false)
   const [showCoordinates, setShowCoordinates] = useState(false)
   
-  // Player starting position (row 1, col 1 is an empty space)
   const [playerPos, setPlayerPos] = useState({ row: null, col: null })
   const [playerPixelPos, setPlayerPixelPos] = useState({ x: 0, y: 0 })
   const [direction, setDirection] = useState(null) // null, 'up', 'down', 'left', 'right'
@@ -62,7 +61,7 @@ function StartGame() {
       
       // IMPORTANT: If this is OUR position (e.g., server respawned us), update local position immediately
       if (playerId === socketService.getSocket()?.id) {
-        console.log('🔄 Received position update for SELF (respawn):', position);
+        console.log('Received position update for SELF (respawn):', position);
         if (typeof position.row === 'number' && typeof position.col === 'number') {
           const cellSize = Math.min(window.innerWidth / MAZE_COLS, window.innerHeight / MAZE_ROWS);
           const newPixelX = position.col * cellSize + cellSize / 2;
@@ -387,8 +386,9 @@ function StartGame() {
     }
     
     const now = Date.now()
-    // Send updates every 300ms for balance between smoothness and server load
-    if (now - lastPositionUpdateTimeRef.current > 300) {
+    // Send updates every 100ms for reliable collision detection
+    // (Players move 1 cell per 150ms, so 100ms ensures we don't skip cells)
+    if (now - lastPositionUpdateTimeRef.current > 100) {
       const currentGridPos = targetGridPosRef.current
       const lastGridPos = lastGridPosRef.current
       
@@ -743,13 +743,56 @@ function StartGame() {
     
     animationFrameRef.current = requestAnimationFrame(animate)
     
-    // Handle window resize
+    // Handle window resize - recalculate ALL player positions based on grid positions
     const handleResize = () => {
       const newCellSize = calculateCellSize()
+      
+      // Update local player pixel position
       const newX = targetGridPosRef.current.col * newCellSize + newCellSize / 2
       const newY = targetGridPosRef.current.row * newCellSize + newCellSize / 2
       playerPixelPosRef.current = { x: newX, y: newY }
       setPlayerPixelPos({ x: newX, y: newY })
+      
+      // Update ALL remote player pixel positions based on their grid positions
+      const remotePositions = remotePlayerPositionsRef.current
+      const newRemotePixelPos = {}
+      const newRemotePlayers = {}
+      
+      Object.entries(remotePositions).forEach(([playerId, playerPos]) => {
+        if (playerPos && typeof playerPos.row === 'number' && typeof playerPos.col === 'number') {
+          const remoteX = playerPos.col * newCellSize + newCellSize / 2
+          const remoteY = playerPos.row * newCellSize + newCellSize / 2
+          
+          // Update the position ref as well
+          playerPos.current = { x: remoteX, y: remoteY }
+          playerPos.target = { x: remoteX, y: remoteY }
+          
+          newRemotePixelPos[playerId] = { x: remoteX, y: remoteY }
+        }
+      })
+      
+      // Batch update remote player pixel positions
+      if (Object.keys(newRemotePixelPos).length > 0) {
+        setRemotePlayerPixelPos(prev => ({
+          ...prev,
+          ...newRemotePixelPos
+        }))
+        
+        // Also update remotePlayers state with new pixel positions
+        setRemotePlayers(prev => {
+          const updated = { ...prev }
+          Object.entries(newRemotePixelPos).forEach(([playerId, pos]) => {
+            if (updated[playerId]) {
+              updated[playerId] = {
+                ...updated[playerId],
+                x: pos.x,
+                y: pos.y
+              }
+            }
+          })
+          return updated
+        })
+      }
     }
     
     window.addEventListener('resize', handleResize)
