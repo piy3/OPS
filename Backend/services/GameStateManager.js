@@ -37,7 +37,7 @@ class GameStateManager {
             this.playerPositions.set(roomCode, new Map());
         }
 
-        // Assign fixed corner spawn positions to all players in the room
+        // Assign spawn positions to all players in the room
         const room = roomManager.getRoom(roomCode);
         if (!room || !room.players) {
             return;
@@ -46,18 +46,50 @@ class GameStateManager {
         const spawnPositions = GAME_CONFIG.SPAWN_POSITIONS;
         const roomPositions = this.playerPositions.get(roomCode);
 
-        // Assign spawn positions to each player based on their index
-        // Each player gets a different corner (cycles if more than 4 players)
+        // Track which spawn positions are already used in this initialization
+        const usedSpawnPositions = new Set();
+
+        // First, mark positions that are already occupied by existing players
+        roomPositions.forEach((position) => {
+            const posKey = `${position.row},${position.col}`;
+            usedSpawnPositions.add(posKey);
+        });
+
+        // Assign unique spawn positions to each player
         // ONLY initialize if player doesn't already have a position!
-        room.players.forEach((player, index) => {
+        room.players.forEach((player) => {
             // Check if player already has a position - if so, DON'T reset it!
             if (roomPositions.has(player.id)) {
                 console.log(`✓ Player ${player.id} already has position, skipping init`);
                 return; // Skip this player, they already have a position
             }
 
-            const spawnIndex = index % spawnPositions.length;
-            const spawnPos = spawnPositions[spawnIndex];
+            // Find the first available spawn position that's not used
+            let spawnPos = null;
+            for (const pos of spawnPositions) {
+                const posKey = `${pos.row},${pos.col}`;
+                if (!usedSpawnPositions.has(posKey)) {
+                    spawnPos = pos;
+                    usedSpawnPositions.add(posKey); // Mark as used
+                    break;
+                }
+            }
+
+            // Fallback: if all predefined positions are used, generate a unique offset position
+            if (!spawnPos) {
+                // Use a position with offset to avoid exact collision
+                const fallbackIndex = usedSpawnPositions.size % spawnPositions.length;
+                const basePos = spawnPositions[fallbackIndex];
+                // Add small offset based on player count to spread them out
+                const offset = Math.floor(usedSpawnPositions.size / spawnPositions.length) * 2;
+                spawnPos = {
+                    row: Math.min(26, basePos.row + offset),
+                    col: Math.min(30, basePos.col + (offset % 2 === 0 ? 1 : -1))
+                };
+                const posKey = `${spawnPos.row},${spawnPos.col}`;
+                usedSpawnPositions.add(posKey);
+                console.log(`⚠️ Using fallback spawn position for player ${player.id}`);
+            }
 
             // Initialize player position at spawn point
             // Note: x, y will be calculated on the client side from row/col
@@ -185,7 +217,8 @@ class GameStateManager {
             this.lastGridPositions.set(playerId, { row: validatedPosition.row, col: validatedPosition.col });
         }
 
-        // Grid-based collision detection: Check AFTER storing position
+        // Grid-based collision detection with PATH checking
+        // Check not just the current position, but also cells crossed between old and new positions
         // Game freeze prevents multiple simultaneous quizzes, so no need to check hasActiveQuiz
         if (io && typeof validatedPosition.row === 'number' && typeof validatedPosition.col === 'number') {
             console.log(`\n🔍 COLLISION CHECK for ${playerId} at row=${validatedPosition.row}, col=${validatedPosition.col}`);
@@ -206,45 +239,64 @@ class GameStateManager {
                     console.log(`    ${p.name} (unicorn=${p.isUnicorn}): row=${pos?.row}, col=${pos?.col}`);
                 });
                 
-                // If this player (who just moved) is at same position as unicorn
-                if (!isUnicorn && unicornPos && 
-                    unicornPos.row === validatedPosition.row && 
-                    unicornPos.col === validatedPosition.col) {
+                // Get the path of cells this player crossed (from old position to new position)
+                const oldPos = oldPosition || lastGridPos;
+                const newPos = { row: validatedPosition.row, col: validatedPosition.col };
+                const pathCells = this.getCellsInPath(oldPos, newPos);
+                console.log(`  Path crossed: ${pathCells.map(c => `(${c.row},${c.col})`).join(' -> ')}`);
+                
+                // If this player (who just moved) is a regular player, check if they crossed the unicorn
+                if (!isUnicorn && unicornPos) {
+                    // Check if any cell in the path matches the unicorn's position
+                    const crossedUnicorn = pathCells.some(cell => 
+                        cell.row === unicornPos.row && cell.col === unicornPos.col
+                    );
                     
-                    console.log(`\n🦄 ✅ COLLISION DETECTED: Player moved to unicorn position!`);
-                    console.log(`  Player at: row=${validatedPosition.row}, col=${validatedPosition.col}`);
-                    console.log(`  Unicorn at: row=${unicornPos.row}, col=${unicornPos.col}`);
+                    // Also check proximity (adjacent cells) for near-miss collision
+                    const isAdjacent = this.isAdjacent(newPos, unicornPos);
                     
-                    this.startQuiz(roomCode, unicornPlayer.id, playerId, io);
+                    if (crossedUnicorn || (newPos.row === unicornPos.row && newPos.col === unicornPos.col)) {
+                        console.log(`\n🦄 ✅ COLLISION DETECTED: Player crossed unicorn path!`);
+                        console.log(`  Player path: ${pathCells.map(c => `(${c.row},${c.col})`).join(' -> ')}`);
+                        console.log(`  Unicorn at: row=${unicornPos.row}, col=${unicornPos.col}`);
+                        
+                        this.startQuiz(roomCode, unicornPlayer.id, playerId, io);
+                    } else {
+                        console.log(`  Regular player moved, did not cross unicorn position`);
+                    }
                 }
-                // If unicorn just moved, check if it's at same position as any other player
+                // If unicorn just moved, check if it crossed any other player's position
                 else if (isUnicorn) {
-                    console.log(`  Unicorn moved, checking for caught players...`);
+                    console.log(`  Unicorn moved, checking for crossed players...`);
                     
                     const caughtPlayer = room.players.find(p => {
                         if (p.id === playerId || p.isUnicorn) return false;
                         
                         const playerPos = this.getPlayerPosition(roomCode, p.id);
-                        const matches = playerPos && 
-                               playerPos.row === validatedPosition.row && 
-                               playerPos.col === validatedPosition.col;
+                        if (!playerPos) return false;
                         
-                        console.log(`    Checking ${p.name}: row=${playerPos?.row}, col=${playerPos?.col}, matches=${matches}`);
-                        return matches;
+                        // Check if unicorn's path crossed this player's position
+                        const crossedPlayer = pathCells.some(cell => 
+                            cell.row === playerPos.row && cell.col === playerPos.col
+                        );
+                        
+                        // Also check direct position match
+                        const directMatch = playerPos.row === newPos.row && playerPos.col === newPos.col;
+                        
+                        console.log(`    Checking ${p.name}: pos=(${playerPos?.row},${playerPos?.col}), crossed=${crossedPlayer}, direct=${directMatch}`);
+                        return crossedPlayer || directMatch;
                     });
                     
                     if (caughtPlayer) {
                         const caughtPos = this.getPlayerPosition(roomCode, caughtPlayer.id);
-                        console.log(`\n🦄 ✅ COLLISION DETECTED: Unicorn caught player!`);
-                        console.log(`  Unicorn at: row=${validatedPosition.row}, col=${validatedPosition.col}`);
+                        console.log(`\n🦄 ✅ COLLISION DETECTED: Unicorn crossed player!`);
+                        console.log(`  Unicorn path: ${pathCells.map(c => `(${c.row},${c.col})`).join(' -> ')}`);
                         console.log(`  Player ${caughtPlayer.name} at: row=${caughtPos?.row}, col=${caughtPos?.col}`);
                         
                         this.startQuiz(roomCode, playerId, caughtPlayer.id, io);
                     } else {
                         console.log(`  No collision found with any player`);
                     }
-                } else {
-                    console.log(`  Regular player moved, not at unicorn position`);
                 }
             } else {
                 console.log(`  ⚠️ WARNING: No unicorn found in room!`);
@@ -285,6 +337,74 @@ class GameStateManager {
         }
 
         return validated;
+    }
+
+    /**
+     * Get all cells in a path from old position to new position
+     * Uses Bresenham's line algorithm to find all cells crossed
+     * @param {Object} oldPos - Old position { row, col }
+     * @param {Object} newPos - New position { row, col }
+     * @returns {Array} Array of cells { row, col } in the path
+     */
+    getCellsInPath(oldPos, newPos) {
+        const cells = [];
+        
+        if (!oldPos || !newPos) {
+            return newPos ? [newPos] : [];
+        }
+        
+        const startRow = oldPos.row;
+        const startCol = oldPos.col;
+        const endRow = newPos.row;
+        const endCol = newPos.col;
+        
+        // If same position, return just that position
+        if (startRow === endRow && startCol === endCol) {
+            return [{ row: endRow, col: endCol }];
+        }
+        
+        // Bresenham's line algorithm to get all cells crossed
+        let row = startRow;
+        let col = startCol;
+        const dRow = Math.abs(endRow - startRow);
+        const dCol = Math.abs(endCol - startCol);
+        const sRow = startRow < endRow ? 1 : -1;
+        const sCol = startCol < endCol ? 1 : -1;
+        let err = dCol - dRow;
+        
+        while (true) {
+            cells.push({ row, col });
+            
+            if (row === endRow && col === endCol) break;
+            
+            const e2 = 2 * err;
+            if (e2 > -dRow) {
+                err -= dRow;
+                col += sCol;
+            }
+            if (e2 < dCol) {
+                err += dCol;
+                row += sRow;
+            }
+        }
+        
+        return cells;
+    }
+
+    /**
+     * Check if two positions are adjacent (within 1 cell)
+     * @param {Object} pos1 - First position { row, col }
+     * @param {Object} pos2 - Second position { row, col }
+     * @returns {boolean} True if positions are adjacent
+     */
+    isAdjacent(pos1, pos2) {
+        if (!pos1 || !pos2) return false;
+        
+        const rowDiff = Math.abs(pos1.row - pos2.row);
+        const colDiff = Math.abs(pos1.col - pos2.col);
+        
+        // Adjacent if within 1 cell in any direction (including diagonal)
+        return rowDiff <= 1 && colDiff <= 1 && !(rowDiff === 0 && colDiff === 0);
     }
 
     /**
@@ -446,28 +566,44 @@ class GameStateManager {
 
         const spawnPositions = GAME_CONFIG.SPAWN_POSITIONS;
         
+        // Collect all occupied positions
+        const occupiedPositions = new Set();
+        for (const player of room.players) {
+            if (player.id === excludePlayerId) continue;
+            
+            const playerPos = this.getPlayerPosition(roomCode, player.id);
+            if (playerPos) {
+                occupiedPositions.add(`${playerPos.row},${playerPos.col}`);
+            }
+        }
+        
         // Try each spawn position
         for (const spawnPos of spawnPositions) {
-            let isOccupied = false;
-            
-            // Check if any player is at this spawn position
-            for (const player of room.players) {
-                if (player.id === excludePlayerId) continue;
-                
-                const playerPos = this.getPlayerPosition(roomCode, player.id);
-                if (playerPos && playerPos.row === spawnPos.row && playerPos.col === spawnPos.col) {
-                    isOccupied = true;
-                    break;
-                }
-            }
-            
-            if (!isOccupied) {
+            const posKey = `${spawnPos.row},${spawnPos.col}`;
+            if (!occupiedPositions.has(posKey)) {
                 console.log(`  ✅ Found free spawn: row=${spawnPos.row}, col=${spawnPos.col}`);
                 return spawnPos;
             }
         }
         
-        // If all spawns occupied, return a random one anyway
+        // If all predefined spawns occupied, generate a unique position with offset
+        // Use row 1 or 26 corridors with different column offsets
+        const fallbackPositions = [
+            { row: 1, col: 8 }, { row: 1, col: 12 }, { row: 1, col: 20 }, { row: 1, col: 24 },
+            { row: 4, col: 1 }, { row: 4, col: 12 }, { row: 4, col: 19 }, { row: 4, col: 30 },
+            { row: 22, col: 8 }, { row: 22, col: 12 }, { row: 22, col: 20 }, { row: 22, col: 24 },
+            { row: 26, col: 8 }, { row: 26, col: 12 }, { row: 26, col: 20 }, { row: 26, col: 24 }
+        ];
+        
+        for (const fallbackPos of fallbackPositions) {
+            const posKey = `${fallbackPos.row},${fallbackPos.col}`;
+            if (!occupiedPositions.has(posKey)) {
+                console.log(`  ✅ Found fallback spawn: row=${fallbackPos.row}, col=${fallbackPos.col}`);
+                return fallbackPos;
+            }
+        }
+        
+        // Last resort: return a random predefined spawn
         const randomSpawn = spawnPositions[Math.floor(Math.random() * spawnPositions.length)];
         console.log(`  ⚠️ All spawns occupied, using random: row=${randomSpawn.row}, col=${randomSpawn.col}`);
         return randomSpawn;

@@ -68,12 +68,18 @@ export const GAME_CONFIG = {
         MIN_X: -10000,
         MIN_Y: -10000
     },
-    // Fixed corner spawn positions for players (row, col)
-    // Each player spawns at a different corner
+    // Fixed spawn positions for players (row, col)
+    // Each player spawns at a different position - supports up to 9 players
+    // Positions are spread across the maze on valid walkable tiles
     SPAWN_POSITIONS: [
         { row: 1, col: 1 },      // Top-left corner
         { row: 1, col: 30 },     // Top-right corner
         { row: 26, col: 1 },     // Bottom-left corner
-        { row: 26, col: 30 }     // Bottom-right corner
+        { row: 26, col: 30 },    // Bottom-right corner
+        { row: 1, col: 15 },     // Top-center
+        { row: 22, col: 1 },     // Mid-left
+        { row: 22, col: 30 },    // Mid-right
+        { row: 4, col: 6 },      // Upper corridor left
+        { row: 4, col: 25 }      // Upper corridor right
     ]
 };
