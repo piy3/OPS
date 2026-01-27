@@ -42,7 +42,7 @@ export function registerGameHandlers(socket, io) {
             // Clear any stale quiz state from previous games
             gameStateManager.clearQuizState(roomCode);
 
-            log(`Game started in room: ${roomCode}`);
+            // log(`Game started in room: ${roomCode}`);
 
             // Get game state with spawn positions
             const gameState = gameStateManager.getGameState(roomCode);
@@ -86,8 +86,8 @@ export function registerGameHandlers(socket, io) {
             }
             
             // Log received position data
-            const player = room.players.find(p => p.id === socket.id);
-            log(`📍 Position update from ${player?.name || socket.id}: row=${positionData.row}, col=${positionData.col}, x=${positionData.x?.toFixed(1)}, y=${positionData.y?.toFixed(1)}`);
+            // const player = room.players.find(p => p.id === socket.id);
+            // log(`📍 Position update from ${player?.name || socket.id}: row=${positionData.row}, col=${positionData.col}, x=${positionData.x?.toFixed(1)}, y=${positionData.y?.toFixed(1)}`);
             
             // Update position with validation and rate limiting
             const updatedPosition = gameStateManager.updatePlayerPosition(
@@ -186,7 +186,7 @@ export function registerGameHandlers(socket, io) {
                 return;
             }
 
-            log(`Quiz answer submitted: Player ${socket.id}, Q${questionId}, Answer ${answerIndex}, Correct: ${result.isCorrect}`);
+            // log(`Quiz answer submitted: Player ${socket.id}, Q${questionId}, Answer ${answerIndex}, Correct: ${result.isCorrect}`);
 
             // Send result back to the player
             socket.emit('quiz_answer_result', {

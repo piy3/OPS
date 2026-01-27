@@ -133,9 +133,7 @@ class GameStateManager {
         const room = roomManager.getRoom(roomCode); // redundant
         if (!room) return null;
 
-        // Block position updates if room is frozen (during quiz)
         if (this.frozenRooms.has(roomCode)) {
-            console.log(`❄️ Room frozen, ignoring position update from ${playerId}`);
             return null;
         }
 
@@ -144,7 +142,7 @@ class GameStateManager {
         if (respawnTime) {
             const timeSinceRespawn = Date.now() - respawnTime;
             if (timeSinceRespawn < 500) { // Ignore updates for 500ms after respawn
-                console.log(`🚫 Ignoring position update from recently respawned player ${playerId} (${timeSinceRespawn}ms ago)`);
+                // console.log(`🚫 Ignoring position update from recently respawned player ${playerId} (${timeSinceRespawn}ms ago)`);
                 return null;
             } else {
                 // Enough time has passed, remove from respawned list
@@ -153,11 +151,11 @@ class GameStateManager {
         }
 
         // Initialize room state if needed
-        this.initializeRoom(roomCode);
+        this.initializeRoom(roomCode); // i think we are doing it for respawning the dead player to get a non colliding spawning place
 
         // Get old position before updating
         const oldPosition = this.getPlayerPosition(roomCode, playerId);
-        console.log(`📝 Update request for ${playerId}: OLD pos=(${oldPosition?.row},${oldPosition?.col}) → NEW pos=(${positionData.row},${positionData.col})`);
+        // console.log(`📝 Update request for ${playerId}: OLD pos=(${oldPosition?.row},${oldPosition?.col}) → NEW pos=(${positionData.row},${positionData.col})`);
 
         // Rate limiting: Check if update is too frequent
         const now = Date.now();
@@ -165,18 +163,18 @@ class GameStateManager {
         const timeSinceLastUpdate = now - lastUpdate;
 
         if (timeSinceLastUpdate < GAME_CONFIG.POSITION_UPDATE_INTERVAL) {
-            console.log(`⚠️ THROTTLED: Update too fast (${timeSinceLastUpdate}ms < ${GAME_CONFIG.POSITION_UPDATE_INTERVAL}ms)`);
+            // console.log(`⚠️ THROTTLED: Update too fast (${timeSinceLastUpdate}ms < ${GAME_CONFIG.POSITION_UPDATE_INTERVAL}ms)`);
             return null; // Throttled
         }
 
         // Validate position data
         const validatedPosition = this.validatePosition(positionData);
         if (!validatedPosition) {
-            console.log(`⚠️ INVALID: Position validation failed for x=${positionData.x}, y=${positionData.y}, row=${positionData.row}, col=${positionData.col}`);
+            // console.log(`⚠️ INVALID: Position validation failed for x=${positionData.x}, y=${positionData.y}, row=${positionData.row}, col=${positionData.col}`);
             return null; // Invalid position
         }
         
-        console.log(`✅ Position update ACCEPTED: will store (${validatedPosition.row},${validatedPosition.col})`);
+        // console.log(`✅ Position update ACCEPTED: will store (${validatedPosition.row},${validatedPosition.col})`);
 
         // Get player from room to check if they are unicorn
         const player = room.players.find(p => p.id === playerId);
@@ -212,8 +210,8 @@ class GameStateManager {
         
         // Verify what was actually stored by reading it back
         const verifyStored = roomPositions.get(playerId);
-        console.log(`💾 Stored position for ${playerId}: row=${positionState.row}, col=${positionState.col}`);
-        console.log(`🔎 Verify stored: row=${verifyStored?.row}, col=${verifyStored?.col} (Match: ${verifyStored?.row === positionState.row && verifyStored?.col === positionState.col})`);
+        // console.log(`💾 Stored position for ${playerId}: row=${positionState.row}, col=${positionState.col}`);
+        // console.log(`🔎 Verify stored: row=${verifyStored?.row}, col=${verifyStored?.col} (Match: ${verifyStored?.row === positionState.row && verifyStored?.col === positionState.col})`);
         
         // Update last grid position
         if (typeof validatedPosition.row === 'number' && typeof validatedPosition.col === 'number') {
@@ -224,29 +222,29 @@ class GameStateManager {
         // Check not just the current position, but also cells crossed between old and new positions
         // Game freeze prevents multiple simultaneous quizzes, so no need to check hasActiveQuiz
         if (io && typeof validatedPosition.row === 'number' && typeof validatedPosition.col === 'number') {
-            console.log(`\n🔍 COLLISION CHECK for ${playerId} at row=${validatedPosition.row}, col=${validatedPosition.col}`);
+            // console.log(`\n🔍 COLLISION CHECK for ${playerId} at row=${validatedPosition.row}, col=${validatedPosition.col}`);
             
             // Find the unicorn in this room
             const unicornPlayer = room.players.find(p => p.isUnicorn);
-            console.log(`  Unicorn player: ${unicornPlayer ? unicornPlayer.name : 'NONE FOUND!'}`);
-            console.log(`  Current player isUnicorn: ${isUnicorn}`);
+            // console.log(`  Unicorn player: ${unicornPlayer ? unicornPlayer.name : 'NONE FOUND!'}`);
+            // console.log(`  Current player isUnicorn: ${isUnicorn}`);
             
             if (unicornPlayer) {
                 const unicornPos = this.getPlayerPosition(roomCode, unicornPlayer.id);
-                console.log(`  Unicorn position: row=${unicornPos?.row}, col=${unicornPos?.col}`);
+                // console.log(`  Unicorn position: row=${unicornPos?.row}, col=${unicornPos?.col}`);
                 
                 // Check ALL other players against current position
-                console.log(`  Checking all players in room:`);
-                room.players.forEach(p => {
-                    const pos = this.getPlayerPosition(roomCode, p.id);
-                    console.log(`    ${p.name} (unicorn=${p.isUnicorn}): row=${pos?.row}, col=${pos?.col}`);
-                });
+                // console.log(`  Checking all players in room:`);
+                // room.players.forEach(p => {
+                //     const pos = this.getPlayerPosition(roomCode, p.id);
+                //     console.log(`    ${p.name} (unicorn=${p.isUnicorn}): row=${pos?.row}, col=${pos?.col}`);
+                // });
                 
                 // Get the path of cells this player crossed (from old position to new position)
                 const oldPos = oldPosition || lastGridPos;
                 const newPos = { row: validatedPosition.row, col: validatedPosition.col };
                 const pathCells = this.getCellsInPath(oldPos, newPos);
-                console.log(`  Path crossed: ${pathCells.map(c => `(${c.row},${c.col})`).join(' -> ')}`);
+                // console.log(`  Path crossed: ${pathCells.map(c => `(${c.row},${c.col})`).join(' -> ')}`);
                 
                 // If this player (who just moved) is a regular player, check if they crossed the unicorn
                 if (!isUnicorn && unicornPos) {
@@ -259,19 +257,17 @@ class GameStateManager {
                     const isAdjacent = this.isAdjacent(newPos, unicornPos);
                     
                     if (crossedUnicorn || (newPos.row === unicornPos.row && newPos.col === unicornPos.col)) {
-                        console.log(`\n🦄 ✅ COLLISION DETECTED: Player crossed unicorn path!`);
-                        console.log(`  Player path: ${pathCells.map(c => `(${c.row},${c.col})`).join(' -> ')}`);
-                        console.log(`  Unicorn at: row=${unicornPos.row}, col=${unicornPos.col}`);
-                        
+                    //     console.log(`\n🦄 ✅ COLLISION DETECTED: Player crossed unicorn path!`);
+                    //     console.log(`  Player path: ${pathCells.map(c => `(${c.row},${c.col})`).join(' -> ')}`);
+                    //     console.log(`  Unicorn at: row=${unicornPos.row}, col=${unicornPos.col}`);
                         this.startQuiz(roomCode, unicornPlayer.id, playerId, io);
                     } else {
-                        console.log(`  Regular player moved, did not cross unicorn position`);
+                        // console.log(`  Regular player moved, did not cross unicorn position`);
                     }
                 }
                 // If unicorn just moved, check if it crossed any other player's position
                 else if (isUnicorn) {
-                    console.log(`  Unicorn moved, checking for crossed players...`);
-                    
+                    // console.log(`  Unicorn moved, checking for crossed players...`);
                     const caughtPlayer = room.players.find(p => {
                         if (p.id === playerId || p.isUnicorn) return false;
                         
@@ -286,25 +282,25 @@ class GameStateManager {
                         // Also check direct position match
                         const directMatch = playerPos.row === newPos.row && playerPos.col === newPos.col;
                         
-                        console.log(`    Checking ${p.name}: pos=(${playerPos?.row},${playerPos?.col}), crossed=${crossedPlayer}, direct=${directMatch}`);
+                        // console.log(`    Checking ${p.name}: pos=(${playerPos?.row},${playerPos?.col}), crossed=${crossedPlayer}, direct=${directMatch}`);
                         return crossedPlayer || directMatch;
                     });
                     
                     if (caughtPlayer) {
-                        const caughtPos = this.getPlayerPosition(roomCode, caughtPlayer.id);
-                        console.log(`\n🦄 ✅ COLLISION DETECTED: Unicorn crossed player!`);
-                        console.log(`  Unicorn path: ${pathCells.map(c => `(${c.row},${c.col})`).join(' -> ')}`);
-                        console.log(`  Player ${caughtPlayer.name} at: row=${caughtPos?.row}, col=${caughtPos?.col}`);
+                        // const caughtPos = this.getPlayerPosition(roomCode, caughtPlayer.id);
+                        // console.log(`\n🦄 ✅ COLLISION DETECTED: Unicorn crossed player!`);
+                        // console.log(`  Unicorn path: ${pathCells.map(c => `(${c.row},${c.col})`).join(' -> ')}`);
+                        // console.log(`  Player ${caughtPlayer.name} at: row=${caughtPos?.row}, col=${caughtPos?.col}`);
                         
                         this.startQuiz(roomCode, playerId, caughtPlayer.id, io);
                     } else {
-                        console.log(`  No collision found with any player`);
+                        // console.log(`  No collision found with any player`);
                     }
                 }
             } else {
-                console.log(`  ⚠️ WARNING: No unicorn found in room!`);
+                // console.log(`  ⚠️ WARNING: No unicorn found in room!`);
             }
-            console.log(`🔍 End collision check\n`);
+            // console.log(`🔍 End collision check\n`);
         }
 
         return positionState;
@@ -537,7 +533,7 @@ class GameStateManager {
                 const unicornPlayer = roomManager.updatePlayerCoins(roomCode, unicornId, 10);
                 const caughtPlayer = roomManager.updatePlayerCoins(roomCode, player.id, -10);
                 
-                console.log(`Unicorn ${unicornId} caught player ${player.id}! Coins: Unicorn +10 (${unicornPlayer?.coins}), Caught -10 (${caughtPlayer?.coins})`);
+                // console.log(`Unicorn ${unicornId} caught player ${player.id}! Coins: Unicorn +10 (${unicornPlayer?.coins}), Caught -10 (${caughtPlayer?.coins})`);
                 
                 // Emit score update event to all players in room
                 if (io) {
@@ -584,7 +580,7 @@ class GameStateManager {
         for (const spawnPos of spawnPositions) {
             const posKey = `${spawnPos.row},${spawnPos.col}`;
             if (!occupiedPositions.has(posKey)) {
-                console.log(`  ✅ Found free spawn: row=${spawnPos.row}, col=${spawnPos.col}`);
+                // console.log(`  ✅ Found free spawn: row=${spawnPos.row}, col=${spawnPos.col}`);
                 return spawnPos;
             }
         }
@@ -601,14 +597,14 @@ class GameStateManager {
         for (const fallbackPos of fallbackPositions) {
             const posKey = `${fallbackPos.row},${fallbackPos.col}`;
             if (!occupiedPositions.has(posKey)) {
-                console.log(`  ✅ Found fallback spawn: row=${fallbackPos.row}, col=${fallbackPos.col}`);
+                // console.log(`  ✅ Found fallback spawn: row=${fallbackPos.row}, col=${fallbackPos.col}`);
                 return fallbackPos;
             }
         }
         
         // Last resort: return a random predefined spawn
         const randomSpawn = spawnPositions[Math.floor(Math.random() * spawnPositions.length)];
-        console.log(`  ⚠️ All spawns occupied, using random: row=${randomSpawn.row}, col=${randomSpawn.col}`);
+        // console.log(`  ⚠️ All spawns occupied, using random: row=${randomSpawn.row}, col=${randomSpawn.col}`);
         return randomSpawn;
     }
 
@@ -680,7 +676,7 @@ class GameStateManager {
         });
 
         // 3. Respawn BOTH unicorn and caught player to separate locations
-        console.log(`\n🔄 Respawning both players to break collision...`);
+        // console.log(`\n🔄 Respawning both players to break collision...`);
         
         const roomPositions = this.playerPositions.get(roomCode);
         if (roomPositions) {
@@ -729,9 +725,9 @@ class GameStateManager {
             this.lastGridPositions.set(caughtId, { row: finalCaughtSpawn.row, col: finalCaughtSpawn.col });
             this.respawnedPlayers.set(caughtId, Date.now());
             
-            console.log(`  Unicorn respawned: row=${unicornSpawn.row}, col=${unicornSpawn.col}`);
-            console.log(`  Caught player respawned: row=${finalCaughtSpawn.row}, col=${finalCaughtSpawn.col}`);
-            console.log(`  🔒 Both positions locked for 500ms to prevent override`);
+            // console.log(`  Unicorn respawned: row=${unicornSpawn.row}, col=${unicornSpawn.col}`);
+            // console.log(`  Caught player respawned: row=${finalCaughtSpawn.row}, col=${finalCaughtSpawn.col}`);
+            // console.log(`  🔒 Both positions locked for 500ms to prevent override`);
             
             // Broadcast new positions to all players
             io.to(roomCode).emit(SOCKET_EVENTS.SERVER.PLAYER_POSITION_UPDATE, {
