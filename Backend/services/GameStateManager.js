@@ -21,6 +21,9 @@ class GameStateManager {
         // Track active quizzes: roomCode -> { unicornId, caughtId, questions, startTime, answers }
         this.activeQuizzes = new Map();
         
+        // Track quiz timeouts: roomCode -> timeoutId (so we can clear them)
+        this.quizTimeouts = new Map();
+        
         // Track frozen rooms: Set of roomCodes that are currently frozen
         this.frozenRooms = new Set();
         
@@ -757,16 +760,28 @@ class GameStateManager {
             unicornName: unicornName
         });
 
+        // Clear any existing timeout for this room (prevents stale timeouts)
+        if (this.quizTimeouts.has(roomCode)) {
+            clearTimeout(this.quizTimeouts.get(roomCode));
+            console.log(`🗑️ Cleared existing quiz timeout for room ${roomCode}`);
+        }
+
         // Set timeout to auto-complete quiz after time limit
-        setTimeout(() => {
+        const timeoutId = setTimeout(() => {
             if (this.activeQuizzes.has(roomCode)) {
                 const quiz = this.activeQuizzes.get(roomCode);
                 if (!quiz.completed) {
-                    console.log(`Quiz timeout in room ${roomCode}`);
+                    console.log(`⏰ Quiz timeout in room ${roomCode} (${QUIZ_CONFIG.TOTAL_TIME_LIMIT}ms elapsed)`);
                     this.completeQuiz(roomCode, io, true); // true = timeout
                 }
             }
+            // Clean up timeout reference
+            this.quizTimeouts.delete(roomCode);
         }, QUIZ_CONFIG.TOTAL_TIME_LIMIT);
+        
+        // Store timeout ID so we can clear it later
+        this.quizTimeouts.set(roomCode, timeoutId);
+        console.log(`⏱️ Quiz timeout set for ${QUIZ_CONFIG.TOTAL_TIME_LIMIT}ms (${QUIZ_CONFIG.TOTAL_TIME_LIMIT / 1000}s)`);
     }
 
     /**
@@ -843,6 +858,13 @@ class GameStateManager {
         if (quiz.completed) {
             console.log(`⚠️ Quiz already completed for room ${roomCode}`);
             return;
+        }
+
+        // Clear the timeout since quiz is completing (prevents double-completion)
+        if (this.quizTimeouts.has(roomCode)) {
+            clearTimeout(this.quizTimeouts.get(roomCode));
+            this.quizTimeouts.delete(roomCode);
+            console.log(`🗑️ Cleared quiz timeout for room ${roomCode}`);
         }
 
         quiz.completed = true;
@@ -974,6 +996,13 @@ class GameStateManager {
      * @param {string} roomCode - Room code
      */
     clearQuizState(roomCode) {
+        // Clear any pending quiz timeout
+        if (this.quizTimeouts.has(roomCode)) {
+            clearTimeout(this.quizTimeouts.get(roomCode));
+            this.quizTimeouts.delete(roomCode);
+            console.log(`🗑️ Cleared quiz timeout for room ${roomCode}`);
+        }
+        
         if (this.activeQuizzes.has(roomCode)) {
             console.log(`🗑️ Clearing stale quiz state for room ${roomCode}`);
             this.activeQuizzes.delete(roomCode);
