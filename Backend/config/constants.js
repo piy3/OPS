@@ -261,9 +261,30 @@ export const SOCKET_EVENTS = {
     }
 };
 
+/**
+ * Position Update Rate Configuration
+ * 
+ * CLIENT (Frontend):
+ *   - Sends position updates at ~30fps (every 33ms)
+ *   - Throttled in StartGame.jsx sendPositionUpdate()
+ * 
+ * SERVER (Backend):
+ *   - Accepts updates at ~30fps (every 30ms) to match client
+ *   - Throttled in PositionManager.updatePosition() BEFORE heavy work
+ *   - Returns early if throttled to avoid unnecessary room/collision checks
+ * 
+ * The server throttle is set slightly lower (30ms vs 33ms) to account for
+ * network jitter while still preventing excessive updates.
+ */
 export const GAME_CONFIG = {
-    MAX_POSITION_UPDATE_RATE: 60, // Updates per second (throttle)
-    POSITION_UPDATE_INTERVAL: 1000 / 60, // ~16.67ms between updates
+    // Position update throttling
+    POSITION_UPDATE_RATE: 30,                // Target updates per second
+    POSITION_UPDATE_INTERVAL: 30,            // 30ms between updates (~33fps)
+    CLIENT_POSITION_SEND_INTERVAL: 33,       // Frontend sends at 33ms (~30fps)
+    
+    // Legacy (keep for backwards compat, but use above values)
+    MAX_POSITION_UPDATE_RATE: 30,
+    
     MAX_POSITION_HISTORY: 10, // Keep last N positions for lag compensation
     POSITION_VALIDATION: {
         MAX_X: 10000, // Adjust based on your game world

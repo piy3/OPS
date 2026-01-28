@@ -1,9 +1,12 @@
 import { useState, useEffect } from 'react';
-import { useSocket } from '../context/SocketContext';
+import { useRoom } from '../context/RoomContext';
+import { useGamePhase } from '../context/GamePhaseContext';
 import './BlitzQuizModal.css';
 
 function BlitzQuizModal() {
-  const { blitzQuizData, socketService, roomData } = useSocket();
+  // Use focused hooks - avoid re-renders from combat state changes
+  const { socketService, roomData } = useRoom();
+  const { blitzQuizData } = useGamePhase();
   const [selectedAnswer, setSelectedAnswer] = useState(null);
   const [timeRemaining, setTimeRemaining] = useState(0);
   const [hasAnswered, setHasAnswered] = useState(false);

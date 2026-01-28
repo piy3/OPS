@@ -5,6 +5,8 @@
 // This module provides both legacy array-based maze data and 
 // optional integration with TiledMapLoader for Phaser tilemap rendering.
 
+import log from './utils/logger';
+
 // TiledMapLoader integration (lazy loaded to avoid circular dependencies)
 let mapLoader = null;
 
@@ -16,7 +18,7 @@ export function initFromTiledMap(tiledMapData) {
   // Lazy import to avoid circular dependencies
   import('./utils/TiledMapLoader.js').then(({ TiledMapLoader }) => {
     mapLoader = new TiledMapLoader(tiledMapData);
-    console.log('Maze initialized from Tiled map');
+    log.log('Maze initialized from Tiled map');
   });
 }
 

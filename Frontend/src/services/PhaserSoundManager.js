@@ -5,6 +5,7 @@
  */
 
 import Phaser from 'phaser';
+import log from '../utils/logger';
 
 // Sound effect keys
 export const SOUNDS = {
@@ -52,7 +53,7 @@ class AudioScene extends Phaser.Scene {
     
     // Handle load errors gracefully - sounds are optional
     this.load.on('loaderror', (file) => {
-      console.warn(`Failed to load sound: ${file.key} - will use fallback`);
+      log.warn(`Failed to load sound: ${file.key} - will use fallback`);
     });
   }
 
@@ -64,7 +65,7 @@ class AudioScene extends Phaser.Scene {
       }
     });
     
-    console.log('🔊 Audio Scene initialized with sounds:', Object.keys(this.sounds));
+    log.log('🔊 Audio Scene initialized with sounds:', Object.keys(this.sounds));
   }
 
   playSound(key, config = {}) {
@@ -281,16 +282,16 @@ class PhaserSoundManager {
 
   init(parentElement = null) {
     if (this.initialized) {
-      console.log('🔊 Sound Manager already initialized');
+      log.log('🔊 Sound Manager already initialized');
       return Promise.resolve(this);
     }
 
     // Initialize standalone Web Audio context first (works without Phaser)
     try {
       this.standaloneAudioContext = new (window.AudioContext || window.webkitAudioContext)();
-      console.log('🔊 Standalone Web Audio context initialized');
+      log.log('🔊 Standalone Web Audio context initialized');
     } catch (e) {
-      console.warn('Failed to create standalone audio context:', e);
+      log.warn('Failed to create standalone audio context:', e);
     }
 
     return new Promise((resolve) => {
@@ -314,7 +315,7 @@ class PhaserSoundManager {
         this.scene = this.game.scene.getScene('AudioScene');
         if (this.scene && this.scene.sound) {
           this.initialized = true;
-          console.log('🔊 Phaser Sound Manager initialized');
+          log.log('🔊 Phaser Sound Manager initialized');
           
           // Play any pending sounds
           this.pendingSounds.forEach(({ key, config }) => {

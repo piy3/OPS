@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { useSocket } from '../context/SocketContext';
+import { useRoom } from '../context/RoomContext';
 import './BlitzQuizResults.css';
 
 function BlitzQuizResults({ results }) {
-  const { socketService } = useSocket();
+  // Only need socketService - use focused RoomContext to avoid re-renders from combat/phase changes
+  const { socketService } = useRoom();
   const [countdown, setCountdown] = useState(3);
   const myId = socketService?.getSocket()?.id;
 

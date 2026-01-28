@@ -3,6 +3,7 @@
  */
 
 import { io } from 'socket.io-client';
+import log from '../utils/logger';
 
 // Socket configuration from environment variable
 // In Vite, use import.meta.env (not process.env)
@@ -11,8 +12,8 @@ const SOCKET_URL = ENV === 'prod'
   ? import.meta.env.VITE_PROD_URL 
   : import.meta.env.VITE_DEV_URL;
 
-console.log('Environment:', ENV);
-console.log('Socket URL:', SOCKET_URL);
+log.log('Environment:', ENV);
+log.log('Socket URL:', SOCKET_URL);
 
 class SocketService {
   constructor() {
@@ -27,20 +28,20 @@ class SocketService {
   connect() {
     // If socket exists and is connected, return it
     if (this.socket && this.socket.connected) {
-      console.log('Socket already connected');
+      log.log('Socket already connected');
       return this.socket;
     }
 
     // If socket exists but disconnected, try to reconnect existing socket
     if (this.socket && !this.socket.connected) {
-      console.log('Reconnecting existing socket');
+      log.log('Reconnecting existing socket');
       this.socket.connect();
       return this.socket;
     }
 
     // Only create new socket if one doesn't exist
     this.connectionCount++;
-    console.log(`Creating new socket connection (attempt ${this.connectionCount})`);
+    log.log(`Creating new socket connection (attempt ${this.connectionCount})`);
 
     this.socket = io(SOCKET_URL, {
       transports: ['websocket', 'polling'],
@@ -50,17 +51,17 @@ class SocketService {
     });
 
     this.socket.on('connect', () => {
-      console.log('Socket connected:', this.socket.id);
+      log.log('Socket connected:', this.socket.id);
       this.connected = true;
     });
 
     this.socket.on('disconnect', () => {
-      console.log('Socket disconnected');
+      log.log('Socket disconnected');
       this.connected = false;
     });
 
     this.socket.on('connect_error', (error) => {
-      console.error('Socket connection error:', error);
+      log.error('Socket connection error:', error);
     });
 
     return this.socket;
@@ -71,7 +72,7 @@ class SocketService {
    */
   disconnect() {
     if (this.socket) {
-      console.log('Disconnecting socket');
+      log.log('Disconnecting socket');
       this.socket.disconnect();
       this.socket = null;
       this.connected = false;

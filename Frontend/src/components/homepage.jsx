@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useSocket } from '../context/SocketContext'
+import { useRoom } from '../context/RoomContext'
+import log from '../utils/logger'
 import './homepage.css'
 
 function HomePage() {
   const navigate = useNavigate()
-  const { socketService, setRoomData, players, setPlayers } = useSocket()
+  // Use focused RoomContext - homepage doesn't need combat or game phase state
+  const { socketService, setRoomData, roomData, players } = useRoom()
   const [hoveredButton, setHoveredButton] = useState(null)
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showJoinModal, setShowJoinModal] = useState(false)
@@ -29,13 +31,12 @@ function HomePage() {
     try {
       // Create room via socket
       const data = await socketService.createRoom(playerName.trim(), 9)
-      console.log('Room created:', data)
+      log.log('Room created:', data)
       setRoomId(data.roomCode)
       setRoomData(data.room)
-      setPlayers(data.room.players)
       setIsFetchingRoomId(false)
     } catch (err) {
-      console.error('Error creating room:', err)
+      log.error('Error creating room:', err)
       setError('Failed to create room. Please try again.')
       setIsFetchingRoomId(false)
       setShowCreateModal(false)
@@ -57,7 +58,7 @@ function HomePage() {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch (err) {
-      console.error('Failed to copy:', err)
+      log.error('Failed to copy:', err)
     }
   }
 
@@ -77,12 +78,11 @@ function HomePage() {
     try {
       // Join room via socket
       const data = await socketService.joinRoom(joinRoomIdInput.trim(), playerName.trim())
-      console.log('Joined room:', data)
+      log.log('Joined room:', data)
       setRoomId(data.roomCode)
       setRoomData(data.room)
-      setPlayers(data.room.players)
     } catch (err) {
-      console.error('Error joining room:', err)
+      log.error('Error joining room:', err)
       setError(err.message || 'Failed to join room. Please check the room ID.')
     }
   }
@@ -107,10 +107,9 @@ function HomePage() {
     setShowJoinModal(false)
     setRoomId('')
     setJoinRoomIdInput('')
-    setPlayers([])
     setIsFetchingRoomId(false)
     setError('')
-    setRoomData(null)
+    setRoomData(null) // This also clears players (derived from roomData)
   }
 
   return (

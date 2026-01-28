@@ -3,7 +3,8 @@ import Phaser from 'phaser'
 import { MAZE_ROWS, MAZE_COLS, hasWrapAround, setMapLoader } from '../maze'
 import { generateTilesetTexture, TILE_SIZE } from '../scripts/generateTileset'
 import { TiledMapLoader, createDynamicTilemap } from '../utils/TiledMapLoader'
-import { PLAYER_STATE, COMBAT_CONFIG } from '../context/SocketContext'
+import { PLAYER_STATE, COMBAT_CONFIG } from '../context/CombatContext'
+import log from '../utils/logger'
 
 // Phaser scene for player rendering with smooth interpolation
 class PlayerScene extends Phaser.Scene {
@@ -105,9 +106,9 @@ class PlayerScene extends Phaser.Scene {
       // Scale tilemap to match cell size if needed
       this.updateTilemapScale()
       
-      console.log('Tilemap created successfully')
+      log.log('Tilemap created successfully')
     } catch (error) {
-      console.error('Error creating tilemap:', error)
+      log.error('Error creating tilemap:', error)
       this.renderMaze = false
     }
   }

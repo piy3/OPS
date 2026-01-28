@@ -1,16 +1,58 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useSocket, GAME_PHASE, PLAYER_STATE, COMBAT_CONFIG } from '../context/SocketContext'
 import { useSound } from '../context/SoundContext'
+import { POSITION_CONFIG } from '../config/gameConfig'
+import log from '../utils/logger'
 import '../App.css'
 import { maze, MAZE_ROWS, MAZE_COLS, isWall, hasWrapAround, getWrappedCol, getWallBorders } from '../maze'
-import FreezeOverlay from './FreezeOverlay'
-import QuizModal from './QuizModal'
-import QuizResults from './QuizResults'
-import BlitzQuizModal from './BlitzQuizModal'
-import BlitzQuizResults from './BlitzQuizResults'
-import PhaserPlayerLayer from './PhaserPlayerLayer'
 import coinAnimation from '../assets/coinAnimation.gif'
+
+// ============ CODE-SPLIT: Lazy load heavy components ============
+// These are conditionally rendered and don't need to be in the initial bundle
+const FreezeOverlay = lazy(() => import('./FreezeOverlay'))
+const QuizModal = lazy(() => import('./QuizModal'))
+const QuizResults = lazy(() => import('./QuizResults'))
+const BlitzQuizModal = lazy(() => import('./BlitzQuizModal'))
+const BlitzQuizResults = lazy(() => import('./BlitzQuizResults'))
+const PhaserPlayerLayer = lazy(() => import('./PhaserPlayerLayer'))
+
+// ============ CENTRALIZED MAZE LAYOUT ============
+// Calculate maze dimensions once and reuse everywhere
+const calculateMazeLayout = () => {
+  const cellSize = Math.min(window.innerWidth / MAZE_COLS, window.innerHeight / MAZE_ROWS)
+  return {
+    cellSize,
+    mazeWidth: cellSize * MAZE_COLS,
+    mazeHeight: cellSize * MAZE_ROWS
+  }
+}
+
+// Helper to convert grid position to pixel position
+const gridToPixel = (row, col, cellSize) => ({
+  x: col * cellSize + cellSize / 2,
+  y: row * cellSize + cellSize / 2
+})
+
+// Helper to convert pixel position to percentage
+const pixelToPercent = (x, y, mazeWidth, mazeHeight) => ({
+  left: (x / mazeWidth) * 100,
+  top: (y / mazeHeight) * 100
+})
+
+// Helper to get CSS rotation transform based on facing direction
+const getDirectionTransform = (direction) => {
+  switch (direction) {
+    case 'up': return 'rotate(-90deg)'
+    case 'down': return 'rotate(90deg)'
+    case 'left': return 'rotate(180deg)'
+    case 'right':
+    default: return 'rotate(0deg)'
+  }
+}
+
+// Helper to format hunt time remaining
+const formatHuntTime = (ms) => `${Math.floor(ms / 1000)}s`
 
 function StartGame() {
   const navigate = useNavigate()
@@ -54,20 +96,40 @@ function StartGame() {
   // Sound controls
   const { volume, muted, setVolume, toggleMute } = useSound()
   
+  // ============ OPTIMIZED: Memoize socket ID to avoid repeated lookups ============
+  // This is called 18+ times in the component; memoizing prevents repeated getSocket() calls
+  const myId = useMemo(() => socketService.getSocket()?.id, [socketService])
+  
   const [showLeaderboard, setShowLeaderboard] = useState(false)
   const [showCoordinates, setShowCoordinates] = useState(false)
   const [showSoundControls, setShowSoundControls] = useState(false)
   
   const [playerPos, setPlayerPos] = useState({ row: null, col: null })
-  const [playerPixelPos, setPlayerPixelPos] = useState({ x: 0, y: 0 })
   const [direction, setDirection] = useState(null) // null, 'up', 'down', 'left', 'right'
   const [facingDirection, setFacingDirection] = useState('right') // Track which way the player is facing: 'up', 'down', 'left', 'right'
   const [remotePlayers, setRemotePlayers] = useState({}) // { playerId: { x, y, name } }
-  const [remotePlayerPixelPos, setRemotePlayerPixelPos] = useState({}) // { playerId: { x, y } }
   const [remotePlayerDirections, setRemotePlayerDirections] = useState({}) // { playerId: 'up' | 'down' | 'left' | 'right' }
   
-  const directionRef = useRef(null)
+  // ============ OPTIMIZED: Maze layout stored in ref for synchronous access ============
+  // This replaces ~50 inline cellSize calculations with a single cached value
+  const mazeLayoutRef = useRef(calculateMazeLayout())
+  const [mazeDimensions, setMazeDimensions] = useState({ 
+    width: mazeLayoutRef.current.mazeWidth, 
+    height: mazeLayoutRef.current.mazeHeight 
+  })
+  
+  // ============ OPTIMIZED: Position state updates throttled ============
+  // Refs for per-frame updates (read by Phaser), state only updated at lower rate for UI
   const playerPixelPosRef = useRef({ x: 0, y: 0 })
+  const remotePlayerPixelPosRef = useRef({}) // { playerId: { x, y } } - replaces state for per-frame updates
+  const lastUIUpdateTimeRef = useRef(0) // Throttle UI state updates to ~15fps
+  const UI_UPDATE_INTERVAL = 66 // ~15fps for UI updates (instead of 60fps)
+  
+  // State for UI elements that need React re-renders (updated at lower rate)
+  const [playerPixelPos, setPlayerPixelPos] = useState({ x: 0, y: 0 })
+  const [remotePlayerPixelPos, setRemotePlayerPixelPos] = useState({}) // Only for DOM fallback rendering
+  
+  const directionRef = useRef(null)
   const targetGridPosRef = useRef({ row: 1, col: 1 })
   const animationFrameRef = useRef(null)
   const lastAnimationTimestampRef = useRef(0) // Track last frame timestamp for delta time
@@ -84,7 +146,14 @@ function StartGame() {
   const [usePhaserRendering, setUsePhaserRendering] = useState(true) // Toggle between Phaser and DOM rendering
   const [usePhaserMaze, setUsePhaserMaze] = useState(true) // Whether to render maze via Phaser tilemap
   const [phaserMazeReady, setPhaserMazeReady] = useState(false) // Whether Phaser maze has loaded
-  const [mazeDimensions, setMazeDimensions] = useState({ width: window.innerWidth, height: window.innerHeight })
+  
+  // ============ CENTRALIZED: Update maze layout on resize ============
+  const updateMazeLayout = useCallback(() => {
+    const newLayout = calculateMazeLayout()
+    mazeLayoutRef.current = newLayout
+    setMazeDimensions({ width: newLayout.mazeWidth, height: newLayout.mazeHeight })
+    return newLayout
+  }, [])
 
   // Memoize the maze grid since it never changes - prevents recalculating borders on every render
   const mazeGrid = useMemo(() => {
@@ -135,7 +204,7 @@ function StartGame() {
   // Check if we're in a game
   useEffect(() => {
     if (!roomData || !gameState) {
-      console.log('No room or game state, redirecting to home')
+      log.log('No room or game state, redirecting to home')
       // navigate('/')
     }
   }, [roomData, gameState, navigate])
@@ -145,23 +214,22 @@ function StartGame() {
     // Listen for position updates from other players
     const handlePositionUpdate = (data) => {
       const { playerId, position } = data
+      const { cellSize, mazeWidth } = mazeLayoutRef.current
       
       // IMPORTANT: If this is OUR position (e.g., server respawned us), update local position immediately
       if (playerId === socketService.getSocket()?.id) {
-        console.log('Received position update for SELF (respawn):', position);
+        log.log('Received position update for SELF (respawn):', position);
         if (typeof position.row === 'number' && typeof position.col === 'number') {
-          const cellSize = Math.min(window.innerWidth / MAZE_COLS, window.innerHeight / MAZE_ROWS);
-          const newPixelX = position.col * cellSize + cellSize / 2;
-          const newPixelY = position.row * cellSize + cellSize / 2;
+          const pixelPos = gridToPixel(position.row, position.col, cellSize)
           
           // Update local player position immediately
           setPlayerPos({ row: position.row, col: position.col });
           targetGridPosRef.current = { row: position.row, col: position.col };
-          playerPixelPosRef.current = { x: newPixelX, y: newPixelY };
-          setPlayerPixelPos({ x: newPixelX, y: newPixelY });
+          playerPixelPosRef.current = { x: pixelPos.x, y: pixelPos.y };
+          setPlayerPixelPos({ x: pixelPos.x, y: pixelPos.y });
           lastGridPosRef.current = { row: position.row, col: position.col };
           
-          console.log(`✅ Local position updated to: row=${position.row}, col=${position.col}`);
+          log.log(`✅ Local position updated to: row=${position.row}, col=${position.col}`);
         }
         return; // Don't process as remote player
       }
@@ -179,53 +247,24 @@ function StartGame() {
       const playerName = player?.name || 'Player'
       const isUnicorn = position.isUnicorn || false
       
-      setRemotePlayers(prev => {
-        const existing = prev[playerId]
-        return {
-          ...prev,
-          [playerId]: {
-            x: position.x,
-            y: position.y,
-            name: playerName,
-            isUnicorn: isUnicorn,
-            timestamp: Date.now()
-          }
+      setRemotePlayers(prev => ({
+        ...prev,
+        [playerId]: {
+          x: position.x,
+          y: position.y,
+          name: playerName,
+          isUnicorn: isUnicorn,
+          timestamp: Date.now()
         }
-      })
+      }))
       
-      // Calculate pixel positions from grid positions using LOCAL cell size
-      // This ensures consistency across different screen sizes
-      const cellSize = Math.min(window.innerWidth / MAZE_COLS, window.innerHeight / MAZE_ROWS)
-      
-      // Always use grid positions to calculate target (ensures screen-size independence)
-      // The grid position is the source of truth
+      // Calculate target pixel position from grid position
       let targetPixelX, targetPixelY
       
       if (typeof position.row === 'number' && typeof position.col === 'number') {
-        // Calculate sub-cell position for smoother movement
-        // Use the fractional part of pixel position if available
-        const gridCenterX = position.col * cellSize + cellSize / 2
-        const gridCenterY = position.row * cellSize + cellSize / 2
-        
-        // If we have pixel positions from the sender, use them to calculate sub-cell offset
-        // This allows for smooth interpolation between cells
-        if (position.x && position.y && position.x !== 0 && position.y !== 0) {
-          // The sender's pixel position represents progress within the cell
-          // We need to normalize this to our local cell size
-          // Extract the fractional position (how far along the cell they are)
-          const senderCellSize = position.x / (position.col + 0.5) // Approximate sender's cell size
-          if (senderCellSize > 0 && senderCellSize < cellSize * 3) {
-            // Use proportional position within the cell
-            targetPixelX = gridCenterX
-            targetPixelY = gridCenterY
-          } else {
-            targetPixelX = gridCenterX
-            targetPixelY = gridCenterY
-          }
-        } else {
-          targetPixelX = gridCenterX
-          targetPixelY = gridCenterY
-        }
+        const gridCenter = gridToPixel(position.row, position.col, cellSize)
+        targetPixelX = gridCenter.x
+        targetPixelY = gridCenter.y
       } else {
         // Fallback to pixel positions if grid not available
         targetPixelX = position.x || cellSize / 2
@@ -245,25 +284,18 @@ function StartGame() {
           initialized: true,
           spawnInitialized: true
         }
-        setRemotePlayerPixelPos(prev => ({
-          ...prev,
-          [playerId]: { x: targetPixelX, y: targetPixelY }
-        }))
+        remotePlayerPixelPosRef.current[playerId] = { x: targetPixelX, y: targetPixelY }
       } else {
         const remotePlayerPos = remotePlayerPositionsRef.current[playerId]
         
         // If this is the first update after initialization, snap to position immediately
-        // to prevent gliding from (0,0) or previous position
         if (!remotePlayerPos.initialized || !remotePlayerPos.spawnInitialized) {
-          // If spawn hasn't been initialized, calculate from row/col to ensure correct position
-          const cellSize = Math.min(window.innerWidth / MAZE_COLS, window.innerHeight / MAZE_ROWS)
           const spawnRow = position.row || remotePlayerPos.row || 1
           const spawnCol = position.col || remotePlayerPos.col || 1
-          const spawnPixelX = spawnCol * cellSize + cellSize / 2
-          const spawnPixelY = spawnRow * cellSize + cellSize / 2
+          const spawnPixel = gridToPixel(spawnRow, spawnCol, cellSize)
           
-          remotePlayerPos.current = { x: spawnPixelX, y: spawnPixelY }
-          remotePlayerPos.target = { x: spawnPixelX, y: spawnPixelY }
+          remotePlayerPos.current = { x: spawnPixel.x, y: spawnPixel.y }
+          remotePlayerPos.target = { x: spawnPixel.x, y: spawnPixel.y }
           remotePlayerPos.row = spawnRow
           remotePlayerPos.col = spawnCol
           remotePlayerPos.lastCol = spawnCol
@@ -271,10 +303,7 @@ function StartGame() {
           remotePlayerPos.initialized = true
           remotePlayerPos.spawnInitialized = true
           
-          setRemotePlayerPixelPos(prev => ({
-            ...prev,
-            [playerId]: { x: spawnPixelX, y: spawnPixelY }
-          }))
+          remotePlayerPixelPosRef.current[playerId] = { x: spawnPixel.x, y: spawnPixel.y }
           return // Skip interpolation for first update
         }
         
@@ -289,20 +318,17 @@ function StartGame() {
           const colDiff = newCol - lastCol
           // Handle wrap-around for direction detection
           if (Math.abs(colDiff) < MAZE_COLS / 2) {
-            // Normal movement (no wrap)
             setRemotePlayerDirections(prev => ({
               ...prev,
               [playerId]: colDiff > 0 ? 'right' : 'left'
             }))
           } else {
-            // Wrap-around movement
             setRemotePlayerDirections(prev => ({
               ...prev,
               [playerId]: colDiff > 0 ? 'left' : 'right'
             }))
           }
         } else if (newRow !== lastRow) {
-          // Vertical movement
           const rowDiff = newRow - lastRow
           setRemotePlayerDirections(prev => ({
             ...prev,
@@ -311,8 +337,6 @@ function StartGame() {
         }
         
         // Detect wrap-around for remote players
-        const mazeWidth = cellSize * MAZE_COLS
-        // Use calculated pixel position from row/col if available, otherwise use position.x
         let adjustedTargetX = (typeof position.row === 'number' && typeof position.col === 'number') 
           ? targetPixelX 
           : position.x
@@ -324,30 +348,20 @@ function StartGame() {
           // Detect wrap from right to left (31 -> 0)
           if (colDiff < -MAZE_COLS / 2 || (lastCol === MAZE_COLS - 1 && newCol === 0)) {
             wrapDetected = true
-            // Snap current position to wrapped side (right side) immediately
-            // This prevents gliding across the screen
             if (remotePlayerPos.current.x < mazeWidth / 2) {
-              // Current is on left, target is on right after wrap
-              // Snap current to right side near target
               remotePlayerPos.current.x = targetPixelX + mazeWidth
               adjustedTargetX = targetPixelX + mazeWidth
             } else {
-              // Already on right side, just update target
               adjustedTargetX = targetPixelX + mazeWidth
             }
           }
           // Detect wrap from left to right (0 -> 31)
           else if (colDiff > MAZE_COLS / 2 || (lastCol === 0 && newCol === MAZE_COLS - 1)) {
             wrapDetected = true
-            // Snap current position to wrapped side (left side) immediately
-            // This prevents gliding across the screen
             if (remotePlayerPos.current.x > mazeWidth / 2) {
-              // Current is on right, target is on left after wrap
-              // Snap current to left side near target
               remotePlayerPos.current.x = targetPixelX - mazeWidth
               adjustedTargetX = targetPixelX - mazeWidth
             } else {
-              // Already on left side, just update target
               adjustedTargetX = targetPixelX - mazeWidth
             }
           }
@@ -355,32 +369,24 @@ function StartGame() {
         
         // If no wrap detected, normalize positions to ensure they're in valid range
         if (!wrapDetected && hasWrapAround(newRow)) {
-          // Normalize target to 0-mazeWidth range
-          while (adjustedTargetX < 0) {
-            adjustedTargetX += mazeWidth
-          }
-          while (adjustedTargetX >= mazeWidth) {
-            adjustedTargetX -= mazeWidth
-          }
+          while (adjustedTargetX < 0) adjustedTargetX += mazeWidth
+          while (adjustedTargetX >= mazeWidth) adjustedTargetX -= mazeWidth
         }
         
-        // Update target position (use calculated pixel position)
+        // Update target position
         remotePlayerPos.target = { x: adjustedTargetX, y: targetPixelY }
         remotePlayerPos.row = newRow
         remotePlayerPos.col = newCol
         remotePlayerPos.lastCol = newCol
         remotePlayerPos.lastRow = newRow
         
-        // Add position to buffer for velocity-based prediction (keep last 3 positions)
+        // Add position to buffer for velocity-based prediction
         const newBufferEntry = { x: adjustedTargetX, y: targetPixelY, timestamp: Date.now() }
         remotePlayerPos.buffer = [...(remotePlayerPos.buffer || []), newBufferEntry].slice(-3)
         
-        // If wrap was detected, immediately update the pixel position to prevent gliding
+        // If wrap was detected, immediately update the ref position
         if (wrapDetected) {
-          setRemotePlayerPixelPos(prev => ({
-            ...prev,
-            [playerId]: { x: remotePlayerPos.current.x, y: remotePlayerPos.current.y }
-          }))
+          remotePlayerPixelPosRef.current[playerId] = { x: remotePlayerPos.current.x, y: remotePlayerPos.current.y }
         }
       }
     }
@@ -388,7 +394,7 @@ function StartGame() {
     // Listen for game state sync (initial positions)
     const handleGameStateSync = (data) => {
       if (data.gameState && data.gameState.players) {
-        const cellSize = Math.min(window.innerWidth / MAZE_COLS, window.innerHeight / MAZE_ROWS)
+        const { cellSize } = mazeLayoutRef.current
         const currentPlayerId = socketService.getSocket()?.id
         const newRemotePlayers = {}
         const newRemotePixelPos = {}
@@ -397,48 +403,45 @@ function StartGame() {
         
         data.gameState.players.forEach(player => {
           if (player.position) {
-            // Calculate pixel position from row/col to ensure consistency
             const spawnRow = player.position.row || 1
             const spawnCol = player.position.col || 1
-            const spawnPixelX = spawnCol * cellSize + cellSize / 2
-            const spawnPixelY = spawnRow * cellSize + cellSize / 2
+            const spawnPixel = gridToPixel(spawnRow, spawnCol, cellSize)
             
             if (player.id === currentPlayerId) {
               // Set local player's initial position from gameState spawn position
               setPlayerPos({ row: spawnRow, col: spawnCol })
               targetGridPosRef.current = { row: spawnRow, col: spawnCol }
-              playerPixelPosRef.current = { x: spawnPixelX, y: spawnPixelY }
-              setPlayerPixelPos({ x: spawnPixelX, y: spawnPixelY })
+              playerPixelPosRef.current = { x: spawnPixel.x, y: spawnPixel.y }
+              setPlayerPixelPos({ x: spawnPixel.x, y: spawnPixel.y })
               lastGridPosRef.current = { row: spawnRow, col: spawnCol }
             } else {
-              // Set remote players' initial positions immediately (no interpolation on first sync)
-              // This prevents gliding from (0,0) or previous position
+              // Set remote players' initial positions immediately
               newRemotePlayers[player.id] = {
-                x: spawnPixelX,
-                y: spawnPixelY,
+                x: spawnPixel.x,
+                y: spawnPixel.y,
                 name: player.name
               }
               newRemotePixelPos[player.id] = {
-                x: spawnPixelX,
-                y: spawnPixelY
+                x: spawnPixel.x,
+                y: spawnPixel.y
               }
               newRemotePositions[player.id] = {
-                current: { x: spawnPixelX, y: spawnPixelY },
-                target: { x: spawnPixelX, y: spawnPixelY },
+                current: { x: spawnPixel.x, y: spawnPixel.y },
+                target: { x: spawnPixel.x, y: spawnPixel.y },
                 row: spawnRow,
                 col: spawnCol,
                 lastCol: spawnCol,
                 lastRow: spawnRow,
-                initialized: true, // Flag to prevent gliding on first position update
-                spawnInitialized: true // Flag to indicate spawn position has been set
+                initialized: true,
+                spawnInitialized: true
               }
-              // Initialize all remote players facing right by default
               newRemoteDirections[player.id] = 'right'
             }
           }
         })
         setRemotePlayers(newRemotePlayers)
         setRemotePlayerPixelPos(newRemotePixelPos)
+        remotePlayerPixelPosRef.current = newRemotePixelPos
         setRemotePlayerDirections(newRemoteDirections)
         remotePlayerPositionsRef.current = newRemotePositions
       }
@@ -446,7 +449,7 @@ function StartGame() {
 
     // Listen for game started event
     const handleGameStarted = () => {
-      console.log('Game started!')
+      log.log('Game started!')
       // Clear all remote player data to prevent stale positions
       // This ensures we start fresh with spawn positions
       setRemotePlayers({})
@@ -487,46 +490,92 @@ function StartGame() {
 
     socketService.onPlayerLeft(handlePlayerLeft)
 
+    // Handle player respawn position updates (batched event includes position)
+    const handlePlayerRespawn = (data) => {
+      const { playerId, position } = data
+      if (!position) return // No position in event
+      
+      const { cellSize, mazeWidth } = mazeLayoutRef.current
+      
+      // If this is OUR respawn, update local position
+      if (playerId === socketService.getSocket()?.id) {
+        log.log('Received respawn position for SELF:', position);
+        if (typeof position.row === 'number' && typeof position.col === 'number') {
+          const pixelPos = gridToPixel(position.row, position.col, cellSize)
+          
+          setPlayerPos({ row: position.row, col: position.col });
+          targetGridPosRef.current = { row: position.row, col: position.col };
+          playerPixelPosRef.current = { x: pixelPos.x, y: pixelPos.y };
+          setPlayerPixelPos({ x: pixelPos.x, y: pixelPos.y });
+          lastGridPosRef.current = { row: position.row, col: position.col };
+          
+          log.log(`✅ Respawn position updated: row=${position.row}, col=${position.col}`);
+        }
+        return;
+      }
+      
+      // For remote players, update their position
+      if (typeof position.row === 'number' && typeof position.col === 'number') {
+        const pixelPos = gridToPixel(position.row, position.col, cellSize)
+        
+        // Update remote player position
+        setRemotePlayers(prev => ({
+          ...prev,
+          [playerId]: { row: position.row, col: position.col }
+        }))
+        setRemotePlayerPixelPos(prev => ({
+          ...prev,
+          [playerId]: { x: pixelPos.x, y: pixelPos.y }
+        }))
+        remotePlayerPixelPosRef.current[playerId] = { x: pixelPos.x, y: pixelPos.y }
+        
+        // Update position ref
+        if (remotePlayerPositionsRef.current[playerId]) {
+          remotePlayerPositionsRef.current[playerId].targetRow = position.row
+          remotePlayerPositionsRef.current[playerId].targetCol = position.col
+          remotePlayerPositionsRef.current[playerId].targetPixelX = pixelPos.x
+          remotePlayerPositionsRef.current[playerId].targetPixelY = pixelPos.y
+        }
+      }
+    }
+    
+    socketService.onPlayerRespawn(handlePlayerRespawn)
+
     // Cleanup
     return () => {
       socketService.off('player_position_update', handlePositionUpdate)
       socketService.off('game_state_sync', handleGameStateSync)
       socketService.off('game_started', handleGameStarted)
       socketService.off('player_left', handlePlayerLeft)
+      socketService.off('player_respawn', handlePlayerRespawn)
     }
   }, [socketService, roomData])
 
   // Send position updates to server (more frequently for smoother remote player movement)
-  const sendPositionUpdate = (pixelX, pixelY) => {
+  const sendPositionUpdate = useCallback((pixelX, pixelY) => {
     // Don't send position updates if game is frozen
-    if (isGameFrozen) {
-      // console.log('🚫 Game frozen, not sending position update'); // Commented to reduce spam
-      return;
-    }
+    if (isGameFrozen) return;
     
     const now = Date.now()
-    // Send updates every 33ms (~30fps) for very smooth remote player movement
-    // More frequent updates = smoother interpolation on other clients
-    if (now - lastPositionUpdateTimeRef.current > 33) {
+    // Send updates at configured interval (see config/gameConfig.js)
+    // Should match server's POSITION_UPDATE_INTERVAL in Backend/config/constants.js
+    if (now - lastPositionUpdateTimeRef.current > POSITION_CONFIG.UPDATE_INTERVAL) {
       const currentGridPos = targetGridPosRef.current
       const lastGridPos = lastGridPosRef.current
+      const { mazeWidth } = mazeLayoutRef.current
       
       // Detect wrap-around: if column changed by more than 1, it's a wrap
       let adjustedX = pixelX
-      const cellSize = Math.min(window.innerWidth / MAZE_COLS, window.innerHeight / MAZE_ROWS)
-      const mazeWidth = cellSize * MAZE_COLS
       
       if (hasWrapAround(currentGridPos.row)) {
         const colDiff = currentGridPos.col - lastGridPos.col
         
         // Detect wrap from right to left (31 -> 0)
         if (colDiff < -MAZE_COLS / 2 || (lastGridPos.col === MAZE_COLS - 1 && currentGridPos.col === 0)) {
-          // Player wrapped from right to left, adjust X to continue from right side
           adjustedX = pixelX + mazeWidth
         }
         // Detect wrap from left to right (0 -> 31)
         else if (colDiff > MAZE_COLS / 2 || (lastGridPos.col === 0 && currentGridPos.col === MAZE_COLS - 1)) {
-          // Player wrapped from left to right, adjust X to continue from left side
           adjustedX = pixelX - mazeWidth
         }
       }
@@ -540,7 +589,7 @@ function StartGame() {
       lastPositionUpdateTimeRef.current = now
       lastGridPosRef.current = { ...currentGridPos }
     }
-  }
+  }, [isGameFrozen, socketService])
 
   // Keep directionRef in sync with direction state
   useEffect(() => {
@@ -551,9 +600,7 @@ function StartGame() {
   useEffect(() => {
     const handleKeyPress = (e) => {
       // Block all movement if game is frozen
-      if (isGameFrozen) {
-        return
-      }
+      if (isGameFrozen) return
       
       const key = e.key.toLowerCase()
       let newDirection = null
@@ -567,7 +614,6 @@ function StartGame() {
       } else if (key === 'arrowright' || key === 'd') {
         newDirection = 'right'
       } else if (key === 'escape') {
-        // Leave game
         socketService.leaveRoom()
         navigate('/')
         return
@@ -580,45 +626,31 @@ function StartGame() {
         let checkCol = col
         
         switch (newDirection) {
-          case 'up':
-            checkRow = row - 1
-            break
-          case 'down':
-            checkRow = row + 1
-            break
-          case 'left':
-            checkCol = col - 1
-            break
-          case 'right':
-            checkCol = col + 1
-            break
+          case 'up': checkRow = row - 1; break
+          case 'down': checkRow = row + 1; break
+          case 'left': checkCol = col - 1; break
+          case 'right': checkCol = col + 1; break
         }
         
-        // Handle wrap-around for horizontal movement
         const wrappedCheckCol = getWrappedCol(checkRow, checkCol)
         
         // Only allow direction change if there's no wall
         if (!isWall(checkRow, wrappedCheckCol)) {
-          // Check if player is aligned with grid (at a turn point)
-          const cellSize = Math.min(window.innerWidth / MAZE_COLS, window.innerHeight / MAZE_ROWS) // width, height
+          const { cellSize } = mazeLayoutRef.current
           const current = playerPixelPosRef.current
-          const targetX = targetGridPosRef.current.col * cellSize + cellSize / 2
-          const targetY = targetGridPosRef.current.row * cellSize + cellSize / 2
+          const target = gridToPixel(targetGridPosRef.current.row, targetGridPosRef.current.col, cellSize)
           
           // Use a more lenient threshold (30% of cell size) for better responsiveness
           const threshold = cellSize * 0.3
-          const dx = Math.abs(current.x - targetX) // difference between current pixel and target pixel in x
-          const dy = Math.abs(current.y - targetY)
+          const dx = Math.abs(current.x - target.x)
+          const dy = Math.abs(current.y - target.y)
           const isAligned = dx < threshold && dy < threshold
           
           if (isAligned) {
-            // Player is at a turn point, apply direction immediately
             setDirection(newDirection)
-            // Update facing direction for all directions
             setFacingDirection(newDirection)
             pendingDirectionRef.current = null
           } else {
-            // Player is not aligned yet, queue the direction change
             pendingDirectionRef.current = newDirection
           }
         }
@@ -634,7 +666,7 @@ function StartGame() {
     const moveInterval = setInterval(() => {
       // Stop movement if game is frozen
       if (isGameFrozen) {
-        console.log('❄️ Movement loop: Game is frozen, skipping movement');
+        log.log('❄️ Movement loop: Game is frozen, skipping movement');
         return;
       }
       if (!directionRef.current) return
@@ -678,38 +710,33 @@ function StartGame() {
     return () => clearInterval(moveInterval)
   }, [isGameFrozen])
 
-  // Smooth animation loop using requestAnimationFrame
+  // ============ OPTIMIZED: Smooth animation loop using requestAnimationFrame ============
+  // Key optimization: Update refs every frame, but only update React state at ~15fps
   useEffect(() => {
-    const calculateCellSize = () => {
-      return Math.min(window.innerWidth / MAZE_COLS, window.innerHeight / MAZE_ROWS)
-    }
-    
     const animate = (timestamp) => {
       // Calculate delta time for frame-rate independent interpolation
       const lastTimestamp = lastAnimationTimestampRef.current || timestamp
       const dt = Math.min((timestamp - lastTimestamp) / 1000, 0.1) // Clamp to prevent large jumps
       lastAnimationTimestampRef.current = timestamp
       
-      const cellSize = calculateCellSize()
+      const { cellSize, mazeWidth } = mazeLayoutRef.current
       
       // Calculate target pixel position
-      const targetX = targetGridPosRef.current.col * cellSize + cellSize / 2
-      const targetY = targetGridPosRef.current.row * cellSize + cellSize / 2
+      const target = gridToPixel(targetGridPosRef.current.row, targetGridPosRef.current.col, cellSize)
+      const targetX = target.x
+      const targetY = target.y
       
       // Smooth interpolation with time-based movement
       const current = playerPixelPosRef.current
       const currentRow = targetGridPosRef.current.row
-      const mazeWidth = cellSize * MAZE_COLS
       
       // Handle wrap-around for smooth animation
       let adjustedTargetX = targetX
       if (hasWrapAround(currentRow)) {
-        // Calculate distance both ways (normal and wrapped)
         const dxNormal = targetX - current.x
-        const dxWrappedLeft = (targetX + mazeWidth) - current.x  // Target is to the right, wrap left
-        const dxWrappedRight = (targetX - mazeWidth) - current.x  // Target is to the left, wrap right
+        const dxWrappedLeft = (targetX + mazeWidth) - current.x
+        const dxWrappedRight = (targetX - mazeWidth) - current.x
         
-        // Choose the shortest path
         if (Math.abs(dxWrappedLeft) < Math.abs(dxNormal) && targetX < current.x) {
           adjustedTargetX = targetX + mazeWidth
         } else if (Math.abs(dxWrappedRight) < Math.abs(dxNormal) && targetX > current.x) {
@@ -721,38 +748,25 @@ function StartGame() {
       const dy = targetY - current.y
       const distance = Math.sqrt(dx * dx + dy * dy)
       
-      // Use exponential smoothing for frame-rate independent interpolation
-      // Factor of 8 provides responsive movement similar to qbitrig's camera smoothing
-      // Formula: 1 - exp(-speed * dt) gives smooth exponential decay
+      // Exponential smoothing for frame-rate independent interpolation
       const smoothingFactor = 1 - Math.exp(-8 * dt)
       
       if (distance > 0.3) {
-        // Exponential smoothing for smooth movement
         current.x += dx * smoothingFactor
         current.y += dy * smoothingFactor
         
-        // Handle wrap-around: normalize position after movement
+        // Normalize position after movement
         if (hasWrapAround(currentRow)) {
-          while (current.x < 0) {
-            current.x += mazeWidth
-          }
-          while (current.x >= mazeWidth) {
-            current.x -= mazeWidth
-          }
+          while (current.x < 0) current.x += mazeWidth
+          while (current.x >= mazeWidth) current.x -= mazeWidth
         }
       } else {
-        // Snap to target when very close (prevents endless tiny movements)
         current.x = targetX
         current.y = targetY
         
-        // Normalize position after snapping
         if (hasWrapAround(currentRow)) {
-          while (current.x < 0) {
-            current.x += mazeWidth
-          }
-          while (current.x >= mazeWidth) {
-            current.x -= mazeWidth
-          }
+          while (current.x < 0) current.x += mazeWidth
+          while (current.x >= mazeWidth) current.x -= mazeWidth
         }
       }
       
@@ -764,67 +778,58 @@ function StartGame() {
       // Check if we have a pending direction change and player is now aligned
       if (pendingDirectionRef.current) {
         const threshold = cellSize * 0.3
-        const dx = Math.abs(current.x - targetX)
-        const dy = Math.abs(current.y - targetY)
-        const isAligned = dx < threshold && dy < threshold
+        const pdx = Math.abs(current.x - targetX)
+        const pdy = Math.abs(current.y - targetY)
         
-        if (isAligned) {
+        if (pdx < threshold && pdy < threshold) {
           const newDir = pendingDirectionRef.current
           setDirection(newDir)
-          // Update facing direction for all directions
           setFacingDirection(newDir)
           pendingDirectionRef.current = null
         }
       }
       
-      // Update remote players EVERY FRAME for smooth interpolation
-      // Using frame-rate independent exponential smoothing with velocity prediction
+      // Update remote players - interpolate positions in refs every frame
+      const remoteSmoothingFactor = 1 - Math.exp(-6 * dt)
+      
       Object.keys(remotePlayerPositionsRef.current).forEach(playerId => {
         const playerPos = remotePlayerPositionsRef.current[playerId]
         if (!playerPos) return
         
         const currentPos = playerPos.current
         const targetPos = playerPos.target
-        const currentRow = playerPos.row
+        const remoteRow = playerPos.row
         
-        // Calculate velocity from position buffer if available
+        // Velocity-based prediction
         let predictedTargetX = targetPos.x
         let predictedTargetY = targetPos.y
         
-        // Use position buffer for velocity-based prediction
         if (playerPos.buffer && playerPos.buffer.length >= 2) {
           const latest = playerPos.buffer[playerPos.buffer.length - 1]
           const previous = playerPos.buffer[playerPos.buffer.length - 2]
           const timeDelta = (latest.timestamp - previous.timestamp) / 1000
           
           if (timeDelta > 0 && timeDelta < 0.5) {
-            // Calculate velocity from buffer
             const vx = (latest.x - previous.x) / timeDelta
             const vy = (latest.y - previous.y) / timeDelta
-            
-            // Store velocity for prediction
             playerPos.velocity = { x: vx, y: vy }
             
-            // Predict position based on time since last update
             const timeSinceUpdate = (Date.now() - latest.timestamp) / 1000
-            if (timeSinceUpdate < 0.2) { // Only predict for short time gaps
-              predictedTargetX = targetPos.x + vx * timeSinceUpdate * 0.5 // Dampen prediction
+            if (timeSinceUpdate < 0.2) {
+              predictedTargetX = targetPos.x + vx * timeSinceUpdate * 0.5
               predictedTargetY = targetPos.y + vy * timeSinceUpdate * 0.5
             }
           }
         }
         
-        // Smooth lerp interpolation for remote players
         let finalTargetX = predictedTargetX
         let finalTargetY = predictedTargetY
         
         // Handle wrap-around
-        if (hasWrapAround(currentRow)) {
-          // Normalize target position
+        if (hasWrapAround(remoteRow)) {
           while (finalTargetX < 0) finalTargetX += mazeWidth
           while (finalTargetX >= mazeWidth) finalTargetX -= mazeWidth
           
-          // Choose shortest path for wrap-around
           const dxNormal = finalTargetX - currentPos.x
           const dxWrappedLeft = (finalTargetX + mazeWidth) - currentPos.x
           const dxWrappedRight = (finalTargetX - mazeWidth) - currentPos.x
@@ -836,108 +841,85 @@ function StartGame() {
           }
         }
         
-        // Calculate distance and apply exponential smoothing
         const rdx = finalTargetX - currentPos.x
         const rdy = finalTargetY - currentPos.y
         const rDistance = Math.sqrt(rdx * rdx + rdy * rdy)
         
-        // Use exponential smoothing for frame-rate independent interpolation
-        // Factor of 6 for remote players (slightly slower than local for smoother network jitter handling)
-        const remoteSmoothingFactor = 1 - Math.exp(-6 * dt)
-        
         if (rDistance > 0.3) {
-          // Exponential smoothing for smooth movement
           currentPos.x += rdx * remoteSmoothingFactor
           currentPos.y += rdy * remoteSmoothingFactor
           
-          // Normalize after movement
-          if (hasWrapAround(currentRow)) {
+          if (hasWrapAround(remoteRow)) {
             while (currentPos.x < 0) currentPos.x += mazeWidth
             while (currentPos.x >= mazeWidth) currentPos.x -= mazeWidth
           }
         } else {
-          // Snap when very close
           currentPos.x = targetPos.x
           currentPos.y = targetPos.y
           
-          if (hasWrapAround(currentRow)) {
+          if (hasWrapAround(remoteRow)) {
             while (currentPos.x < 0) currentPos.x += mazeWidth
             while (currentPos.x >= mazeWidth) currentPos.x -= mazeWidth
           }
         }
         
-        // Update state for rendering - always update for smoothest animation
-        setRemotePlayerPixelPos(prev => ({
-          ...prev,
-          [playerId]: { x: currentPos.x, y: currentPos.y }
-        }))
+        // ============ OPTIMIZED: Update ref every frame (for Phaser), NOT React state ============
+        remotePlayerPixelPosRef.current[playerId] = { x: currentPos.x, y: currentPos.y }
       })
       
-      // Update state for rendering
-      setPlayerPixelPos({ x: current.x, y: current.y })
+      // ============ OPTIMIZED: Throttle React state updates to ~15fps ============
+      // This reduces re-renders from ~60/sec to ~15/sec per player
+      const now = Date.now()
+      if (now - lastUIUpdateTimeRef.current > UI_UPDATE_INTERVAL) {
+        lastUIUpdateTimeRef.current = now
+        
+        // Update local player pixel position state (for DOM fallback only)
+        setPlayerPixelPos({ x: current.x, y: current.y })
+        
+        // Batch update remote player pixel positions (for DOM fallback only)
+        // Only update if not using Phaser rendering, or if needed for UI elements
+        if (!usePhaserRendering) {
+          setRemotePlayerPixelPos({ ...remotePlayerPixelPosRef.current })
+        }
+      }
       
       animationFrameRef.current = requestAnimationFrame(animate)
     }
     
     // Initialize pixel position
-    const cellSize = calculateCellSize()
-    const initialX = playerPos.col * cellSize + cellSize / 2
-    const initialY = playerPos.row * cellSize + cellSize / 2
-    playerPixelPosRef.current = { x: initialX, y: initialY }
-    targetGridPosRef.current = { row: playerPos.row, col: playerPos.col }
-    setPlayerPixelPos({ x: initialX, y: initialY })
+    const { cellSize } = mazeLayoutRef.current
+    const initialPixel = gridToPixel(playerPos.row || 1, playerPos.col || 1, cellSize)
+    playerPixelPosRef.current = { x: initialPixel.x, y: initialPixel.y }
+    targetGridPosRef.current = { row: playerPos.row || 1, col: playerPos.col || 1 }
+    setPlayerPixelPos({ x: initialPixel.x, y: initialPixel.y })
     
     animationFrameRef.current = requestAnimationFrame(animate)
     
     // Handle window resize - recalculate ALL player positions based on grid positions
     const handleResize = () => {
-      const newCellSize = calculateCellSize()
+      const newLayout = updateMazeLayout()
+      const { cellSize } = newLayout
       
       // Update local player pixel position
-      const newX = targetGridPosRef.current.col * newCellSize + newCellSize / 2
-      const newY = targetGridPosRef.current.row * newCellSize + newCellSize / 2
-      playerPixelPosRef.current = { x: newX, y: newY }
-      setPlayerPixelPos({ x: newX, y: newY })
+      const newPixel = gridToPixel(targetGridPosRef.current.row, targetGridPosRef.current.col, cellSize)
+      playerPixelPosRef.current = { x: newPixel.x, y: newPixel.y }
+      setPlayerPixelPos({ x: newPixel.x, y: newPixel.y })
       
       // Update ALL remote player pixel positions based on their grid positions
       const remotePositions = remotePlayerPositionsRef.current
-      const newRemotePixelPos = {}
-      const newRemotePlayers = {}
       
-      Object.entries(remotePositions).forEach(([playerId, playerPos]) => {
-        if (playerPos && typeof playerPos.row === 'number' && typeof playerPos.col === 'number') {
-          const remoteX = playerPos.col * newCellSize + newCellSize / 2
-          const remoteY = playerPos.row * newCellSize + newCellSize / 2
-          
-          // Update the position ref as well
-          playerPos.current = { x: remoteX, y: remoteY }
-          playerPos.target = { x: remoteX, y: remoteY }
-          
-          newRemotePixelPos[playerId] = { x: remoteX, y: remoteY }
+      Object.entries(remotePositions).forEach(([playerId, pos]) => {
+        if (pos && typeof pos.row === 'number' && typeof pos.col === 'number') {
+          const remotePixel = gridToPixel(pos.row, pos.col, cellSize)
+          pos.current = { x: remotePixel.x, y: remotePixel.y }
+          pos.target = { x: remotePixel.x, y: remotePixel.y }
+          remotePlayerPixelPosRef.current[playerId] = { x: remotePixel.x, y: remotePixel.y }
         }
       })
       
-      // Batch update remote player pixel positions
-      if (Object.keys(newRemotePixelPos).length > 0) {
-        setRemotePlayerPixelPos(prev => ({
-          ...prev,
-          ...newRemotePixelPos
-        }))
-        
-        // Also update remotePlayers state with new pixel positions
-        setRemotePlayers(prev => {
-          const updated = { ...prev }
-          Object.entries(newRemotePixelPos).forEach(([playerId, pos]) => {
-            if (updated[playerId]) {
-              updated[playerId] = {
-                ...updated[playerId],
-                x: pos.x,
-                y: pos.y
-              }
-            }
-          })
-          return updated
-        })
+      // Update React state for DOM fallback
+      if (!usePhaserRendering) {
+        setRemotePlayerPixelPos({ ...remotePlayerPixelPosRef.current })
       }
     }
     
@@ -949,32 +931,11 @@ function StartGame() {
       }
       window.removeEventListener('resize', handleResize)
     }
-  }, [playerPos, isGameFrozen])
-
-  // Calculate maze dimensions based on cell size (same formula as CSS)
-  const calculateMazeDimensions = () => {
-    const cellSize = Math.min(window.innerWidth / MAZE_COLS, window.innerHeight / MAZE_ROWS)
-    return {
-      cellSize,
-      width: cellSize * MAZE_COLS,
-      height: cellSize * MAZE_ROWS
-    }
-  }
-
-  // Update maze dimensions on resize for Phaser layer
-  useEffect(() => {
-    const updateDimensions = () => {
-      const dims = calculateMazeDimensions()
-      setMazeDimensions({ width: dims.width, height: dims.height })
-    }
-    updateDimensions() // Initial calculation
-    window.addEventListener('resize', updateDimensions)
-    return () => window.removeEventListener('resize', updateDimensions)
-  }, [])
+  }, [playerPos, isGameFrozen, sendPositionUpdate, updateMazeLayout, usePhaserRendering])
 
   // Callback when Phaser map is loaded
   const handleMapLoaded = (mapLoader) => {
-    console.log('Phaser maze rendering ready', mapLoader)
+    log.log('Phaser maze rendering ready', mapLoader)
     setPhaserMazeReady(true)
   }
 
@@ -1001,7 +962,7 @@ function StartGame() {
           try {
             phaserLayerRef.current.removePowerupAura(powerupId)
           } catch (e) {
-            console.warn('Aura already removed or not found:', powerupId)
+            log.warn('Aura already removed or not found:', powerupId)
           }
         }
         // Trigger collection burst effect
@@ -1119,59 +1080,48 @@ function StartGame() {
     }
   }, [playerPixelPos, unicornId, socketService])
 
+  // ============ CENTRALIZED: Use memoized layout values for rendering ============
+  // These values are derived from mazeDimensions state which updates on resize
+  const renderLayout = useMemo(() => {
+    const { cellSize, mazeWidth, mazeHeight } = mazeLayoutRef.current
+    return { cellSize, mazeWidth, mazeHeight }
+  }, [mazeDimensions]) // Re-compute when dimensions change
+  
   // Calculate player position as percentage
-  const cellSize = Math.min(window.innerWidth / MAZE_COLS, window.innerHeight / MAZE_ROWS)
-  const mazeWidth = cellSize * MAZE_COLS
-  const mazeHeight = cellSize * MAZE_ROWS
-  const playerLeftPercent = (playerPixelPos.x / mazeWidth) * 100
-  const playerTopPercent = (playerPixelPos.y / mazeHeight) * 100
+  const playerPercent = useMemo(() => 
+    pixelToPercent(playerPixelPos.x, playerPixelPos.y, renderLayout.mazeWidth, renderLayout.mazeHeight),
+    [playerPixelPos.x, playerPixelPos.y, renderLayout.mazeWidth, renderLayout.mazeHeight]
+  )
+  const playerLeftPercent = playerPercent.left
+  const playerTopPercent = playerPercent.top
 
-  // Get current player's coins
-const myId = socketService.getSocket()?.id;
-const myLeaderboardEntry = leaderboard?.find(p => p.id === myId);
-const myPlayer = roomData?.players?.find(p => p.id === myId);
-const myCoins = myLeaderboardEntry?.coins ?? myPlayer?.coins ?? 100;
-
-  // Helper function to get rotation transform based on facing direction
-  const getDirectionTransform = (direction) => {
-    // Default facing direction is 'right' (0 degrees)
-    switch (direction) {
-      case 'up':
-        return 'rotate(-90deg)'
-      case 'down':
-        return 'rotate(90deg)'
-      case 'left':
-        return 'rotate(180deg)'
-      case 'right':
-      default:
-        return 'rotate(0deg)'
-    }
-  }
-
-  // Format hunt time remaining
-  const formatHuntTime = (ms) => {
-    const seconds = Math.floor(ms / 1000);
-    return `${seconds}s`;
-  };
+  // Get current player's coins (myId is memoized above)
+  const myLeaderboardEntry = useMemo(() => leaderboard?.find(p => p.id === myId), [leaderboard, myId]);
+  const myPlayer = useMemo(() => roomData?.players?.find(p => p.id === myId), [roomData?.players, myId]);
+  const myCoins = myLeaderboardEntry?.coins ?? myPlayer?.coins ?? 100;
 
   return (
     <div className="game-container">
-      {/* Blitz Quiz Modal - Shows to ALL players during Blitz Quiz phase */}
-      {blitzQuizActive && blitzQuizData && <BlitzQuizModal />}
+      {/* ============ SUSPENSE BOUNDARY FOR MODALS ============ */}
+      {/* Lazy-loaded modals share a single Suspense boundary with null fallback */}
+      <Suspense fallback={null}>
+        {/* Blitz Quiz Modal - Shows to ALL players during Blitz Quiz phase */}
+        {blitzQuizActive && blitzQuizData && <BlitzQuizModal />}
 
-      {/* Blitz Quiz Results - Shows to ALL players after Blitz Quiz ends */}
-      {blitzQuizResults && <BlitzQuizResults results={blitzQuizResults} />}
+        {/* Blitz Quiz Results - Shows to ALL players after Blitz Quiz ends */}
+        {blitzQuizResults && <BlitzQuizResults results={blitzQuizResults} />}
 
-      {/* Freeze Overlay - Shows when game is frozen but quiz not active yet (legacy) */}
-      {isGameFrozen && !quizActive && !quizResults && !blitzQuizActive && !blitzQuizResults && (
-        <FreezeOverlay message={freezeMessage} />
-      )}
+        {/* Freeze Overlay - Shows when game is frozen but quiz not active yet (legacy) */}
+        {isGameFrozen && !quizActive && !quizResults && !blitzQuizActive && !blitzQuizResults && (
+          <FreezeOverlay message={freezeMessage} />
+        )}
 
-      {/* Quiz Modal - Shows only for caught player (legacy collision quiz) */}
-      {quizActive && <QuizModal />}
+        {/* Quiz Modal - Shows only for caught player (legacy collision quiz) */}
+        {quizActive && <QuizModal />}
 
-      {/* Quiz Results - Shows to all players after quiz completes (legacy) */}
-      {quizResults && <QuizResults results={quizResults} />}
+        {/* Quiz Results - Shows to all players after quiz completes (legacy) */}
+        {quizResults && <QuizResults results={quizResults} />}
+      </Suspense>
 
       {/* Tag Notification - Shows when unicorn tags a survivor */}
       {tagNotification && (
@@ -1269,11 +1219,11 @@ const myCoins = myLeaderboardEntry?.coins ?? myPlayer?.coins ?? 100;
         )}
         
         {/* Role Indicator */}
-        {unicornId === socketService.getSocket()?.id ? (
+        {unicornId === myId ? (
           <div className="hud-item unicorn-indicator">
             🦄 Unicorn! Tag the survivors.
           </div>
-        ) : reserveUnicornId === socketService.getSocket()?.id ? (
+        ) : reserveUnicornId === myId ? (
           <div className="hud-item reserve-indicator">
             🥈 Reserved Unicorn! Still u gotta run!
           </div>
@@ -1348,13 +1298,13 @@ const myCoins = myLeaderboardEntry?.coins ?? myPlayer?.coins ?? 100;
             {leaderboard.map((player, index) => (
               <div 
                 key={player.id} 
-                className={`leaderboard-item ${player.id === socketService.getSocket()?.id ? 'current-player' : ''} ${player.isUnicorn ? 'unicorn-player-item' : ''}`}
+                className={`leaderboard-item ${player.id === myId ? 'current-player' : ''} ${player.isUnicorn ? 'unicorn-player-item' : ''}`}
               >
                 <span className="rank">#{index + 1}</span>
                 <span className="player-info">
                   {player.isUnicorn && '🦄 '}
                   {player.name}
-                  {player.id === socketService.getSocket()?.id && ' (You)'}
+                  {player.id === myId && ' (You)'}
                 </span>
                 <span className="coins"><img className='w-8' src={coinAnimation}/> {player.coins}</span>
               </div>
@@ -1373,7 +1323,7 @@ const myCoins = myLeaderboardEntry?.coins ?? myPlayer?.coins ?? 100;
             {/* Local Player */}
             <div className="coordinate-item current-player-coord">
               <div className="coord-player-name">
-                {unicornId === socketService.getSocket()?.id && '🦄 '}
+                {unicornId === myId && '🦄 '}
                 {myPlayer?.name || 'You'} (You)
               </div>
               <div className="coord-details">
@@ -1424,45 +1374,48 @@ const myCoins = myLeaderboardEntry?.coins ?? myPlayer?.coins ?? 100;
         {(!usePhaserMaze || !phaserMazeReady) && mazeGrid}
 
         {/* Phaser Player Layer - Smooth interpolation for ALL players + Tilemap maze rendering */}
+        {/* Wrapped in Suspense with minimal loading indicator */}
         {usePhaserRendering && (
-          <PhaserPlayerLayer
-            ref={phaserLayerRef}
-            localPlayerId={socketService.getSocket()?.id}
-            remotePlayers={remotePlayers}
-            remotePlayerPositions={remotePlayerPositionsRef.current}
-            unicornId={unicornId}
-            playersHealth={playersHealth}
-            immunePlayers={immunePlayers}
-            knockbackPlayers={knockbackPlayers}
-            width={mazeDimensions.width}
-            height={mazeDimensions.height}
-            renderMaze={usePhaserMaze}
-            onMapLoaded={handleMapLoaded}
-            // Local player rendering props - for smooth 60fps updates
-            // Pass refs so Phaser can read them every frame for smooth interpolation
-            localPlayerTargetGridPosRef={targetGridPosRef}
-            localPlayerFacingDirection={facingDirection}
-            localPlayerHealth={myHealth}
-            localPlayerIsImmune={isImmune}
-            localPlayerInIFrames={inIFrames}
-            localPlayerState={myPlayerState}
-            localPlayerKnockback={knockbackActive}
-            renderLocalPlayer={true}
-          />
+          <Suspense fallback={<div className="phaser-loading" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888', fontSize: '14px' }}>Loading game...</div>}>
+            <PhaserPlayerLayer
+              ref={phaserLayerRef}
+              localPlayerId={myId}
+              remotePlayers={remotePlayers}
+              remotePlayerPositions={remotePlayerPositionsRef.current}
+              unicornId={unicornId}
+              playersHealth={playersHealth}
+              immunePlayers={immunePlayers}
+              knockbackPlayers={knockbackPlayers}
+              width={mazeDimensions.width}
+              height={mazeDimensions.height}
+              renderMaze={usePhaserMaze}
+              onMapLoaded={handleMapLoaded}
+              // Local player rendering props - for smooth 60fps updates
+              // Pass refs so Phaser can read them every frame for smooth interpolation
+              localPlayerTargetGridPosRef={targetGridPosRef}
+              localPlayerFacingDirection={facingDirection}
+              localPlayerHealth={myHealth}
+              localPlayerIsImmune={isImmune}
+              localPlayerInIFrames={inIFrames}
+              localPlayerState={myPlayerState}
+              localPlayerKnockback={knockbackActive}
+              renderLocalPlayer={true}
+            />
+          </Suspense>
         )}
 
         {/* Coins */}
         {coins.map(coin => {
-          const coinLeftPercent = ((coin.col * cellSize + cellSize / 2) / mazeWidth) * 100
-          const coinTopPercent = ((coin.row * cellSize + cellSize / 2) / mazeHeight) * 100
+          const coinPixel = gridToPixel(coin.row, coin.col, renderLayout.cellSize)
+          const coinPercent = pixelToPercent(coinPixel.x, coinPixel.y, renderLayout.mazeWidth, renderLayout.mazeHeight)
           
           return (
             <div
               key={coin.id}
               className="coin"
               style={{
-                left: `${coinLeftPercent}%`,
-                top: `${coinTopPercent}%`,
+                left: `${coinPercent.left}%`,
+                top: `${coinPercent.top}%`,
               }}
             >
               <img className="w-6 md:w-8" src={coinAnimation}/>
@@ -1472,16 +1425,16 @@ const myCoins = myLeaderboardEntry?.coins ?? myPlayer?.coins ?? 100;
 
         {/* Powerups */}
         {powerups.map(powerup => {
-          const powerupLeftPercent = ((powerup.col * cellSize + cellSize / 2) / mazeWidth) * 100
-          const powerupTopPercent = ((powerup.row * cellSize + cellSize / 2) / mazeHeight) * 100
+          const powerupPixel = gridToPixel(powerup.row, powerup.col, renderLayout.cellSize)
+          const powerupPercent = pixelToPercent(powerupPixel.x, powerupPixel.y, renderLayout.mazeWidth, renderLayout.mazeHeight)
           
           return (
             <div
               key={powerup.id}
               className={`powerup powerup-${powerup.type}`}
               style={{
-                left: `${powerupLeftPercent}%`,
-                top: `${powerupTopPercent}%`,
+                left: `${powerupPercent.left}%`,
+                top: `${powerupPercent.top}%`,
               }}
             >
               🛡️
@@ -1493,18 +1446,18 @@ const myCoins = myLeaderboardEntry?.coins ?? myPlayer?.coins ?? 100;
         {!usePhaserRendering && (
           <div
             ref={playerRef}
-            className={`player local-player ${unicornId === socketService.getSocket()?.id ? 'unicorn-player unicorn-speed' : ''} ${inIFrames ? 'player-iframes' : ''} ${myPlayerState === PLAYER_STATE.FROZEN ? 'player-frozen' : ''} ${isImmune ? 'player-immune' : ''} ${knockbackActive ? 'player-knockback' : ''}`}
+            className={`player local-player ${unicornId === myId ? 'unicorn-player unicorn-speed' : ''} ${inIFrames ? 'player-iframes' : ''} ${myPlayerState === PLAYER_STATE.FROZEN ? 'player-frozen' : ''} ${isImmune ? 'player-immune' : ''} ${knockbackActive ? 'player-knockback' : ''}`}
             style={{
               left: `${playerLeftPercent}%`,
               top: `${playerTopPercent}%`,
-              transform: `translate(-50%, -50%) ${unicornId === socketService.getSocket()?.id ? getDirectionTransform(facingDirection) : ''}`,
+              transform: `translate(-50%, -50%) ${unicornId === myId ? getDirectionTransform(facingDirection) : ''}`,
             }}
           >
             {/* Immunity Shield Visual */}
             {isImmune && <div className="immunity-shield">🛡️</div>}
             
             {/* Unicorn Speed Lines */}
-            {unicornId === socketService.getSocket()?.id && (
+            {unicornId === myId && (
               <div className="speed-lines">
                 <div className="speed-line"></div>
                 <div className="speed-line"></div>
@@ -1512,7 +1465,7 @@ const myCoins = myLeaderboardEntry?.coins ?? myPlayer?.coins ?? 100;
               </div>
             )}
             {/* Local Player Health Bar */}
-            {gamePhase === GAME_PHASE.HUNT && unicornId !== socketService.getSocket()?.id && (
+            {gamePhase === GAME_PHASE.HUNT && unicornId !== myId && (
               <div className="player-health-bar">
                 <div 
                   className={`player-health-fill ${myHealth <= 30 ? 'health-critical' : myHealth <= 60 ? 'health-warning' : ''}`}
@@ -1540,8 +1493,9 @@ const myCoins = myLeaderboardEntry?.coins ?? myPlayer?.coins ?? 100;
         {!usePhaserRendering && Object.entries(remotePlayers).map(([playerId, player]) => {
           // Use interpolated pixel position for smooth movement
           const pixelPos = remotePlayerPixelPos[playerId] || { x: player.x, y: player.y }
-          const remoteLeftPercent = (pixelPos.x / mazeWidth) * 100
-          const remoteTopPercent = (pixelPos.y / mazeHeight) * 100
+          const remotePercent = pixelToPercent(pixelPos.x, pixelPos.y, renderLayout.mazeWidth, renderLayout.mazeHeight)
+          const remoteLeftPercent = remotePercent.left
+          const remoteTopPercent = remotePercent.top
           const isUnicorn = player.isUnicorn || playerId === unicornId
           const playerDirection = remotePlayerDirections[playerId] || 'right'
           
@@ -1617,9 +1571,11 @@ const myCoins = myLeaderboardEntry?.coins ?? myPlayer?.coins ?? 100;
 
         {/* Player Names Overlay - Always visible even with Phaser rendering */}
         {usePhaserRendering && Object.entries(remotePlayers).map(([playerId, player]) => {
-          const pixelPos = remotePlayerPixelPos[playerId] || { x: player.x, y: player.y }
-          const remoteLeftPercent = (pixelPos.x / mazeWidth) * 100
-          const remoteTopPercent = (pixelPos.y / mazeHeight) * 100
+          // Use ref for smoother updates when Phaser is rendering
+          const pixelPos = remotePlayerPixelPosRef.current[playerId] || remotePlayerPixelPos[playerId] || { x: player.x, y: player.y }
+          const remotePercent = pixelToPercent(pixelPos.x, pixelPos.y, renderLayout.mazeWidth, renderLayout.mazeHeight)
+          const remoteLeftPercent = remotePercent.left
+          const remoteTopPercent = remotePercent.top
           const isUnicorn = player.isUnicorn || playerId === unicornId
           const playerHealthData = playersHealth[playerId] || { health: COMBAT_CONFIG.MAX_HEALTH, maxHealth: COMBAT_CONFIG.MAX_HEALTH }
           const isFrozen = playerHealthData.state === PLAYER_STATE.FROZEN

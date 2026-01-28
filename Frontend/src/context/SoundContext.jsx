@@ -5,6 +5,7 @@
 
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import soundManager, { SOUNDS } from '../services/PhaserSoundManager';
+import log from '../utils/logger';
 
 const SoundContext = createContext(null);
 
@@ -49,7 +50,7 @@ export const SoundProvider = ({ children }) => {
         setMutedState(isMuted);
       }
     }).catch(err => {
-      console.error('Failed to initialize sound manager:', err);
+      log.error('Failed to initialize sound manager:', err);
     });
 
     return () => {

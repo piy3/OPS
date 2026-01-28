@@ -13,6 +13,8 @@
  * - Tile 16+: Corner/edge decorative tiles with neon glow effects
  */
 
+import log from '../utils/logger';
+
 // Tile dimensions
 export const TILE_SIZE = 32;
 export const TILES_PER_ROW = 8;
@@ -130,7 +132,7 @@ export function generateTilesetTexture(scene, textureKey = 'maze-tiles') {
   graphics.destroy();
   renderTexture.destroy();
   
-  console.log(`Tileset generated: ${textureKey} (${TILESET_WIDTH}x${TILESET_HEIGHT})`);
+  log.log(`Tileset generated: ${textureKey} (${TILESET_WIDTH}x${TILESET_HEIGHT})`);
   
   return textureKey;
 }

@@ -1,206 +1,181 @@
 /**
  * Socket Context for React
- * Provides socket connection and game state to all components
+ * Coordinates socket events and provides combined state to components
+ * Uses split contexts for better render optimization
+ * 
+ * Event handlers are split into logical groups:
+ * - Connection & Room: socket lifecycle, room/player updates
+ * - Game Phase & Quiz: game phases, quizzes, hunt mechanics
+ * - Combat & Items: health, combat, coins, powerups
  */
 
-import { createContext, useContext, useEffect, useState, useRef } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import socketService from '../services/socket';
 import soundManager from '../services/PhaserSoundManager';
+import log from '../utils/logger';
+
+// Import split contexts
+import { RoomProvider, useRoom } from './RoomContext';
+import { GamePhaseProvider, useGamePhase, GAME_PHASE } from './GamePhaseContext';
+import { CombatProvider, useCombat, PLAYER_STATE, COMBAT_CONFIG } from './CombatContext';
+
+// Re-export constants for backward compatibility
+export { GAME_PHASE } from './GamePhaseContext';
+export { PLAYER_STATE, COMBAT_CONFIG } from './CombatContext';
 
 const SocketContext = createContext(null);
 
+/**
+ * Combined hook for components that need everything (backward compatible)
+ */
 export const useSocket = () => {
-  const context = useContext(SocketContext);
-  if (!context) {
-    throw new Error('useSocket must be used within a SocketProvider');
-  }
-  return context;
+  const room = useRoom();
+  const gamePhase = useGamePhase();
+  const combat = useCombat();
+  
+  return useMemo(() => ({
+    ...room,
+    ...gamePhase,
+    ...combat,
+  }), [room, gamePhase, combat]);
 };
 
-// Game phase constants (matching backend)
-export const GAME_PHASE = {
-  WAITING: 'waiting',
-  BLITZ_QUIZ: 'blitz_quiz',
-  HUNT: 'hunt',
-  ROUND_END: 'round_end'
-};
-
-// Player state constants (matching backend)
-export const PLAYER_STATE = {
-  ACTIVE: 'active',
-  FROZEN: 'frozen',
-  IMMUNE: 'immune',
-  IN_IFRAMES: 'in_iframes'
-};
-
-// Combat config constants (matching backend)
-export const COMBAT_CONFIG = {
-  MAX_HEALTH: 100,
-  IFRAME_DURATION: 3000,
-  FREEZE_DURATION: 5000
-};
-
-export const SocketProvider = ({ children }) => {
+/**
+ * Internal component that sets up socket event handlers
+ * Must be inside all three providers to access their setters
+ */
+const SocketEventHandler = ({ children }) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const [socket, setSocket] = useState(null);
-  const [connected, setConnected] = useState(false);
-  const [roomData, setRoomData] = useState(null);
-  const [gameState, setGameState] = useState(null);
-  const [players, setPlayers] = useState([]);
-  const [unicornId, setUnicornId] = useState(null);
-  const [leaderboard, setLeaderboard] = useState([]);
   
-  // Quiz state (original collision quiz)
-  const [isGameFrozen, setIsGameFrozen] = useState(false);
-  const [freezeMessage, setFreezeMessage] = useState(null);
-  const [quizActive, setQuizActive] = useState(false);
-  const [quizData, setQuizData] = useState(null);
-  const [quizResults, setQuizResults] = useState(null);
+  // Get state and setters from all contexts
+  const {
+    setSocket, setConnected, setRoomData, setUnicornId,
+    setReserveUnicornId, setLeaderboard
+  } = useRoom();
+  
+  const {
+    setGameState, setGamePhase, setIsGameFrozen, setFreezeMessage,
+    setQuizActive, setQuizData, setQuizResults,
+    setBlitzQuizActive, setBlitzQuizData, setBlitzQuizResults,
+    setHuntData, setHuntTimeRemaining, setTagNotification
+  } = useGamePhase();
+  
+  const {
+    setPlayersHealth, setHitNotification, setMyPlayerState, setMyHealth,
+    setInIFrames, setCoins, setPowerups, setCoinCollectNotification,
+    setPowerupCollectNotification, setIsImmune, setImmunePlayers,
+    setKnockbackActive, setKnockbackPlayers, powerupNotificationTimeoutRef
+  } = useCombat();
 
-  // Game Loop state (new Blitz Quiz + Hunt system)
-  const [gamePhase, setGamePhase] = useState(GAME_PHASE.WAITING);
-  const [blitzQuizActive, setBlitzQuizActive] = useState(false);
-  const [blitzQuizData, setBlitzQuizData] = useState(null);
-  const [blitzQuizResults, setBlitzQuizResults] = useState(null);
-  const [huntData, setHuntData] = useState(null);
-  const [huntTimeRemaining, setHuntTimeRemaining] = useState(0);
-  const [reserveUnicornId, setReserveUnicornId] = useState(null);
-  const [tagNotification, setTagNotification] = useState(null);
+  // Stable ref for location.pathname to avoid effect re-runs
+  const locationRef = useRef(location.pathname);
+  locationRef.current = location.pathname;
 
-  // Combat System state
-  const [playersHealth, setPlayersHealth] = useState({}); // { playerId: { health, maxHealth, state, inIFrames } }
-  const [hitNotification, setHitNotification] = useState(null); // { attackerName, victimName, damage }
-  const [myPlayerState, setMyPlayerState] = useState(PLAYER_STATE.ACTIVE);
-  const [myHealth, setMyHealth] = useState(COMBAT_CONFIG.MAX_HEALTH);
-  const [inIFrames, setInIFrames] = useState(false);
-
-  // Coin & Powerup state
-  const [coins, setCoins] = useState([]); // [{ id, row, col }]
-  const [powerups, setPowerups] = useState([]); // [{ id, row, col, type }]
-  const [coinCollectNotification, setCoinCollectNotification] = useState(null);
-  const [powerupCollectNotification, setPowerupCollectNotification] = useState(null);
-  const [isImmune, setIsImmune] = useState(false);
-  const [immunePlayers, setImmunePlayers] = useState(new Set()); // Set of player IDs with immunity
-  const powerupNotificationTimeoutRef = useRef(null);
-
-  // Knockback state
-  const [knockbackActive, setKnockbackActive] = useState(false); // Is local player being knocked back
-  const [knockbackPlayers, setKnockbackPlayers] = useState(new Set()); // Set of player IDs being knocked back
-
-  // Cleanup powerup notification timeout on unmount
+  // ========== EFFECT 1: Connection & Room Events ==========
+  // Handles: socket lifecycle, room updates, player join/leave, host/unicorn transfer
   useEffect(() => {
-    return () => {
-      if (powerupNotificationTimeoutRef.current) {
-        clearTimeout(powerupNotificationTimeoutRef.current);
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    // Connect to socket server (will reuse existing connection if available)
     const socketInstance = socketService.connect();
     setSocket(socketInstance);
 
-    // Handle connection events
-    socketInstance.on('connect', () => {
-      console.log('Connected to server');
+    // Connection lifecycle
+    const handleConnect = () => {
+      log.log('Connected to server');
       setConnected(true);
-    });
-
-    socketInstance.on('disconnect', () => {
-      console.log('Disconnected from server');
+    };
+    const handleDisconnect = () => {
+      log.log('Disconnected from server');
       setConnected(false);
-    });
+    };
+    socketInstance.on('connect', handleConnect);
+    socketInstance.on('disconnect', handleDisconnect);
 
-    // Room events
+    // Room events - all update roomData (players derived automatically)
     socketService.onRoomUpdate((data) => {
-      console.log('Room updated:', data);
+      log.log('Room updated:', data);
       setRoomData(data.room);
-      if (data.room && data.room.players) {
-        setPlayers(data.room.players);
-      }
     });
 
     socketService.onPlayerJoined((data) => {
-      console.log('Player joined:', data.player);
+      log.log('Player joined:', data.player);
       setRoomData(data.room);
-      if (data.room && data.room.players) {
-        setPlayers(data.room.players);
-      }
     });
 
     socketService.onPlayerLeft((data) => {
-      console.log('Player left:', data.playerId);
+      log.log('Player left:', data.playerId);
       setRoomData(data.room);
-      if (data.room && data.room.players) {
-        setPlayers(data.room.players);
-      }
-    });
-
-    socketService.onGameStarted((data) => {
-      console.log('Game started:', data);
-      setRoomData(data.room);
-      setGameState(data.gameState);
-      
-      // Play game start sound
-      soundManager.playGameStart();
-      
-      // Set initial unicorn
-      if (data.room && data.room.unicornId) {
-        setUnicornId(data.room.unicornId);
-      }
-      
-      // Set initial leaderboard
-      if (data.gameState && data.gameState.leaderboard) {
-        setLeaderboard(data.gameState.leaderboard);
-      }
-      
-      // Navigate to game screen
-      if (location.pathname !== '/startgame') {
-        navigate('/startgame');
-      }
     });
 
     socketService.onHostTransferred((data) => {
-      console.log('Host transferred:', data);
+      log.log('Host transferred:', data);
       setRoomData(data.room);
     });
 
     socketService.onUnicornTransferred((data) => {
-      console.log('Unicorn transferred:', data);
+      log.log('Unicorn transferred:', data);
       setUnicornId(data.newUnicornId);
       setRoomData(data.room);
-      if (data.room && data.room.players) {
-        setPlayers(data.room.players);
-      }
     });
 
     socketService.onScoreUpdate((data) => {
-      console.log('Score updated:', data);
-      // Update room data with new player scores
-      if (data.room) {
-        setRoomData(data.room);
-        setPlayers(data.room.players);
+      log.log('Score updated:', data);
+      if (data.room) setRoomData(data.room);
+      if (data.leaderboard) setLeaderboard(data.leaderboard);
+    });
+
+    return () => {
+      socketInstance.off('connect', handleConnect);
+      socketInstance.off('disconnect', handleDisconnect);
+      socketService.removeAllListeners('room_update');
+      socketService.removeAllListeners('player_joined');
+      socketService.removeAllListeners('player_left');
+      socketService.removeAllListeners('host_transferred');
+      socketService.removeAllListeners('unicorn_transferred');
+      socketService.removeAllListeners('score_update');
+    };
+  }, [setSocket, setConnected, setRoomData, setUnicornId, setLeaderboard]);
+
+  // ========== EFFECT 2: Game Start (needs navigate) ==========
+  // Separated because it depends on navigate
+  useEffect(() => {
+    socketService.onGameStarted((data) => {
+      log.log('Game started:', data);
+      setRoomData(data.room);
+      setGameState(data.gameState);
+      
+      soundManager.playGameStart();
+      
+      if (data.room?.unicornId) {
+        setUnicornId(data.room.unicornId);
       }
-      // Update leaderboard
-      if (data.leaderboard) {
-        setLeaderboard(data.leaderboard);
+      if (data.gameState?.leaderboard) {
+        setLeaderboard(data.gameState.leaderboard);
+      }
+      
+      // Use ref to avoid stale closure
+      if (locationRef.current !== '/startgame') {
+        navigate('/startgame');
       }
     });
 
+    return () => {
+      socketService.removeAllListeners('game_started');
+    };
+  }, [navigate, setRoomData, setGameState, setUnicornId, setLeaderboard]);
+
+  // ========== EFFECT 3: Game Phase & Quiz Events ==========
+  // Handles: freeze, quiz, blitz, phase changes, hunt, tagging
+  useEffect(() => {
     // Quiz Events
     socketService.onGameFrozen((data) => {
-      console.log('🥶 ===== GAME FROZEN =====');
-      console.log('Freeze data:', data);
-      console.log('Message:', data.message);
-      console.log('Reason:', data.freezeReason);
-      console.log('=========================');
+      log.log('🥶 ===== GAME FROZEN =====');
+      log.log('Freeze data:', data);
+      log.log('Message:', data.message);
+      log.log('Reason:', data.freezeReason);
+      log.log('=========================');
       
-      // Play freeze sound
       soundManager.playFreeze();
-      
       setIsGameFrozen(true);
       setFreezeMessage({
         text: data.message,
@@ -211,7 +186,7 @@ export const SocketProvider = ({ children }) => {
     });
 
     socketService.onQuizStart((data) => {
-      console.log('Quiz started:', data);
+      log.log('Quiz started:', data);
       setQuizActive(true);
       setQuizData({
         questions: data.questions,
@@ -224,37 +199,29 @@ export const SocketProvider = ({ children }) => {
     });
 
     socketService.onQuizAnswerResult((data) => {
-      console.log('Quiz answer result:', data);
-      
-      // Play correct/wrong sound based on result
+      log.log('Quiz answer result:', data);
       if (data.correct) {
         soundManager.playQuizCorrect();
       } else {
         soundManager.playQuizWrong();
       }
-      
-      // Update quiz data with answer result
       setQuizData(prev => {
         if (!prev) return prev;
-        return {
-          ...prev,
-          answers: [...prev.answers, data]
-        };
+        return { ...prev, answers: [...prev.answers, data] };
       });
     });
 
     socketService.onQuizComplete((data) => {
-      console.log('🏁 ===== QUIZ COMPLETE =====');
-      console.log('Results:', data);
-      console.log('Score:', data.correctAnswers, '/', data.totalQuestions, '(', data.scorePercentage, '%)');
-      console.log('===========================');
+      log.log('🏁 ===== QUIZ COMPLETE =====');
+      log.log('Results:', data);
+      log.log('Score:', data.correctAnswers, '/', data.totalQuestions, '(', data.scorePercentage, '%)');
+      log.log('===========================');
       
       setQuizResults(data);
       setQuizActive(false);
       
-      // Show results for 5 seconds, then unfreeze game
       setTimeout(() => {
-        console.log('🔓 Game unfrozen on frontend');
+        log.log('🔓 Game unfrozen on frontend');
         setIsGameFrozen(false);
         setFreezeMessage(null);
         setQuizResults(null);
@@ -262,27 +229,23 @@ export const SocketProvider = ({ children }) => {
       }, 5000);
     });
 
-    // ========== GAME LOOP EVENTS ==========
-
     // Phase Change
     socketService.onPhaseChange((data) => {
-      console.log('🔄 ===== PHASE CHANGE =====');
-      console.log(`${data.previousPhase} → ${data.phase}`);
-      console.log('===========================');
+      log.log('🔄 ===== PHASE CHANGE =====');
+      log.log(`${data.previousPhase} → ${data.phase}`);
+      log.log('===========================');
       setGamePhase(data.phase);
     });
 
-    // Blitz Quiz Start - received by ALL players
+    // Blitz Quiz
     socketService.onBlitzStart((data) => {
-      console.log('⚡ ===== BLITZ QUIZ START =====');
-      console.log('Question:', data.question?.question);
-      console.log('Time Limit:', data.timeLimit);
-      console.log('Players:', data.playerCount);
-      console.log('==============================');
+      log.log('⚡ ===== BLITZ QUIZ START =====');
+      log.log('Question:', data.question?.question);
+      log.log('Time Limit:', data.timeLimit);
+      log.log('Players:', data.playerCount);
+      log.log('==============================');
       
-      // Play blitz quiz start sound
       soundManager.playBlitzStart();
-      
       setBlitzQuizActive(true);
       setBlitzQuizResults(null);
       setBlitzQuizData({
@@ -291,41 +254,88 @@ export const SocketProvider = ({ children }) => {
         playerCount: data.playerCount,
         timestamp: data.timestamp
       });
-      setIsGameFrozen(true); // Freeze movement during Blitz Quiz
+      setIsGameFrozen(true);
     });
 
-    // Blitz Quiz End - results for all players
     socketService.onBlitzResult((data) => {
-      console.log('⚡ ===== BLITZ QUIZ END =====');
-      console.log('New Unicorn:', data.newUnicornName);
-      console.log('Reserve:', data.reserveUnicornName);
-      console.log('Correct:', data.correctCount, '/', data.totalPlayers);
-      console.log('============================');
+      log.log('⚡ ===== BLITZ QUIZ END =====');
+      log.log('New Unicorn:', data.newUnicornName);
+      log.log('Reserve:', data.reserveUnicornName);
+      log.log('Correct:', data.correctCount, '/', data.totalPlayers);
+      log.log('============================');
       
       setBlitzQuizActive(false);
       setBlitzQuizData(null);
       setBlitzQuizResults(data);
       setUnicornId(data.newUnicornId);
       setReserveUnicornId(data.reserveUnicornId);
-      
-      // Results will be cleared when Hunt phase starts
     });
 
-    // Hunt Start
-    socketService.onHuntStart((data) => {
-      // console.log('🏃 ===== HUNT START =====');
-      // console.log('Duration:', data.duration);
-      // console.log('Unicorn:', data.unicornName);
-      // console.log('Reserve:', data.reserveUnicornName);
-      // console.log('========================');
+    // Hunt Timer Update
+    socketService.onHuntEnd((data) => {
+      const seconds = Math.floor(data.remainingTime / 1000);
+      if ([10, 5, 3, 2, 1].includes(seconds)) {
+        soundManager.playTimerWarning();
+      }
+      setHuntTimeRemaining(data.remainingTime);
+    });
+
+    // Player Tagged
+    socketService.onPlayerTagged((data) => {
+      log.log('🏷️ ===== PLAYER TAGGED =====');
+      log.log(`${data.unicornName} tagged ${data.survivorName}!`);
+      log.log(`Points transferred: ${data.pointsTransferred}`);
+      log.log('============================');
       
-      // Play hunt start sound
+      soundManager.playTag();
+      setTagNotification({
+        unicornName: data.unicornName,
+        survivorName: data.survivorName,
+        points: data.pointsTransferred
+      });
+      if (data.leaderboard) setLeaderboard(data.leaderboard);
+      
+      setTimeout(() => setTagNotification(null), 2000);
+    });
+
+    // Reserve Activated
+    socketService.onReserveActivated((data) => {
+      log.log('🦄 ===== RESERVE ACTIVATED =====');
+      log.log('New Unicorn:', data.newUnicornName);
+      log.log('================================');
+      
+      setUnicornId(data.newUnicornId);
+      setReserveUnicornId(null);
+    });
+
+    return () => {
+      socketService.removeAllListeners('game_frozen');
+      socketService.removeAllListeners('quiz_start');
+      socketService.removeAllListeners('quiz_answer_result');
+      socketService.removeAllListeners('quiz_complete');
+      socketService.removeAllListeners('phase_change');
+      socketService.removeAllListeners('blitz_start');
+      socketService.removeAllListeners('blitz_result');
+      socketService.removeAllListeners('hunt_end');
+      socketService.removeAllListeners('player_tagged');
+      socketService.removeAllListeners('reserve_activated');
+    };
+  }, [
+    setIsGameFrozen, setFreezeMessage, setQuizActive, setQuizData, setQuizResults,
+    setGamePhase, setBlitzQuizActive, setBlitzQuizData, setBlitzQuizResults,
+    setUnicornId, setReserveUnicornId, setHuntTimeRemaining, setTagNotification,
+    setLeaderboard
+  ]);
+
+  // ========== EFFECT 4: Hunt Start (bridges phase & combat) ==========
+  // Separated because it touches both game phase and combat state
+  useEffect(() => {
+    socketService.onHuntStart((data) => {
       soundManager.playHuntStart();
       
-      setIsGameFrozen(false); // Unfreeze for Hunt phase
-      setBlitzQuizResults(null); // Clear quiz results
-      setPowerups([]);
-      setPowerupCollectNotification(null);
+      // Game phase state
+      setIsGameFrozen(false);
+      setBlitzQuizResults(null);
       setHuntData({
         duration: data.duration,
         endTime: data.endTime,
@@ -336,7 +346,12 @@ export const SocketProvider = ({ children }) => {
       });
       setHuntTimeRemaining(data.duration);
 
-      // Initialize player health for the round
+      // Combat state - reset for new round
+      setPowerups([]);
+      setPowerupCollectNotification(null);
+      setInIFrames(false);
+
+      // Initialize player health
       if (data.playersHealth) {
         const healthMap = {};
         data.playersHealth.forEach(ph => {
@@ -349,7 +364,6 @@ export const SocketProvider = ({ children }) => {
         });
         setPlayersHealth(healthMap);
         
-        // Set my health
         const myId = socketService.getSocket()?.id;
         const myHealthData = data.playersHealth.find(ph => ph.playerId === myId);
         if (myHealthData) {
@@ -357,136 +371,77 @@ export const SocketProvider = ({ children }) => {
           setMyPlayerState(myHealthData.state);
         }
       }
-      
-      // Reset i-frames state
-      setInIFrames(false);
     });
 
-    // Hunt Timer Update
-    socketService.onHuntEnd((data) => {
-      // Play timer warning at 10, 5, 3, 2, 1 seconds
-      const seconds = Math.floor(data.remainingTime / 1000);
-      if ([10, 5, 3, 2, 1].includes(seconds)) {
-        soundManager.playTimerWarning();
-      }
-      setHuntTimeRemaining(data.remainingTime);
-    });
+    return () => {
+      socketService.removeAllListeners('hunt_start');
+    };
+  }, [
+    setIsGameFrozen, setBlitzQuizResults, setHuntData, setHuntTimeRemaining,
+    setPowerups, setPowerupCollectNotification, setInIFrames, setPlayersHealth,
+    setMyHealth, setMyPlayerState
+  ]);
 
-    // Player Tagged
-    socketService.onPlayerTagged((data) => {
-      console.log('🏷️ ===== PLAYER TAGGED =====');
-      console.log(`${data.unicornName} tagged ${data.survivorName}!`);
-      console.log(`Points transferred: ${data.pointsTransferred}`);
-      console.log('============================');
-      
-      // Play tag sound
-      soundManager.playTag();
-      
-      // Show tag notification
-      setTagNotification({
-        unicornName: data.unicornName,
-        survivorName: data.survivorName,
-        points: data.pointsTransferred
-      });
-      
-      // Update leaderboard
-      if (data.leaderboard) {
-        setLeaderboard(data.leaderboard);
-      }
-      
-      // Clear notification after 2 seconds
-      setTimeout(() => {
-        setTagNotification(null);
-      }, 2000);
-    });
-
-    // Reserve Activated
-    socketService.onReserveActivated((data) => {
-      console.log('🦄 ===== RESERVE ACTIVATED =====');
-      console.log('New Unicorn:', data.newUnicornName);
-      console.log('================================');
-      
-      setUnicornId(data.newUnicornId);
-      setReserveUnicornId(null);
-    });
-
-    // ========== COMBAT SYSTEM EVENTS ==========
-
-    // Player Hit - damage dealt to a player
+  // ========== EFFECT 5: Combat Events ==========
+  // Handles: player hit, respawn, state changes, health updates
+  useEffect(() => {
     socketService.onPlayerHit((data) => {
-      console.log('💥 ===== PLAYER HIT =====');
-      console.log(`${data.attackerName} hit ${data.victimName} for ${data.damage} damage`);
-      console.log(`New health: ${data.newHealth}/${data.maxHealth}`);
-      console.log('========================');
+      log.log('💥 ===== PLAYER HIT =====');
+      log.log(`${data.attackerName} hit ${data.victimName} for ${data.damage} damage`);
+      log.log(`New health: ${data.newHealth}/${data.maxHealth}`);
+      log.log('========================');
 
-      // Play hit sound
       soundManager.playPlayerHit();
-
       const myId = socketService.getSocket()?.id;
       
-      // Update player health
       setPlayersHealth(prev => ({
         ...prev,
         [data.victimId]: {
           health: data.newHealth,
           maxHealth: data.maxHealth,
-          inIFrames: true // Player just got hit, now in i-frames
+          inIFrames: true
         }
       }));
 
-      // If I was hit, update my state
       if (data.victimId === myId) {
         setMyHealth(data.newHealth);
         setInIFrames(true);
         
-        // Clear i-frames after duration
         setTimeout(() => {
           setInIFrames(false);
           setPlayersHealth(prev => ({
             ...prev,
-            [data.victimId]: {
-              ...prev[data.victimId],
-              inIFrames: false
-            }
+            [data.victimId]: { ...prev[data.victimId], inIFrames: false }
           }));
         }, data.iframeDuration || COMBAT_CONFIG.IFRAME_DURATION);
       }
 
-      // Show hit notification
       setHitNotification({
         attackerName: data.attackerName,
         victimName: data.victimName,
         damage: data.damage,
         victimId: data.victimId
       });
+      setTimeout(() => setHitNotification(null), 1500);
 
-      // Clear notification after 1.5 seconds
-      setTimeout(() => {
-        setHitNotification(null);
-      }, 1500);
-
-      // Handle knockback animation
+      // Knockback handling
       if (data.knockback) {
-        // Track knockback for this player
         setKnockbackPlayers(prev => {
           const newSet = new Set(prev);
           newSet.add(data.victimId);
           return newSet;
         });
 
-        // If I was knocked back
         if (data.victimId === myId) {
           setKnockbackActive(true);
         }
 
-        // Clear knockback after animation duration (300ms)
         setTimeout(() => {
           setKnockbackPlayers(prev => {
             const newSet = new Set(prev);
             newSet.delete(data.victimId);
             return newSet;
           });
-
           if (data.victimId === myId) {
             setKnockbackActive(false);
           }
@@ -494,50 +449,45 @@ export const SocketProvider = ({ children }) => {
       }
     });
 
-    // Player Respawn - player respawned after freeze
+    // BATCHED EVENT: Respawn now includes position + health + state in one payload
     socketService.onPlayerRespawn((data) => {
-      console.log('🔄 ===== PLAYER RESPAWN =====');
-      console.log(`${data.playerName} respawned with ${data.health}/${data.maxHealth} HP`);
-      console.log('=============================');
+      log.log('🔄 ===== PLAYER RESPAWN =====');
+      log.log(`${data.playerName} respawned with ${data.health}/${data.maxHealth} HP`);
+      if (data.position) {
+        log.log(`Position: row=${data.position.row}, col=${data.position.col}`);
+      }
+      log.log('=============================');
 
       const myId = socketService.getSocket()?.id;
 
-      // Update player health and state
+      // Update health and state (position handled by Phaser layer)
       setPlayersHealth(prev => ({
         ...prev,
         [data.playerId]: {
           health: data.health,
           maxHealth: data.maxHealth,
           state: data.state,
-          inIFrames: true // Respawned players get i-frames
+          inIFrames: data.inIFrames ?? true
         }
       }));
 
-      // If I respawned, update my state
       if (data.playerId === myId) {
         setMyHealth(data.health);
         setMyPlayerState(data.state);
-        setInIFrames(true);
-        
-        // Clear i-frames after duration
-        setTimeout(() => {
-          setInIFrames(false);
-        }, COMBAT_CONFIG.IFRAME_DURATION);
+        setInIFrames(data.inIFrames ?? true);
+        setTimeout(() => setInIFrames(false), COMBAT_CONFIG.IFRAME_DURATION);
       }
     });
 
-    // Player State Change - frozen, active, etc.
     socketService.onPlayerStateChange((data) => {
-      console.log('🔄 Player state change:', data.playerId, '→', data.state);
+      log.log('🔄 Player state change:', data.playerId, '→', data.state);
 
       const myId = socketService.getSocket()?.id;
 
-      // Play freeze sound if player became frozen
       if (data.state === 'frozen' && data.playerId === myId) {
         soundManager.playFreeze();
       }
 
-      // Update player state
       setPlayersHealth(prev => ({
         ...prev,
         [data.playerId]: {
@@ -547,7 +497,6 @@ export const SocketProvider = ({ children }) => {
         }
       }));
 
-      // If my state changed
       if (data.playerId === myId) {
         setMyPlayerState(data.state);
         if (data.inIFrames !== undefined) {
@@ -556,11 +505,9 @@ export const SocketProvider = ({ children }) => {
       }
     });
 
-    // Health Update - health changed for a player
     socketService.onHealthUpdate((data) => {
       const myId = socketService.getSocket()?.id;
 
-      // Update player health
       setPlayersHealth(prev => ({
         ...prev,
         [data.playerId]: {
@@ -570,87 +517,76 @@ export const SocketProvider = ({ children }) => {
         }
       }));
 
-      // If my health changed
       if (data.playerId === myId) {
         setMyHealth(data.health);
       }
     });
 
-    // ========== COIN EVENTS ==========
+    return () => {
+      socketService.removeAllListeners('player_hit');
+      socketService.removeAllListeners('player_respawn');
+      socketService.removeAllListeners('player_state_change');
+      socketService.removeAllListeners('health_update');
+    };
+  }, [
+    setPlayersHealth, setMyHealth, setInIFrames, setHitNotification,
+    setKnockbackPlayers, setKnockbackActive, setMyPlayerState
+  ]);
 
-    // Coin spawned (handles both initial spawn and respawns)
+  // ========== EFFECT 6: Coins & Powerups ==========
+  // Handles: coin/powerup spawn, collection, activation, expiration
+  useEffect(() => {
+    // Coin spawned
     socketService.onCoinSpawned((data) => {
-      // Check if this is initial batch spawn (has coins array) or single coin spawn
       if (data.coins) {
-        console.log('💰 ===== COINS SPAWNED =====');
-        console.log(`Coins: ${data.coins.length}`);
-        console.log('============================');
+        log.log('💰 ===== COINS SPAWNED =====');
+        log.log(`Coins: ${data.coins.length}`);
+        log.log('============================');
         setCoins(data.coins);
       } else if (data.coinId || data.id) {
-        // Single coin spawn (respawn or new spawn)
         const coinId = data.coinId || data.id;
-        console.log(`💰 Coin spawned at (${data.row}, ${data.col})`);
+        log.log(`💰 Coin spawned at (${data.row}, ${data.col})`);
         setCoins(prev => {
-          // Check if coin already exists
           const exists = prev.some(c => c.id === coinId);
           if (exists) return prev;
-          return [...prev, {
-            id: coinId,
-            row: data.row,
-            col: data.col
-          }];
+          return [...prev, { id: coinId, row: data.row, col: data.col }];
         });
       }
     });
 
-    // Coin collected by a player
+    // Coin collected
     socketService.onCoinCollected((data) => {
-      console.log(`💰 ${data.playerName} collected coin! +${data.value}`);
+      log.log(`💰 ${data.playerName} collected coin! +${data.value}`);
       
       const myId = socketService.getSocket()?.id;
-      console.log(`🔍 Coin collection check - data.playerId: ${data.playerId}, myId: ${myId}, match: ${data.playerId === myId}`);
+      log.log(`🔍 Coin collection check - data.playerId: ${data.playerId}, myId: ${myId}, match: ${data.playerId === myId}`);
       
-      // Find the coin position before removing it (for particle effects)
       setCoins(prev => {
         const collectedCoin = prev.find(coin => coin.id === data.coinId);
         
-        // Show notification and play sound if I collected it
         if (data.playerId === myId) {
-          // Play coin collect sound
-          console.log('🔊 Playing coin collect sound...');
+          log.log('🔊 Playing coin collect sound...');
           soundManager.playCoinCollect();
           
           setCoinCollectNotification({
             value: data.value,
             newScore: data.newScore,
-            // Include coin position for particle effects
             row: collectedCoin?.row ?? data.row,
             col: collectedCoin?.col ?? data.col,
             coinId: data.coinId
           });
-          
-          // Clear notification after 1 second
-          setTimeout(() => {
-            setCoinCollectNotification(null);
-          }, 1000);
+          setTimeout(() => setCoinCollectNotification(null), 1000);
         }
         
-        // Remove collected coin from state
         return prev.filter(coin => coin.id !== data.coinId);
       });
       
-      // Update leaderboard
-      if (data.leaderboard) {
-        setLeaderboard(data.leaderboard);
-      }
+      if (data.leaderboard) setLeaderboard(data.leaderboard);
     });
 
-    // ========== POWERUP EVENTS ==========
-
-    // Powerup spawned on map
+    // Powerup spawned
     socketService.onPowerupSpawned((data) => {
-      console.log(`⚡ Powerup spawned at (${data.row}, ${data.col})`);
-      
+      log.log(`⚡ Powerup spawned at (${data.row}, ${data.col})`);
       setPowerups(prev => [...prev, {
         id: data.id,
         row: data.row,
@@ -659,14 +595,13 @@ export const SocketProvider = ({ children }) => {
       }]);
     });
 
-    // Powerup collected by a player
+    // Powerup collected
     socketService.onPowerupCollected((data) => {
-      console.log('Powerup collected:', data);
+      log.log('Powerup collected:', data);
       
       const myId = socketService.getSocket()?.id;
-      console.log(`🔍 Powerup collection check - data.playerId: ${data.playerId}, myId: ${myId}, match: ${data.playerId === myId}`);
+      log.log(`🔍 Powerup collection check - data.playerId: ${data.playerId}, myId: ${myId}, match: ${data.playerId === myId}`);
       
-      // Clear any pending notification timeout
       if (powerupNotificationTimeoutRef.current) {
         clearTimeout(powerupNotificationTimeoutRef.current);
         powerupNotificationTimeoutRef.current = null;
@@ -675,12 +610,10 @@ export const SocketProvider = ({ children }) => {
       setPowerups(prev => {
         const collectedPowerup = prev.find(p => p.id === data.powerupId);
         
-        // Handle visual effects for the collecting player
         if (data.playerId === myId) {
-          console.log('🔊 Playing powerup pickup sound...');
+          log.log('🔊 Playing powerup pickup sound...');
           soundManager.playPowerupPickup();
           
-          // Use server data as fallback if powerup not in local state
           setPowerupCollectNotification({
             row: collectedPowerup?.row ?? data.row,
             col: collectedPowerup?.col ?? data.col,
@@ -694,168 +627,78 @@ export const SocketProvider = ({ children }) => {
           }, 500);
         }
         
-        // Remove powerup from state
         return prev.filter(p => p.id !== data.powerupId);
       });
     });
 
-    // Powerup activated - player is now immune
+    // Powerup activated
     socketService.onPowerupActivated((data) => {
-      console.log(`🛡️ ${data.playerName} activated ${data.type}!`);
+      log.log(`🛡️ ${data.playerName} activated ${data.type}!`);
       
       const myId = socketService.getSocket()?.id;
       
-      // Track immune player
       setImmunePlayers(prev => {
         const newSet = new Set(prev);
         newSet.add(data.playerId);
         return newSet;
       });
       
-      // If I activated it
       if (data.playerId === myId) {
         setIsImmune(true);
       }
     });
 
-    // Powerup expired - player no longer immune
+    // Powerup expired
     socketService.onPowerupExpired((data) => {
-      console.log(`🛡️ ${data.playerName}'s ${data.type} expired`);
+      log.log(`🛡️ ${data.playerName}'s ${data.type} expired`);
       
       const myId = socketService.getSocket()?.id;
       
-      // Remove from immune players
       setImmunePlayers(prev => {
         const newSet = new Set(prev);
         newSet.delete(data.playerId);
         return newSet;
       });
       
-      // If mine expired
       if (data.playerId === myId) {
         setIsImmune(false);
       }
     });
 
-    // Cleanup on unmount - remove listeners only (keep connection alive)
     return () => {
-      // Clear powerup notification timeout if pending
       if (powerupNotificationTimeoutRef.current) {
         clearTimeout(powerupNotificationTimeoutRef.current);
         powerupNotificationTimeoutRef.current = null;
       }
-      
-      socketService.removeAllListeners('room_update');
-      socketService.removeAllListeners('player_joined');
-      socketService.removeAllListeners('player_left');
-      socketService.removeAllListeners('game_started');
-      socketService.removeAllListeners('host_transferred');
-      socketService.removeAllListeners('unicorn_transferred');
-      socketService.removeAllListeners('score_update');
-      socketService.removeAllListeners('game_frozen');
-      socketService.removeAllListeners('quiz_start');
-      socketService.removeAllListeners('quiz_answer_result');
-      socketService.removeAllListeners('quiz_complete');
-      // Game loop events
-      socketService.removeAllListeners('phase_change');
-      socketService.removeAllListeners('blitz_start');
-      socketService.removeAllListeners('blitz_result');
-      socketService.removeAllListeners('hunt_start');
-      socketService.removeAllListeners('hunt_end');
-      socketService.removeAllListeners('player_tagged');
-      socketService.removeAllListeners('reserve_activated');
-      // Combat events
-      socketService.removeAllListeners('player_hit');
-      socketService.removeAllListeners('player_respawn');
-      socketService.removeAllListeners('player_state_change');
-      socketService.removeAllListeners('health_update');
-      // Coin events
       socketService.removeAllListeners('coin_spawned');
       socketService.removeAllListeners('coin_collected');
-      // Powerup events
       socketService.removeAllListeners('powerup_spawned');
       socketService.removeAllListeners('powerup_collected');
       socketService.removeAllListeners('powerup_activated');
       socketService.removeAllListeners('powerup_expired');
     };
-  }, [navigate, location.pathname]);
+  }, [
+    setCoins, setCoinCollectNotification, setPowerups, setPowerupCollectNotification,
+    setIsImmune, setImmunePlayers, setLeaderboard, powerupNotificationTimeoutRef
+  ]);
 
-  const value = {
-    socket,
-    connected,
-    roomData,
-    setRoomData,
-    gameState,
-    setGameState,
-    players,
-    setPlayers,
-    unicornId,
-    setUnicornId,
-    leaderboard,
-    setLeaderboard,
-    isGameFrozen,
-    setIsGameFrozen,
-    freezeMessage,
-    setFreezeMessage,
-    quizActive,
-    setQuizActive,
-    quizData,
-    setQuizData,
-    quizResults,
-    setQuizResults,
-    socketService,
-    // Game Loop state
-    gamePhase,
-    setGamePhase,
-    blitzQuizActive,
-    setBlitzQuizActive,
-    blitzQuizData,
-    setBlitzQuizData,
-    blitzQuizResults,
-    setBlitzQuizResults,
-    huntData,
-    setHuntData,
-    huntTimeRemaining,
-    setHuntTimeRemaining,
-    reserveUnicornId,
-    setReserveUnicornId,
-    tagNotification,
-    setTagNotification,
-    // Combat System state
-    playersHealth,
-    setPlayersHealth,
-    hitNotification,
-    setHitNotification,
-    myPlayerState,
-    setMyPlayerState,
-    myHealth,
-    setMyHealth,
-    inIFrames,
-    setInIFrames,
-    // Coin & Powerup state
-    coins,
-    setCoins,
-    powerups,
-    setPowerups,
-    coinCollectNotification,
-    setCoinCollectNotification,
-    powerupCollectNotification,
-    setPowerupCollectNotification,
-    isImmune,
-    setIsImmune,
-    immunePlayers,
-    setImmunePlayers,
-    // Knockback state
-    knockbackActive,
-    setKnockbackActive,
-    knockbackPlayers,
-    setKnockbackPlayers
-  };
+  return children;
+};
 
+/**
+ * Main Socket Provider that wraps all context providers
+ */
+export const SocketProvider = ({ children }) => {
   return (
-    <SocketContext.Provider value={value}>
-      {children}
-    </SocketContext.Provider>
+    <RoomProvider>
+      <GamePhaseProvider>
+        <CombatProvider>
+          <SocketEventHandler>
+            {children}
+          </SocketEventHandler>
+        </CombatProvider>
+      </GamePhaseProvider>
+    </RoomProvider>
   );
 };
 
