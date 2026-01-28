@@ -608,6 +608,7 @@ export const SocketProvider = ({ children }) => {
       console.log(`💰 ${data.playerName} collected coin! +${data.value}`);
       
       const myId = socketService.getSocket()?.id;
+      console.log(`🔍 Coin collection check - data.playerId: ${data.playerId}, myId: ${myId}, match: ${data.playerId === myId}`);
       
       // Find the coin position before removing it (for particle effects)
       setCoins(prev => {
@@ -616,6 +617,7 @@ export const SocketProvider = ({ children }) => {
         // Show notification and play sound if I collected it
         if (data.playerId === myId) {
           // Play coin collect sound
+          console.log('🔊 Playing coin collect sound...');
           soundManager.playCoinCollect();
           
           setCoinCollectNotification({
@@ -661,6 +663,9 @@ export const SocketProvider = ({ children }) => {
     socketService.onPowerupCollected((data) => {
       console.log('Powerup collected:', data);
       
+      const myId = socketService.getSocket()?.id;
+      console.log(`🔍 Powerup collection check - data.playerId: ${data.playerId}, myId: ${myId}, match: ${data.playerId === myId}`);
+      
       // Clear any pending notification timeout
       if (powerupNotificationTimeoutRef.current) {
         clearTimeout(powerupNotificationTimeoutRef.current);
@@ -671,7 +676,8 @@ export const SocketProvider = ({ children }) => {
         const collectedPowerup = prev.find(p => p.id === data.powerupId);
         
         // Handle visual effects for the collecting player
-        if (data.playerId === socketService.getSocket()?.id) {
+        if (data.playerId === myId) {
+          console.log('🔊 Playing powerup pickup sound...');
           soundManager.playPowerupPickup();
           
           // Use server data as fallback if powerup not in local state

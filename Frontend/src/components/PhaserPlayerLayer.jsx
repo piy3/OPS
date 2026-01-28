@@ -1,8 +1,9 @@
-import { useEffect, useRef, forwardRef, useImperativeHandle } from 'react'
+import { useEffect, useRef, forwardRef, useImperativeHandle, useState } from 'react'
 import Phaser from 'phaser'
 import { MAZE_ROWS, MAZE_COLS, hasWrapAround, setMapLoader } from '../maze'
 import { generateTilesetTexture, TILE_SIZE } from '../scripts/generateTileset'
 import { TiledMapLoader, createDynamicTilemap } from '../utils/TiledMapLoader'
+import { PLAYER_STATE, COMBAT_CONFIG } from '../context/SocketContext'
 
 // Phaser scene for player rendering with smooth interpolation
 class PlayerScene extends Phaser.Scene {
@@ -37,6 +38,22 @@ class PlayerScene extends Phaser.Scene {
     this.mapLoader = null
     this.tilesetGenerated = false
     this.renderMaze = true // Flag to control whether maze is rendered via Phaser
+    
+    // Local player rendering system
+    this.localPlayerTargetGridPosRef = null  // Reference to target grid position - Phaser interpolates toward this
+    this.localPlayerObj = null               // The local player's Phaser game object
+    this.localPlayerCurrentPos = { x: 0, y: 0 }  // Current interpolated pixel position (managed by Phaser)
+    this.localPlayerTarget = { x: 0, y: 0, row: 1, col: 1, lastRow: 1, lastCol: 1 }  // Target tracking for wrap detection
+    this.renderLocalPlayer = false           // Whether to render local player in Phaser
+    this.localPlayerState = {                // Local player state for visual effects
+      facingDirection: 'right',
+      health: 100,
+      maxHealth: 100,
+      isImmune: false,
+      inIFrames: false,
+      isFrozen: false,
+      isKnockedBack: false
+    }
   }
 
   create() {
@@ -931,6 +948,12 @@ class PlayerScene extends Phaser.Scene {
         this.updatePlayerSize(playerObj)
       }
     })
+    
+    // Recreate local player with new dimensions
+    if (this.renderLocalPlayer && this.localPlayerObj) {
+      this.destroyLocalPlayer()
+      this.createLocalPlayer()
+    }
   }
 
   updatePlayerSize(playerObj) {
@@ -959,6 +982,428 @@ class PlayerScene extends Phaser.Scene {
     this.players.forEach((playerObj, playerId) => {
       this.updatePlayerVisual(playerId, playerObj)
     })
+    // Also update local player visual if it exists
+    if (this.localPlayerObj) {
+      this.updateLocalPlayerVisual()
+    }
+  }
+
+  // ========== LOCAL PLAYER RENDERING SYSTEM ==========
+
+  /**
+   * Set the reference to the local player's target grid position
+   * Phaser will interpolate toward this position every frame for smooth movement
+   */
+  setLocalPlayerTargetGridPosRef(ref) {
+    this.localPlayerTargetGridPosRef = ref
+  }
+
+  /**
+   * Enable or disable local player rendering in Phaser
+   */
+  setRenderLocalPlayer(enabled) {
+    this.renderLocalPlayer = enabled
+    
+    if (enabled && !this.localPlayerObj && this.localPlayerId) {
+      // Create local player if it doesn't exist
+      this.createLocalPlayer()
+    } else if (!enabled && this.localPlayerObj) {
+      // Destroy local player if rendering is disabled
+      this.destroyLocalPlayer()
+    }
+  }
+
+  /**
+   * Update local player state (health, immunity, facing direction, etc.)
+   */
+  updateLocalPlayerState(state) {
+    Object.assign(this.localPlayerState, state)
+    
+    // Update visuals if player exists
+    if (this.localPlayerObj) {
+      this.updateLocalPlayerVisual()
+    }
+  }
+
+  /**
+   * Create the local player game object
+   */
+  createLocalPlayer() {
+    if (this.localPlayerObj) {
+      this.destroyLocalPlayer()
+    }
+    
+    if (!this.localPlayerId) return
+    
+    const isUnicorn = this.localPlayerId === this.unicornId
+    const state = this.localPlayerState
+    
+    // Get initial position from target grid ref or use default
+    let pixelX = this.mazeWidth / 2
+    let pixelY = this.mazeHeight / 2
+    let initRow = 1
+    let initCol = 1
+    
+    if (this.localPlayerTargetGridPosRef && this.localPlayerTargetGridPosRef.current) {
+      initRow = this.localPlayerTargetGridPosRef.current.row
+      initCol = this.localPlayerTargetGridPosRef.current.col
+      pixelX = initCol * this.cellSize + this.cellSize / 2
+      pixelY = initRow * this.cellSize + this.cellSize / 2
+    }
+    
+    // Initialize current position and target tracking (same structure as remote players)
+    this.localPlayerCurrentPos = { x: pixelX, y: pixelY }
+    this.localPlayerTarget = {
+      x: pixelX,
+      y: pixelY,
+      row: initRow,
+      col: initCol,
+      lastRow: initRow,
+      lastCol: initCol
+    }
+    
+    // Create the player container with all visual elements
+    const container = this.add.container(pixelX, pixelY)
+    container.setDepth(100) // Ensure local player is always visible above remote players
+    
+    // Player body - circle
+    const playerSize = this.cellSize * 0.6
+    const color = 0x4CAF50 // Green for local player
+    
+    const body = this.add.graphics()
+    body.fillStyle(isUnicorn ? 0xFF69B4 : color, 1)
+    body.fillCircle(0, 0, playerSize / 2)
+    body.lineStyle(2, isUnicorn ? 0xFF1493 : 0xFFFFFF, 1)
+    body.strokeCircle(0, 0, playerSize / 2)
+    container.add(body)
+    
+    // Unicorn emoji indicator
+    if (isUnicorn) {
+      const unicornEmoji = this.add.text(0, 0, '🦄', {
+        fontSize: `${playerSize * 0.8}px`,
+      }).setOrigin(0.5, 0.5)
+      container.add(unicornEmoji)
+      container.setData('unicornEmoji', unicornEmoji)
+    }
+    
+    // Immunity shield (visual ring)
+    if (state.isImmune) {
+      const shield = this.add.graphics()
+      shield.lineStyle(3, 0x00FFFF, 0.8)
+      shield.strokeCircle(0, 0, playerSize / 2 + 5)
+      container.add(shield)
+      container.setData('shield', shield)
+    }
+    
+    // Frozen overlay
+    if (state.isFrozen) {
+      const frozenOverlay = this.add.graphics()
+      frozenOverlay.fillStyle(0x87CEEB, 0.5)
+      frozenOverlay.fillCircle(0, 0, playerSize / 2 + 3)
+      container.add(frozenOverlay)
+      container.setData('frozenOverlay', frozenOverlay)
+      
+      // Add frozen text above
+      const frozenText = this.add.text(0, -playerSize / 2 - 15, '❄️', {
+        fontSize: `${playerSize * 0.5}px`,
+      }).setOrigin(0.5, 0.5)
+      container.add(frozenText)
+      container.setData('frozenText', frozenText)
+    }
+    
+    // Health bar (only for survivors, not unicorn)
+    if (!isUnicorn) {
+      const healthBarWidth = playerSize * 1.2
+      const healthBarHeight = 4
+      const healthBarY = -playerSize / 2 - 8
+      
+      // Background
+      const healthBg = this.add.graphics()
+      healthBg.fillStyle(0x333333, 1)
+      healthBg.fillRect(-healthBarWidth / 2, healthBarY, healthBarWidth, healthBarHeight)
+      container.add(healthBg)
+      
+      // Health fill
+      const healthPercent = state.health / state.maxHealth
+      const healthColor = healthPercent <= 0.3 ? 0xFF0000 : (healthPercent <= 0.6 ? 0xFFAA00 : 0x00FF00)
+      const healthFill = this.add.graphics()
+      healthFill.fillStyle(healthColor, 1)
+      healthFill.fillRect(-healthBarWidth / 2, healthBarY, healthBarWidth * healthPercent, healthBarHeight)
+      container.add(healthFill)
+      
+      container.setData('healthFill', healthFill)
+      container.setData('healthBg', healthBg)
+      container.setData('healthBarWidth', healthBarWidth)
+      container.setData('healthBarHeight', healthBarHeight)
+      container.setData('healthBarY', healthBarY)
+    }
+    
+    // I-frames effect (blinking/transparency)
+    if (state.inIFrames) {
+      container.setAlpha(0.5)
+    }
+    
+    container.setData('body', body)
+    container.setData('playerId', this.localPlayerId)
+    container.setData('isLocalPlayer', true)
+    
+    this.localPlayerObj = container
+    
+    return container
+  }
+
+  /**
+   * Update the local player's visual elements (called when state changes)
+   */
+  updateLocalPlayerVisual() {
+    if (!this.localPlayerObj) return
+    
+    const container = this.localPlayerObj
+    const state = this.localPlayerState
+    const isUnicorn = this.localPlayerId === this.unicornId
+    const playerSize = this.cellSize * 0.6
+    
+    // Update body color
+    const body = container.getData('body')
+    if (body) {
+      body.clear()
+      body.fillStyle(isUnicorn ? 0xFF69B4 : 0x4CAF50, 1)
+      body.fillCircle(0, 0, playerSize / 2)
+      body.lineStyle(2, isUnicorn ? 0xFF1493 : 0xFFFFFF, 1)
+      body.strokeCircle(0, 0, playerSize / 2)
+    }
+    
+    // Update or create unicorn emoji
+    const existingEmoji = container.getData('unicornEmoji')
+    if (isUnicorn && !existingEmoji) {
+      const unicornEmoji = this.add.text(0, 0, '🦄', {
+        fontSize: `${playerSize * 0.8}px`,
+      }).setOrigin(0.5, 0.5)
+      container.add(unicornEmoji)
+      container.setData('unicornEmoji', unicornEmoji)
+    } else if (!isUnicorn && existingEmoji) {
+      existingEmoji.destroy()
+      container.setData('unicornEmoji', null)
+    }
+    
+    // Update immunity shield
+    const existingShield = container.getData('shield')
+    if (state.isImmune && !existingShield) {
+      const shield = this.add.graphics()
+      shield.lineStyle(3, 0x00FFFF, 0.8)
+      shield.strokeCircle(0, 0, playerSize / 2 + 5)
+      container.add(shield)
+      container.setData('shield', shield)
+    } else if (!state.isImmune && existingShield) {
+      existingShield.destroy()
+      container.setData('shield', null)
+    }
+    
+    // Update frozen overlay
+    const existingFrozen = container.getData('frozenOverlay')
+    const existingFrozenText = container.getData('frozenText')
+    if (state.isFrozen && !existingFrozen) {
+      const frozenOverlay = this.add.graphics()
+      frozenOverlay.fillStyle(0x87CEEB, 0.5)
+      frozenOverlay.fillCircle(0, 0, playerSize / 2 + 3)
+      container.add(frozenOverlay)
+      container.setData('frozenOverlay', frozenOverlay)
+      
+      const frozenText = this.add.text(0, -playerSize / 2 - 15, '❄️', {
+        fontSize: `${playerSize * 0.5}px`,
+      }).setOrigin(0.5, 0.5)
+      container.add(frozenText)
+      container.setData('frozenText', frozenText)
+    } else if (!state.isFrozen && existingFrozen) {
+      existingFrozen.destroy()
+      container.setData('frozenOverlay', null)
+      if (existingFrozenText) {
+        existingFrozenText.destroy()
+        container.setData('frozenText', null)
+      }
+    }
+    
+    // Update health bar (only for non-unicorn)
+    if (!isUnicorn) {
+      const healthFill = container.getData('healthFill')
+      const healthBg = container.getData('healthBg')
+      const healthBarWidth = container.getData('healthBarWidth') || playerSize * 1.2
+      const healthBarHeight = container.getData('healthBarHeight') || 4
+      const healthBarY = container.getData('healthBarY') || -playerSize / 2 - 8
+      
+      if (healthFill) {
+        healthFill.clear()
+        const healthPercent = Math.max(0, Math.min(1, state.health / state.maxHealth))
+        const healthColor = healthPercent <= 0.3 ? 0xFF0000 : (healthPercent <= 0.6 ? 0xFFAA00 : 0x00FF00)
+        healthFill.fillStyle(healthColor, 1)
+        healthFill.fillRect(-healthBarWidth / 2, healthBarY, healthBarWidth * healthPercent, healthBarHeight)
+      } else if (!healthBg) {
+        // Create health bar if it doesn't exist
+        const newHealthBg = this.add.graphics()
+        newHealthBg.fillStyle(0x333333, 1)
+        newHealthBg.fillRect(-healthBarWidth / 2, healthBarY, healthBarWidth, healthBarHeight)
+        container.add(newHealthBg)
+        
+        const healthPercent = Math.max(0, Math.min(1, state.health / state.maxHealth))
+        const healthColor = healthPercent <= 0.3 ? 0xFF0000 : (healthPercent <= 0.6 ? 0xFFAA00 : 0x00FF00)
+        const newHealthFill = this.add.graphics()
+        newHealthFill.fillStyle(healthColor, 1)
+        newHealthFill.fillRect(-healthBarWidth / 2, healthBarY, healthBarWidth * healthPercent, healthBarHeight)
+        container.add(newHealthFill)
+        
+        container.setData('healthFill', newHealthFill)
+        container.setData('healthBg', newHealthBg)
+        container.setData('healthBarWidth', healthBarWidth)
+        container.setData('healthBarHeight', healthBarHeight)
+        container.setData('healthBarY', healthBarY)
+      }
+    } else {
+      // Remove health bar if player became unicorn
+      const healthFill = container.getData('healthFill')
+      const healthBg = container.getData('healthBg')
+      if (healthFill) {
+        healthFill.destroy()
+        container.setData('healthFill', null)
+      }
+      if (healthBg) {
+        healthBg.destroy()
+        container.setData('healthBg', null)
+      }
+    }
+    
+    // Update i-frames alpha
+    container.setAlpha(state.inIFrames ? 0.5 : 1)
+    
+    // Apply facing direction rotation for unicorn
+    if (isUnicorn) {
+      const rotation = this.getDirectionRotation(state.facingDirection)
+      container.setRotation(rotation)
+    } else {
+      container.setRotation(0)
+    }
+  }
+
+  /**
+   * Get rotation angle for facing direction
+   */
+  getDirectionRotation(direction) {
+    switch (direction) {
+      case 'up': return -Math.PI / 2
+      case 'down': return Math.PI / 2
+      case 'left': return Math.PI
+      case 'right':
+      default: return 0
+    }
+  }
+
+  /**
+   * Destroy the local player game object
+   */
+  destroyLocalPlayer() {
+    if (this.localPlayerObj) {
+      this.localPlayerObj.destroy()
+      this.localPlayerObj = null
+    }
+  }
+
+  /**
+   * Update local player position with smooth interpolation (called every frame in update())
+   * This mirrors EXACTLY how remote players are interpolated for consistent smoothness
+   */
+  updateLocalPlayerPosition(delta) {
+    if (!this.renderLocalPlayer || !this.localPlayerObj || !this.localPlayerTargetGridPosRef) return
+    
+    const targetGridPos = this.localPlayerTargetGridPosRef.current
+    if (!targetGridPos) return
+    
+    const newRow = targetGridPos.row
+    const newCol = targetGridPos.col
+    const target = this.localPlayerTarget
+    const currentPos = this.localPlayerCurrentPos
+    
+    // Check if grid position changed (new target)
+    if (newRow !== target.row || newCol !== target.col) {
+      // Calculate new target pixel position from grid
+      const newPixelX = newCol * this.cellSize + this.cellSize / 2
+      const newPixelY = newRow * this.cellSize + this.cellSize / 2
+      
+      // Detect wrap-around (same logic as remote players)
+      const colDiff = newCol - target.lastCol
+      let adjustedTargetX = newPixelX
+      
+      if (hasWrapAround(newRow) && hasWrapAround(target.row)) {
+        // Detect wrap from right to left (31 -> 0)
+        if (colDiff < -MAZE_COLS / 2 || (target.lastCol === MAZE_COLS - 1 && newCol === 0)) {
+          // Player wrapped from right edge to left edge
+          // Snap current position to right side if on left, then move toward off-screen right
+          if (currentPos.x < this.mazeWidth / 2) {
+            currentPos.x += this.mazeWidth
+          }
+          adjustedTargetX = newPixelX + this.mazeWidth
+        }
+        // Detect wrap from left to right (0 -> 31)
+        else if (colDiff > MAZE_COLS / 2 || (target.lastCol === 0 && newCol === MAZE_COLS - 1)) {
+          // Player wrapped from left edge to right edge
+          // Snap current position to left side if on right, then move toward off-screen left
+          if (currentPos.x > this.mazeWidth / 2) {
+            currentPos.x -= this.mazeWidth
+          }
+          adjustedTargetX = newPixelX - this.mazeWidth
+        }
+      }
+      
+      // Update target tracking
+      target.x = adjustedTargetX
+      target.y = newPixelY
+      target.lastRow = target.row
+      target.lastCol = target.col
+      target.row = newRow
+      target.col = newCol
+    }
+    
+    // Smooth exponential interpolation toward target (same as remote players)
+    let targetX = target.x
+    let targetY = target.y
+    
+    // Handle wrap-around interpolation (same as remote player update loop)
+    if (hasWrapAround(target.row)) {
+      // Choose shortest path for wrap-around
+      const dxNormal = targetX - currentPos.x
+      const dxWrappedLeft = (targetX + this.mazeWidth) - currentPos.x
+      const dxWrappedRight = (targetX - this.mazeWidth) - currentPos.x
+      
+      if (Math.abs(dxWrappedLeft) < Math.abs(dxNormal) && targetX < currentPos.x) {
+        targetX += this.mazeWidth
+      } else if (Math.abs(dxWrappedRight) < Math.abs(dxNormal) && targetX > currentPos.x) {
+        targetX -= this.mazeWidth
+      }
+    }
+    
+    const dx = targetX - currentPos.x
+    const dy = targetY - currentPos.y
+    const distance = Math.sqrt(dx * dx + dy * dy)
+    
+    if (distance > 0.5) {
+      // Use exponential smoothing for frame-rate independent interpolation
+      const dt = delta / 1000 // Convert delta ms to seconds
+      const factor = 1 - Math.exp(-this.interpolationSpeed * dt)
+      currentPos.x += dx * factor
+      currentPos.y += dy * factor
+    } else {
+      // Snap when very close
+      currentPos.x = target.col * this.cellSize + this.cellSize / 2
+      currentPos.y = target.row * this.cellSize + this.cellSize / 2
+    }
+    
+    // Normalize position after interpolation (handle wrap-around)
+    if (hasWrapAround(target.row)) {
+      while (currentPos.x < 0) currentPos.x += this.mazeWidth
+      while (currentPos.x >= this.mazeWidth) currentPos.x -= this.mazeWidth
+    }
+    
+    // Update the Phaser game object position
+    this.localPlayerObj.x = currentPos.x
+    this.localPlayerObj.y = currentPos.y
   }
 
   createPlayerGraphic(isUnicorn, isLocal, health, maxHealth, inIFrames, isFrozen, hasImmunity, isKnockedBack) {
@@ -1185,9 +1630,14 @@ class PlayerScene extends Phaser.Scene {
   }
 
   update(time, delta) {
-    // Smooth interpolation for all remote players
+    // ========== UPDATE LOCAL PLAYER POSITION ==========
+    // Interpolate local player position toward target grid position
+    // This happens entirely in Phaser's game loop for true 60fps smooth movement
+    this.updateLocalPlayerPosition(delta)
+    
+    // ========== SMOOTH INTERPOLATION FOR REMOTE PLAYERS ==========
     this.players.forEach((playerObj, playerId) => {
-      // Skip local player - position is updated directly
+      // Skip local player - position is now handled above via ref
       if (playerId === this.localPlayerId) return
       
       const target = this.playerTargets.get(playerId)
@@ -1259,10 +1709,21 @@ const PhaserPlayerLayer = forwardRef(({
   height,
   renderMaze = true,  // Whether to render maze via Phaser
   onMapLoaded = null, // Callback when map is ready
+  // Local player rendering props - for smooth 60fps updates
+  // Pass refs so Phaser can read them every frame for smooth interpolation
+  localPlayerTargetGridPosRef = null,  // Ref to target grid position { row, col } - Phaser interpolates toward this
+  localPlayerFacingDirection = 'right',
+  localPlayerHealth = 100,
+  localPlayerIsImmune = false,
+  localPlayerInIFrames = false,
+  localPlayerState = null,
+  localPlayerKnockback = false,
+  renderLocalPlayer = false,      // Whether to render local player in Phaser
 }, ref) => {
   const gameRef = useRef(null)
   const sceneRef = useRef(null)
   const containerRef = useRef(null)
+  const [sceneReady, setSceneReady] = useState(false) // Track when scene is ready for setup
 
   // Initialize Phaser game
   useEffect(() => {
@@ -1302,6 +1763,7 @@ const PhaserPlayerLayer = forwardRef(({
       const scene = gameRef.current?.scene?.getScene('PlayerScene')
       if (scene) {
         sceneRef.current = scene
+        setSceneReady(true) // Trigger re-render so useEffects can run
       } else if (gameRef.current) {
         requestAnimationFrame(checkScene)
       }
@@ -1314,13 +1776,14 @@ const PhaserPlayerLayer = forwardRef(({
         gameRef.current.destroy(true)
         gameRef.current = null
         sceneRef.current = null
+        setSceneReady(false)
       }
     }
   }, [])
 
   // Handle resize
   useEffect(() => {
-    if (!gameRef.current || !sceneRef.current) return
+    if (!gameRef.current || !sceneReady || !sceneRef.current) return
     
     // Calculate maze dimensions based on the passed width/height
     const cellSize = Math.min((width || window.innerWidth) / MAZE_COLS, (height || window.innerHeight) / MAZE_ROWS)
@@ -1329,30 +1792,30 @@ const PhaserPlayerLayer = forwardRef(({
     
     gameRef.current.scale.resize(mazeWidth, mazeHeight)
     sceneRef.current.updateDimensions()
-  }, [width, height])
+  }, [width, height, sceneReady])
 
   // Set local player ID
   useEffect(() => {
-    if (!sceneRef.current) return
+    if (!sceneReady || !sceneRef.current) return
     sceneRef.current.setLocalPlayerId(localPlayerId)
-  }, [localPlayerId])
+  }, [localPlayerId, sceneReady])
 
   // Set unicorn ID
   useEffect(() => {
-    if (!sceneRef.current) return
+    if (!sceneReady || !sceneRef.current) return
     sceneRef.current.setUnicornId(unicornId)
-  }, [unicornId])
+  }, [unicornId, sceneReady])
 
   // Handle renderMaze prop changes
   useEffect(() => {
-    if (!sceneRef.current) return
+    if (!sceneReady || !sceneRef.current) return
     sceneRef.current.renderMaze = renderMaze
     sceneRef.current.setMazeRendering(renderMaze)
-  }, [renderMaze])
+  }, [renderMaze, sceneReady])
 
   // Call onMapLoaded callback when map is ready
   useEffect(() => {
-    if (!sceneRef.current || !onMapLoaded) return
+    if (!sceneReady || !sceneRef.current || !onMapLoaded) return
     
     const checkMapLoaded = () => {
       if (sceneRef.current?.isMazeRendering()) {
@@ -1369,14 +1832,54 @@ const PhaserPlayerLayer = forwardRef(({
     }, 100)
     
     return () => clearInterval(interval)
-  }, [onMapLoaded])
+  }, [onMapLoaded, sceneReady])
 
-  // Note: Local player is rendered via DOM (already has smooth interpolation)
-  // Phaser layer only handles remote players for network jitter smoothing
+  // ========== LOCAL PLAYER RENDERING SETUP ==========
+  
+  // Set local player target grid position ref (for 60fps smooth interpolation in Phaser)
+  useEffect(() => {
+    if (!sceneReady || !sceneRef.current) return
+    sceneRef.current.setLocalPlayerTargetGridPosRef(localPlayerTargetGridPosRef)
+  }, [localPlayerTargetGridPosRef, sceneReady])
+
+  // Enable/disable local player rendering
+  useEffect(() => {
+    if (!sceneReady || !sceneRef.current) return
+    sceneRef.current.setRenderLocalPlayer(renderLocalPlayer)
+    
+    // Create local player if enabled and scene is ready
+    if (renderLocalPlayer && localPlayerId) {
+      sceneRef.current.createLocalPlayer()
+    }
+  }, [renderLocalPlayer, localPlayerId, sceneReady])
+
+  // Update local player state when props change
+  useEffect(() => {
+    if (!sceneReady || !sceneRef.current || !renderLocalPlayer) return
+    
+    sceneRef.current.updateLocalPlayerState({
+      facingDirection: localPlayerFacingDirection,
+      health: localPlayerHealth,
+      maxHealth: COMBAT_CONFIG.MAX_HEALTH,
+      isImmune: localPlayerIsImmune,
+      inIFrames: localPlayerInIFrames,
+      isFrozen: localPlayerState === PLAYER_STATE.FROZEN,
+      isKnockedBack: localPlayerKnockback
+    })
+  }, [
+    sceneReady,
+    renderLocalPlayer,
+    localPlayerFacingDirection,
+    localPlayerHealth,
+    localPlayerIsImmune,
+    localPlayerInIFrames,
+    localPlayerState,
+    localPlayerKnockback
+  ])
 
   // Update remote players
   useEffect(() => {
-    if (!sceneRef.current) return
+    if (!sceneReady || !sceneRef.current) return
     
     const scene = sceneRef.current
     
@@ -1399,7 +1902,7 @@ const PhaserPlayerLayer = forwardRef(({
         health: healthData.health,
         maxHealth: healthData.maxHealth,
         inIFrames: healthData.inIFrames,
-        isFrozen: healthData.state === 'frozen',
+        isFrozen: healthData.state === PLAYER_STATE.FROZEN,
         hasImmunity: immunePlayers?.has?.(playerId),
         isKnockedBack: knockbackPlayers?.has?.(playerId),
         isUnicorn: player.isUnicorn || playerId === unicornId
@@ -1410,7 +1913,7 @@ const PhaserPlayerLayer = forwardRef(({
     currentPlayerIds.forEach(playerId => {
       scene.removePlayer(playerId)
     })
-  }, [remotePlayers, remotePlayerPositions, playersHealth, immunePlayers, knockbackPlayers, unicornId, localPlayerId])
+  }, [sceneReady, remotePlayers, remotePlayerPositions, playersHealth, immunePlayers, knockbackPlayers, unicornId, localPlayerId])
 
   // Expose methods via ref
   useImperativeHandle(ref, () => ({
@@ -1440,6 +1943,11 @@ const PhaserPlayerLayer = forwardRef(({
     setMazeRendering: (enabled) => sceneRef.current?.setMazeRendering(enabled),
     getMapLoader: () => sceneRef.current?.mapLoader,
     getTilemap: () => sceneRef.current?.tilemap,
+    // Local player methods
+    createLocalPlayer: () => sceneRef.current?.createLocalPlayer(),
+    destroyLocalPlayer: () => sceneRef.current?.destroyLocalPlayer(),
+    updateLocalPlayerState: (state) => sceneRef.current?.updateLocalPlayerState(state),
+    getLocalPlayerObj: () => sceneRef.current?.localPlayerObj,
   }))
 
   return (

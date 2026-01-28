@@ -273,12 +273,24 @@ class PhaserSoundManager {
     this.scene = null;
     this.initialized = false;
     this.pendingSounds = [];
+    // Standalone Web Audio context - independent of Phaser
+    this.standaloneAudioContext = null;
+    this.volume = 0.5;
+    this.muted = false;
   }
 
   init(parentElement = null) {
     if (this.initialized) {
       console.log('🔊 Sound Manager already initialized');
       return Promise.resolve(this);
+    }
+
+    // Initialize standalone Web Audio context first (works without Phaser)
+    try {
+      this.standaloneAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+      console.log('🔊 Standalone Web Audio context initialized');
+    } catch (e) {
+      console.warn('Failed to create standalone audio context:', e);
     }
 
     return new Promise((resolve) => {
@@ -320,7 +332,108 @@ class PhaserSoundManager {
     });
   }
 
+  // Play sound using standalone Web Audio API (bypasses Phaser completely)
+  playStandaloneSound(soundKey, config = {}) {
+    if (this.muted) return;
+    
+    const audioContext = this.standaloneAudioContext;
+    if (!audioContext) return;
+
+    // Resume audio context if suspended (browser autoplay policy)
+    if (audioContext.state === 'suspended') {
+      audioContext.resume();
+    }
+
+    const volume = (config.volume ?? 1) * this.volume;
+    const gainNode = audioContext.createGain();
+    gainNode.connect(audioContext.destination);
+    gainNode.gain.value = volume * 0.3;
+
+    const oscillator = audioContext.createOscillator();
+    oscillator.connect(gainNode);
+
+    const now = audioContext.currentTime;
+
+    switch (soundKey) {
+      case SOUNDS.COIN_COLLECT:
+        // Cheerful ding sound
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(880, now);
+        oscillator.frequency.setValueAtTime(1174.66, now + 0.1);
+        gainNode.gain.setValueAtTime(volume * 0.3, now);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+        oscillator.start(now);
+        oscillator.stop(now + 0.2);
+        break;
+
+      case SOUNDS.POWERUP_PICKUP:
+        // Rising power-up sound
+        oscillator.type = 'square';
+        oscillator.frequency.setValueAtTime(300, now);
+        oscillator.frequency.exponentialRampToValueAtTime(600, now + 0.15);
+        oscillator.frequency.exponentialRampToValueAtTime(900, now + 0.3);
+        gainNode.gain.setValueAtTime(volume * 0.2, now);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+        oscillator.start(now);
+        oscillator.stop(now + 0.35);
+        break;
+
+      case SOUNDS.PLAYER_HIT:
+        // Impact/damage sound
+        oscillator.type = 'sawtooth';
+        oscillator.frequency.setValueAtTime(200, now);
+        oscillator.frequency.exponentialRampToValueAtTime(80, now + 0.15);
+        gainNode.gain.setValueAtTime(volume * 0.4, now);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+        oscillator.start(now);
+        oscillator.stop(now + 0.2);
+        break;
+
+      case SOUNDS.TAG:
+        // Tag sound - quick double beep
+        oscillator.type = 'square';
+        oscillator.frequency.setValueAtTime(600, now);
+        oscillator.frequency.setValueAtTime(800, now + 0.1);
+        gainNode.gain.setValueAtTime(volume * 0.3, now);
+        gainNode.gain.setValueAtTime(0.01, now + 0.08);
+        gainNode.gain.setValueAtTime(volume * 0.3, now + 0.1);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+        oscillator.start(now);
+        oscillator.stop(now + 0.2);
+        break;
+
+      case SOUNDS.BLITZ_START:
+        // Urgent blitz quiz sound
+        oscillator.type = 'square';
+        oscillator.frequency.setValueAtTime(440, now);
+        oscillator.frequency.setValueAtTime(550, now + 0.1);
+        oscillator.frequency.setValueAtTime(660, now + 0.2);
+        oscillator.frequency.setValueAtTime(880, now + 0.3);
+        gainNode.gain.setValueAtTime(volume * 0.3, now);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+        oscillator.start(now);
+        oscillator.stop(now + 0.4);
+        break;
+
+      default:
+        // Generic beep for unknown sounds
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(440, now);
+        gainNode.gain.setValueAtTime(volume * 0.2, now);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+        oscillator.start(now);
+        oscillator.stop(now + 0.15);
+    }
+  }
+
   play(soundKey, config = {}) {
+    // Always try standalone audio first (more reliable with multiple Phaser games)
+    if (this.standaloneAudioContext) {
+      this.playStandaloneSound(soundKey, config);
+      return;
+    }
+    
+    // Fallback to Phaser audio if standalone not available
     if (!this.initialized || !this.scene) {
       // Queue sound for later
       this.pendingSounds.push({ key: soundKey, config });
@@ -330,30 +443,33 @@ class PhaserSoundManager {
   }
 
   setVolume(volume) {
+    this.volume = volume;
     if (this.scene) {
       this.scene.setVolume(volume);
     }
   }
 
   getVolume() {
-    return this.scene ? this.scene.getVolume() : 0.5;
+    return this.volume;
   }
 
   setMuted(muted) {
+    this.muted = muted;
     if (this.scene) {
       this.scene.setMuted(muted);
     }
   }
 
   isMuted() {
-    return this.scene ? this.scene.isMuted() : false;
+    return this.muted;
   }
 
   toggleMute() {
+    this.muted = !this.muted;
     if (this.scene) {
-      return this.scene.toggleMute();
+      this.scene.setMuted(this.muted);
     }
-    return false;
+    return this.muted;
   }
 
   // Convenience methods for specific sounds

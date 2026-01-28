@@ -1423,7 +1423,7 @@ const myCoins = myLeaderboardEntry?.coins ?? myPlayer?.coins ?? 100;
         {/* DOM maze rendering - only show when Phaser maze is not ready */}
         {(!usePhaserMaze || !phaserMazeReady) && mazeGrid}
 
-        {/* Phaser Player Layer - Smooth interpolation for remote players + Tilemap maze rendering */}
+        {/* Phaser Player Layer - Smooth interpolation for ALL players + Tilemap maze rendering */}
         {usePhaserRendering && (
           <PhaserPlayerLayer
             ref={phaserLayerRef}
@@ -1438,6 +1438,16 @@ const myCoins = myLeaderboardEntry?.coins ?? myPlayer?.coins ?? 100;
             height={mazeDimensions.height}
             renderMaze={usePhaserMaze}
             onMapLoaded={handleMapLoaded}
+            // Local player rendering props - for smooth 60fps updates
+            // Pass refs so Phaser can read them every frame for smooth interpolation
+            localPlayerTargetGridPosRef={targetGridPosRef}
+            localPlayerFacingDirection={facingDirection}
+            localPlayerHealth={myHealth}
+            localPlayerIsImmune={isImmune}
+            localPlayerInIFrames={inIFrames}
+            localPlayerState={myPlayerState}
+            localPlayerKnockback={knockbackActive}
+            renderLocalPlayer={true}
           />
         )}
 
@@ -1479,40 +1489,42 @@ const myCoins = myLeaderboardEntry?.coins ?? myPlayer?.coins ?? 100;
           )
         })}
         
-        {/* Local Player - Always use DOM rendering (already has smooth interpolation) */}
-        <div
-          ref={playerRef}
-          className={`player local-player ${unicornId === socketService.getSocket()?.id ? 'unicorn-player unicorn-speed' : ''} ${inIFrames ? 'player-iframes' : ''} ${myPlayerState === PLAYER_STATE.FROZEN ? 'player-frozen' : ''} ${isImmune ? 'player-immune' : ''} ${knockbackActive ? 'player-knockback' : ''}`}
-          style={{
-            left: `${playerLeftPercent}%`,
-            top: `${playerTopPercent}%`,
-            transform: `translate(-50%, -50%) ${unicornId === socketService.getSocket()?.id ? getDirectionTransform(facingDirection) : ''}`,
-          }}
-        >
-          {/* Immunity Shield Visual */}
-          {isImmune && <div className="immunity-shield">🛡️</div>}
-          
-          {/* Unicorn Speed Lines */}
-          {unicornId === socketService.getSocket()?.id && (
-            <div className="speed-lines">
-              <div className="speed-line"></div>
-              <div className="speed-line"></div>
-              <div className="speed-line"></div>
-            </div>
-          )}
-          {/* Local Player Health Bar */}
-          {gamePhase === GAME_PHASE.HUNT && unicornId !== socketService.getSocket()?.id && (
-            <div className="player-health-bar">
-              <div 
-                className={`player-health-fill ${myHealth <= 30 ? 'health-critical' : myHealth <= 60 ? 'health-warning' : ''}`}
-                style={{ width: `${(myHealth / COMBAT_CONFIG.MAX_HEALTH) * 100}%` }}
-              />
-            </div>
-          )}
-        </div>
+        {/* Local Player - DOM rendering fallback (only when Phaser rendering disabled) */}
+        {!usePhaserRendering && (
+          <div
+            ref={playerRef}
+            className={`player local-player ${unicornId === socketService.getSocket()?.id ? 'unicorn-player unicorn-speed' : ''} ${inIFrames ? 'player-iframes' : ''} ${myPlayerState === PLAYER_STATE.FROZEN ? 'player-frozen' : ''} ${isImmune ? 'player-immune' : ''} ${knockbackActive ? 'player-knockback' : ''}`}
+            style={{
+              left: `${playerLeftPercent}%`,
+              top: `${playerTopPercent}%`,
+              transform: `translate(-50%, -50%) ${unicornId === socketService.getSocket()?.id ? getDirectionTransform(facingDirection) : ''}`,
+            }}
+          >
+            {/* Immunity Shield Visual */}
+            {isImmune && <div className="immunity-shield">🛡️</div>}
+            
+            {/* Unicorn Speed Lines */}
+            {unicornId === socketService.getSocket()?.id && (
+              <div className="speed-lines">
+                <div className="speed-line"></div>
+                <div className="speed-line"></div>
+                <div className="speed-line"></div>
+              </div>
+            )}
+            {/* Local Player Health Bar */}
+            {gamePhase === GAME_PHASE.HUNT && unicornId !== socketService.getSocket()?.id && (
+              <div className="player-health-bar">
+                <div 
+                  className={`player-health-fill ${myHealth <= 30 ? 'health-critical' : myHealth <= 60 ? 'health-warning' : ''}`}
+                  style={{ width: `${(myHealth / COMBAT_CONFIG.MAX_HEALTH) * 100}%` }}
+                />
+              </div>
+            )}
+          </div>
+        )}
 
-        {/* Frozen Overlay for Local Player */}
-        {myPlayerState === PLAYER_STATE.FROZEN && (
+        {/* Frozen Overlay for Local Player (DOM fallback only) */}
+        {!usePhaserRendering && myPlayerState === PLAYER_STATE.FROZEN && (
           <div 
             className="frozen-player-overlay"
             style={{
