@@ -1,6 +1,40 @@
 // Maze configuration for Pacman game
 // 1 = wall, 0 = empty space
 // Dimensions: 28 rows x 32 columns
+//
+// This module provides both legacy array-based maze data and 
+// optional integration with TiledMapLoader for Phaser tilemap rendering.
+
+// TiledMapLoader integration (lazy loaded to avoid circular dependencies)
+let mapLoader = null;
+
+/**
+ * Initialize the maze system from a Tiled map
+ * @param {object} tiledMapData - Tiled map JSON data
+ */
+export function initFromTiledMap(tiledMapData) {
+  // Lazy import to avoid circular dependencies
+  import('./utils/TiledMapLoader.js').then(({ TiledMapLoader }) => {
+    mapLoader = new TiledMapLoader(tiledMapData);
+    console.log('Maze initialized from Tiled map');
+  });
+}
+
+/**
+ * Get the TiledMapLoader instance (if initialized)
+ * @returns {TiledMapLoader|null}
+ */
+export function getMapLoader() {
+  return mapLoader;
+}
+
+/**
+ * Set the map loader instance directly
+ * @param {TiledMapLoader} loader
+ */
+export function setMapLoader(loader) {
+  mapLoader = loader;
+}
 
 export const maze = [
   [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
@@ -35,6 +69,11 @@ export const maze = [
 
 // Helper function to get the value at a specific position
 export const getMazeValue = (row, col) => {
+  // Use TiledMapLoader if initialized
+  if (mapLoader) {
+    return mapLoader.getMazeValue(row, col);
+  }
+  
   if (row < 0 || row >= maze.length || col < 0 || col >= maze[0].length) {
     return 1; // Out of bounds is considered a wall
   }
@@ -43,16 +82,29 @@ export const getMazeValue = (row, col) => {
 
 // Helper function to check if a position is a wall
 export const isWall = (row, col) => {
+  // Use TiledMapLoader if initialized
+  if (mapLoader) {
+    return mapLoader.isWall(row, col);
+  }
   return getMazeValue(row, col) === 1;
 };
 
 // Helper function to check if a position is empty
 export const isEmpty = (row, col) => {
+  // Use TiledMapLoader if initialized
+  if (mapLoader) {
+    return mapLoader.isEmpty(row, col);
+  }
   return getMazeValue(row, col) === 0;
 };
 
 // Helper function to check if a row has wrap-around (0s on both ends)
 export const hasWrapAround = (row) => {
+  // Use TiledMapLoader if initialized
+  if (mapLoader) {
+    return mapLoader.hasWrapAround(row);
+  }
+  
   if (row < 0 || row >= MAZE_ROWS) return false;
   // Check if both leftmost (col 0) and rightmost (col 31) are empty
   return maze[row][0] === 0 && maze[row][MAZE_COLS - 1] === 0;
@@ -60,6 +112,11 @@ export const hasWrapAround = (row) => {
 
 // Helper function to get wrapped column position
 export const getWrappedCol = (row, col) => {
+  // Use TiledMapLoader if initialized
+  if (mapLoader) {
+    return mapLoader.getWrappedCol(row, col);
+  }
+  
   if (!hasWrapAround(row)) {
     // No wrap-around, but handle out of bounds
     if (col < 0) return 0;

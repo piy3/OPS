@@ -10,6 +10,7 @@ import QuizResults from './QuizResults'
 import BlitzQuizModal from './BlitzQuizModal'
 import BlitzQuizResults from './BlitzQuizResults'
 import PhaserPlayerLayer from './PhaserPlayerLayer'
+import coinAnimation from '../assets/coinAnimation.gif'
 
 function StartGame() {
   const navigate = useNavigate()
@@ -69,8 +70,8 @@ function StartGame() {
   const playerPixelPosRef = useRef({ x: 0, y: 0 })
   const targetGridPosRef = useRef({ row: 1, col: 1 })
   const animationFrameRef = useRef(null)
+  const lastAnimationTimestampRef = useRef(0) // Track last frame timestamp for delta time
   const moveSpeed = 150 // milliseconds per cell
-  const lerpSpeed = 0.15 // Increased for smoother Phaser-integrated movement
   const playerRef = useRef(null)
   const mazeContainerRef = useRef(null)
   const pendingDirectionRef = useRef(null) // Store pending direction change
@@ -81,6 +82,8 @@ function StartGame() {
   const phaserLayerRef = useRef(null) // Phaser player layer reference
   const previousPowerupsRef = useRef([]) // Track previous powerups for aura management
   const [usePhaserRendering, setUsePhaserRendering] = useState(true) // Toggle between Phaser and DOM rendering
+  const [usePhaserMaze, setUsePhaserMaze] = useState(true) // Whether to render maze via Phaser tilemap
+  const [phaserMazeReady, setPhaserMazeReady] = useState(false) // Whether Phaser maze has loaded
   const [mazeDimensions, setMazeDimensions] = useState({ width: window.innerWidth, height: window.innerHeight })
 
   // Memoize the maze grid since it never changes - prevents recalculating borders on every render
@@ -367,6 +370,10 @@ function StartGame() {
         remotePlayerPos.col = newCol
         remotePlayerPos.lastCol = newCol
         remotePlayerPos.lastRow = newRow
+        
+        // Add position to buffer for velocity-based prediction (keep last 3 positions)
+        const newBufferEntry = { x: adjustedTargetX, y: targetPixelY, timestamp: Date.now() }
+        remotePlayerPos.buffer = [...(remotePlayerPos.buffer || []), newBufferEntry].slice(-3)
         
         // If wrap was detected, immediately update the pixel position to prevent gliding
         if (wrapDetected) {
@@ -677,7 +684,12 @@ function StartGame() {
       return Math.min(window.innerWidth / MAZE_COLS, window.innerHeight / MAZE_ROWS)
     }
     
-    const animate = () => {
+    const animate = (timestamp) => {
+      // Calculate delta time for frame-rate independent interpolation
+      const lastTimestamp = lastAnimationTimestampRef.current || timestamp
+      const dt = Math.min((timestamp - lastTimestamp) / 1000, 0.1) // Clamp to prevent large jumps
+      lastAnimationTimestampRef.current = timestamp
+      
       const cellSize = calculateCellSize()
       
       // Calculate target pixel position
@@ -709,13 +721,15 @@ function StartGame() {
       const dy = targetY - current.y
       const distance = Math.sqrt(dx * dx + dy * dy)
       
-      // Use lerp interpolation for smooth gliding movement
-      // This creates an ease-out effect where movement slows as it approaches target
+      // Use exponential smoothing for frame-rate independent interpolation
+      // Factor of 8 provides responsive movement similar to qbitrig's camera smoothing
+      // Formula: 1 - exp(-speed * dt) gives smooth exponential decay
+      const smoothingFactor = 1 - Math.exp(-8 * dt)
+      
       if (distance > 0.3) {
-        // Simple lerp for smooth movement (same approach as remote players)
-        // Lower value = smoother but slower movement
-        current.x += dx * lerpSpeed
-        current.y += dy * lerpSpeed
+        // Exponential smoothing for smooth movement
+        current.x += dx * smoothingFactor
+        current.y += dy * smoothingFactor
         
         // Handle wrap-around: normalize position after movement
         if (hasWrapAround(currentRow)) {
@@ -764,7 +778,7 @@ function StartGame() {
       }
       
       // Update remote players EVERY FRAME for smooth interpolation
-      // The lerp needs to run at 60fps for smooth gliding effect
+      // Using frame-rate independent exponential smoothing with velocity prediction
       Object.keys(remotePlayerPositionsRef.current).forEach(playerId => {
         const playerPos = remotePlayerPositionsRef.current[playerId]
         if (!playerPos) return
@@ -773,9 +787,36 @@ function StartGame() {
         const targetPos = playerPos.target
         const currentRow = playerPos.row
         
+        // Calculate velocity from position buffer if available
+        let predictedTargetX = targetPos.x
+        let predictedTargetY = targetPos.y
+        
+        // Use position buffer for velocity-based prediction
+        if (playerPos.buffer && playerPos.buffer.length >= 2) {
+          const latest = playerPos.buffer[playerPos.buffer.length - 1]
+          const previous = playerPos.buffer[playerPos.buffer.length - 2]
+          const timeDelta = (latest.timestamp - previous.timestamp) / 1000
+          
+          if (timeDelta > 0 && timeDelta < 0.5) {
+            // Calculate velocity from buffer
+            const vx = (latest.x - previous.x) / timeDelta
+            const vy = (latest.y - previous.y) / timeDelta
+            
+            // Store velocity for prediction
+            playerPos.velocity = { x: vx, y: vy }
+            
+            // Predict position based on time since last update
+            const timeSinceUpdate = (Date.now() - latest.timestamp) / 1000
+            if (timeSinceUpdate < 0.2) { // Only predict for short time gaps
+              predictedTargetX = targetPos.x + vx * timeSinceUpdate * 0.5 // Dampen prediction
+              predictedTargetY = targetPos.y + vy * timeSinceUpdate * 0.5
+            }
+          }
+        }
+        
         // Smooth lerp interpolation for remote players
-        let finalTargetX = targetPos.x
-        let finalTargetY = targetPos.y
+        let finalTargetX = predictedTargetX
+        let finalTargetY = predictedTargetY
         
         // Handle wrap-around
         if (hasWrapAround(currentRow)) {
@@ -795,17 +836,19 @@ function StartGame() {
           }
         }
         
-        // Calculate distance and apply lerp
+        // Calculate distance and apply exponential smoothing
         const rdx = finalTargetX - currentPos.x
         const rdy = finalTargetY - currentPos.y
         const rDistance = Math.sqrt(rdx * rdx + rdy * rdy)
         
+        // Use exponential smoothing for frame-rate independent interpolation
+        // Factor of 6 for remote players (slightly slower than local for smoother network jitter handling)
+        const remoteSmoothingFactor = 1 - Math.exp(-6 * dt)
+        
         if (rDistance > 0.3) {
-          // Lerp interpolation for smooth movement
-          // Lower value = smoother gliding
-          const remoteLerp = 0.1 // Very smooth interpolation
-          currentPos.x += rdx * remoteLerp
-          currentPos.y += rdy * remoteLerp
+          // Exponential smoothing for smooth movement
+          currentPos.x += rdx * remoteSmoothingFactor
+          currentPos.y += rdy * remoteSmoothingFactor
           
           // Normalize after movement
           if (hasWrapAround(currentRow)) {
@@ -929,6 +972,12 @@ function StartGame() {
     return () => window.removeEventListener('resize', updateDimensions)
   }, [])
 
+  // Callback when Phaser map is loaded
+  const handleMapLoaded = (mapLoader) => {
+    console.log('Phaser maze rendering ready', mapLoader)
+    setPhaserMazeReady(true)
+  }
+
   // Trigger coin collection effects (particles + floating number)
   useEffect(() => {
     if (coinCollectNotification && phaserLayerRef.current) {
@@ -947,9 +996,13 @@ function StartGame() {
     if (powerupCollectNotification && phaserLayerRef.current) {
       const { row, col, type, powerupId } = powerupCollectNotification
       if (row !== undefined && col !== undefined) {
-        // Remove the aura first (if it exists)
-        if (powerupId) {
-          phaserLayerRef.current.removePowerupAura(powerupId)
+        // Remove the aura first (if it exists) - with defensive check
+        if (powerupId && phaserLayerRef.current) {
+          try {
+            phaserLayerRef.current.removePowerupAura(powerupId)
+          } catch (e) {
+            console.warn('Aura already removed or not found:', powerupId)
+          }
         }
         // Trigger collection burst effect
         phaserLayerRef.current.triggerPowerupCollect(row, col, type)
@@ -972,15 +1025,13 @@ function StartGame() {
     const prevPowerups = previousPowerupsRef.current
     const currentPowerups = powerups || []
     
-    // Find newly added powerups (in current but not in previous)
     const prevIds = new Set(prevPowerups.map(p => p.id))
     const currentIds = new Set(currentPowerups.map(p => p.id))
     
     // Add auras for new powerups
     currentPowerups.forEach(powerup => {
       if (!prevIds.has(powerup.id)) {
-        // New powerup spawned - add aura
-        phaserLayerRef.current.addPowerupAura(
+        phaserLayerRef.current?.addPowerupAura(
           powerup.id,
           powerup.row,
           powerup.col,
@@ -990,14 +1041,17 @@ function StartGame() {
     })
     
     // Remove auras for powerups that no longer exist
+    // Only remove if not already removed by collection notification
     prevPowerups.forEach(powerup => {
       if (!currentIds.has(powerup.id)) {
-        // Powerup was removed (collected by someone else or expired)
-        phaserLayerRef.current.removePowerupAura(powerup.id)
+        try {
+          phaserLayerRef.current?.removePowerupAura(powerup.id)
+        } catch (e) {
+          // Already removed, ignore
+        }
       }
     })
     
-    // Update ref for next comparison
     previousPowerupsRef.current = [...currentPowerups]
   }, [powerups])
 
@@ -1169,8 +1223,8 @@ function StartGame() {
       )}
 
       {/* Game Info HUD */}
-      <div className="game-hud">
-        <div className="hud-item">
+      <div className="h-[150px] w-full overflow-scroll flex flex-wrap">
+        <div className="p-2 border-2 border-red-800 w-fit h-fit rounded-2xl">
           Room: {roomData?.code || 'N/A'}
         </div>
         <div className="hud-item">
@@ -1215,15 +1269,15 @@ function StartGame() {
         {/* Role Indicator */}
         {unicornId === socketService.getSocket()?.id ? (
           <div className="hud-item unicorn-indicator">
-            🦄 You are the Unicorn!
+            🦄 Unicorn! Tag the survivors.
           </div>
         ) : reserveUnicornId === socketService.getSocket()?.id ? (
           <div className="hud-item reserve-indicator">
-            🥈 You are Reserve Unicorn
+            🥈 Reserved Unicorn! Still u gotta run!
           </div>
         ) : (
           <div className="hud-item survivor-indicator">
-            🏃 Survivor
+            🏃 Survivor! Run from the unicorn and collect gold ﹩!
           </div>
         )}
         
@@ -1236,12 +1290,12 @@ function StartGame() {
         >
           {showLeaderboard ? '📊 Hide' : '📊 Show'} Leaderboard
         </button>
-        <button 
+        {/* <button 
           className="hud-item coordinates-toggle"
           onClick={() => setShowCoordinates(!showCoordinates)}
         >
           {showCoordinates ? '📍 Hide' : '📍 Show'} Coords
-        </button>
+        </button> */}
         <button 
           className="hud-item sound-toggle"
           onClick={() => setShowSoundControls(!showSoundControls)}
@@ -1364,9 +1418,10 @@ function StartGame() {
       )}
 
       <div className="maze-container" ref={mazeContainerRef}>
-        {mazeGrid}
+        {/* DOM maze rendering - only show when Phaser maze is not ready */}
+        {(!usePhaserMaze || !phaserMazeReady) && mazeGrid}
 
-        {/* Phaser Player Layer - Smooth interpolation for remote players */}
+        {/* Phaser Player Layer - Smooth interpolation for remote players + Tilemap maze rendering */}
         {usePhaserRendering && (
           <PhaserPlayerLayer
             ref={phaserLayerRef}
@@ -1379,6 +1434,8 @@ function StartGame() {
             knockbackPlayers={knockbackPlayers}
             width={mazeDimensions.width}
             height={mazeDimensions.height}
+            renderMaze={usePhaserMaze}
+            onMapLoaded={handleMapLoaded}
           />
         )}
 
@@ -1396,7 +1453,7 @@ function StartGame() {
                 top: `${coinTopPercent}%`,
               }}
             >
-              💰
+              <img className="w-6 md:w-8" src={coinAnimation}/>
             </div>
           )
         })}

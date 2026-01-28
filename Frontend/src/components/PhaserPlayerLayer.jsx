@@ -1,6 +1,8 @@
 import { useEffect, useRef, forwardRef, useImperativeHandle } from 'react'
 import Phaser from 'phaser'
-import { MAZE_ROWS, MAZE_COLS, hasWrapAround } from '../maze'
+import { MAZE_ROWS, MAZE_COLS, hasWrapAround, setMapLoader } from '../maze'
+import { generateTilesetTexture, TILE_SIZE } from '../scripts/generateTileset'
+import { TiledMapLoader, createDynamicTilemap } from '../utils/TiledMapLoader'
 
 // Phaser scene for player rendering with smooth interpolation
 class PlayerScene extends Phaser.Scene {
@@ -13,7 +15,7 @@ class PlayerScene extends Phaser.Scene {
     this.cellSize = 0
     this.mazeWidth = 0
     this.mazeHeight = 0
-    this.interpolationSpeed = 0.18 // Smooth interpolation factor (slightly higher for responsiveness)
+    this.interpolationSpeed = 8 // Exponential decay speed factor (higher = faster interpolation)
     
     // Particle system
     this.coinParticleEmitter = null
@@ -27,17 +29,110 @@ class PlayerScene extends Phaser.Scene {
     this.unicornSparkleEmitter = null
     this.unicornTrailActive = false
     this.lastTrailPosition = { x: 0, y: 0 }
+    
+    // Tilemap system
+    this.tilemap = null
+    this.wallLayer = null
+    this.groundLayer = null
+    this.mapLoader = null
+    this.tilesetGenerated = false
+    this.renderMaze = true // Flag to control whether maze is rendered via Phaser
   }
 
   create() {
     // Scene is ready - calculate dimensions based on maze grid
     this.updateCellSize()
     
+    // Generate tileset texture and create tilemap (if maze rendering is enabled)
+    if (this.renderMaze) {
+      this.createTilemap()
+    }
+    
     // Create particle texture for coin effects
     this.createParticleTextures()
     
     // Initialize coin particle emitter
     this.setupCoinParticles()
+  }
+
+  /**
+   * Generate the tileset texture dynamically and create the tilemap
+   */
+  createTilemap() {
+    try {
+      // Generate tileset texture using Phaser graphics
+      generateTilesetTexture(this, 'maze-tiles')
+      this.tilesetGenerated = true
+      
+      // Create map loader from maze array
+      this.mapLoader = new TiledMapLoader()
+      
+      // Update the global map loader in maze.js for compatibility
+      setMapLoader(this.mapLoader)
+      
+      // Create the tilemap using the generated tileset
+      const result = createDynamicTilemap(this, this.mapLoader, 'maze-tiles')
+      
+      this.tilemap = result.tilemap
+      this.groundLayer = result.layers.ground
+      this.wallLayer = result.layers.walls
+      
+      // Set layer depths - maze should be behind everything
+      if (this.groundLayer) {
+        this.groundLayer.setDepth(0)
+      }
+      if (this.wallLayer) {
+        this.wallLayer.setDepth(1)
+      }
+      
+      // Scale tilemap to match cell size if needed
+      this.updateTilemapScale()
+      
+      console.log('Tilemap created successfully')
+    } catch (error) {
+      console.error('Error creating tilemap:', error)
+      this.renderMaze = false
+    }
+  }
+
+  /**
+   * Update tilemap scale to match the current cell size
+   */
+  updateTilemapScale() {
+    if (!this.tilemap || !this.tilesetGenerated) return
+    
+    // Calculate scale factor
+    const scale = this.cellSize / TILE_SIZE
+    
+    if (this.groundLayer) {
+      this.groundLayer.setScale(scale)
+    }
+    if (this.wallLayer) {
+      this.wallLayer.setScale(scale)
+    }
+  }
+
+  /**
+   * Enable or disable maze rendering
+   * @param {boolean} enabled
+   */
+  setMazeRendering(enabled) {
+    this.renderMaze = enabled
+    
+    if (this.groundLayer) {
+      this.groundLayer.setVisible(enabled)
+    }
+    if (this.wallLayer) {
+      this.wallLayer.setVisible(enabled)
+    }
+  }
+
+  /**
+   * Check if maze is being rendered via Phaser
+   * @returns {boolean}
+   */
+  isMazeRendering() {
+    return this.renderMaze && this.tilesetGenerated
   }
 
   createParticleTextures() {
@@ -818,6 +913,9 @@ class PlayerScene extends Phaser.Scene {
   updateDimensions() {
     this.updateCellSize()
     
+    // Update tilemap scale
+    this.updateTilemapScale()
+    
     // Update all player positions based on new dimensions
     this.players.forEach((playerObj, playerId) => {
       const target = this.playerTargets.get(playerId)
@@ -1119,14 +1217,16 @@ class PlayerScene extends Phaser.Scene {
         }
       }
       
-      // Smooth lerp interpolation
+      // Smooth exponential interpolation
       const dx = targetX - playerObj.x
       const dy = targetY - playerObj.y
       const distance = Math.sqrt(dx * dx + dy * dy)
       
       if (distance > 0.5) {
-        // Use delta-time based interpolation for consistent speed across frame rates
-        const factor = 1 - Math.pow(1 - this.interpolationSpeed, delta / 16.67)
+        // Use exponential smoothing for frame-rate independent interpolation
+        // Formula: 1 - exp(-speed * dt) gives smooth exponential decay
+        const dt = delta / 1000 // Convert delta ms to seconds
+        const factor = 1 - Math.exp(-this.interpolationSpeed * dt)
         playerObj.x += dx * factor
         playerObj.y += dy * factor
       } else {
@@ -1156,7 +1256,9 @@ const PhaserPlayerLayer = forwardRef(({
   immunePlayers,
   knockbackPlayers,
   width,
-  height
+  height,
+  renderMaze = true,  // Whether to render maze via Phaser
+  onMapLoaded = null, // Callback when map is ready
 }, ref) => {
   const gameRef = useRef(null)
   const sceneRef = useRef(null)
@@ -1241,6 +1343,34 @@ const PhaserPlayerLayer = forwardRef(({
     sceneRef.current.setUnicornId(unicornId)
   }, [unicornId])
 
+  // Handle renderMaze prop changes
+  useEffect(() => {
+    if (!sceneRef.current) return
+    sceneRef.current.renderMaze = renderMaze
+    sceneRef.current.setMazeRendering(renderMaze)
+  }, [renderMaze])
+
+  // Call onMapLoaded callback when map is ready
+  useEffect(() => {
+    if (!sceneRef.current || !onMapLoaded) return
+    
+    const checkMapLoaded = () => {
+      if (sceneRef.current?.isMazeRendering()) {
+        onMapLoaded(sceneRef.current.mapLoader)
+      }
+    }
+    
+    // Check immediately and set up polling
+    const interval = setInterval(() => {
+      if (sceneRef.current?.isMazeRendering()) {
+        onMapLoaded(sceneRef.current.mapLoader)
+        clearInterval(interval)
+      }
+    }, 100)
+    
+    return () => clearInterval(interval)
+  }, [onMapLoaded])
+
   // Note: Local player is rendered via DOM (already has smooth interpolation)
   // Phaser layer only handles remote players for network jitter smoothing
 
@@ -1304,7 +1434,12 @@ const PhaserPlayerLayer = forwardRef(({
     updateUnicornTrailPosition: (x, y) => sceneRef.current?.updateUnicornTrailPosition(x, y),
     stopUnicornTrail: () => sceneRef.current?.stopUnicornTrail(),
     triggerUnicornBurst: (x, y) => sceneRef.current?.triggerUnicornBurst(x, y),
-    isUnicornTrailActive: () => sceneRef.current?.isUnicornTrailActive()
+    isUnicornTrailActive: () => sceneRef.current?.isUnicornTrailActive(),
+    // Maze/Tilemap methods
+    isMazeRendering: () => sceneRef.current?.isMazeRendering() || false,
+    setMazeRendering: (enabled) => sceneRef.current?.setMazeRendering(enabled),
+    getMapLoader: () => sceneRef.current?.mapLoader,
+    getTilemap: () => sceneRef.current?.tilemap,
   }))
 
   return (

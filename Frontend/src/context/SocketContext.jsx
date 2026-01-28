@@ -3,7 +3,7 @@
  * Provides socket connection and game state to all components
  */
 
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import socketService from '../services/socket';
 import soundManager from '../services/PhaserSoundManager';
@@ -83,10 +83,20 @@ export const SocketProvider = ({ children }) => {
   const [powerupCollectNotification, setPowerupCollectNotification] = useState(null);
   const [isImmune, setIsImmune] = useState(false);
   const [immunePlayers, setImmunePlayers] = useState(new Set()); // Set of player IDs with immunity
+  const powerupNotificationTimeoutRef = useRef(null);
 
   // Knockback state
   const [knockbackActive, setKnockbackActive] = useState(false); // Is local player being knocked back
   const [knockbackPlayers, setKnockbackPlayers] = useState(new Set()); // Set of player IDs being knocked back
+
+  // Cleanup powerup notification timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (powerupNotificationTimeoutRef.current) {
+        clearTimeout(powerupNotificationTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     // Connect to socket server (will reuse existing connection if available)
@@ -303,17 +313,19 @@ export const SocketProvider = ({ children }) => {
 
     // Hunt Start
     socketService.onHuntStart((data) => {
-      console.log('🏃 ===== HUNT START =====');
-      console.log('Duration:', data.duration);
-      console.log('Unicorn:', data.unicornName);
-      console.log('Reserve:', data.reserveUnicornName);
-      console.log('========================');
+      // console.log('🏃 ===== HUNT START =====');
+      // console.log('Duration:', data.duration);
+      // console.log('Unicorn:', data.unicornName);
+      // console.log('Reserve:', data.reserveUnicornName);
+      // console.log('========================');
       
       // Play hunt start sound
       soundManager.playHuntStart();
       
       setIsGameFrozen(false); // Unfreeze for Hunt phase
       setBlitzQuizResults(null); // Clear quiz results
+      setPowerups([]);
+      setPowerupCollectNotification(null);
       setHuntData({
         duration: data.duration,
         endTime: data.endTime,
@@ -647,32 +659,36 @@ export const SocketProvider = ({ children }) => {
 
     // Powerup collected by a player
     socketService.onPowerupCollected((data) => {
-      console.log(`⚡ ${data.playerName} collected ${data.type} powerup!`);
+      console.log('Powerup collected:', data);
       
-      const myId = socketService.getSocket()?.id;
+      // Clear any pending notification timeout
+      if (powerupNotificationTimeoutRef.current) {
+        clearTimeout(powerupNotificationTimeoutRef.current);
+        powerupNotificationTimeoutRef.current = null;
+      }
       
-      // Find powerup position before removing (for particle effects)
       setPowerups(prev => {
         const collectedPowerup = prev.find(p => p.id === data.powerupId);
         
-        // Play powerup pickup sound and show notification if I collected it
-        if (data.playerId === myId) {
+        // Handle visual effects for the collecting player
+        if (data.playerId === socketService.getSocket()?.id) {
           soundManager.playPowerupPickup();
           
+          // Use server data as fallback if powerup not in local state
           setPowerupCollectNotification({
-            type: data.type,
             row: collectedPowerup?.row ?? data.row,
             col: collectedPowerup?.col ?? data.col,
+            type: collectedPowerup?.type ?? data.type ?? 'immunity',
             powerupId: data.powerupId
           });
           
-          // Clear notification after 500ms
-          setTimeout(() => {
+          powerupNotificationTimeoutRef.current = setTimeout(() => {
             setPowerupCollectNotification(null);
+            powerupNotificationTimeoutRef.current = null;
           }, 500);
         }
         
-        // Remove collected powerup from state
+        // Remove powerup from state
         return prev.filter(p => p.id !== data.powerupId);
       });
     });
@@ -717,6 +733,12 @@ export const SocketProvider = ({ children }) => {
 
     // Cleanup on unmount - remove listeners only (keep connection alive)
     return () => {
+      // Clear powerup notification timeout if pending
+      if (powerupNotificationTimeoutRef.current) {
+        clearTimeout(powerupNotificationTimeoutRef.current);
+        powerupNotificationTimeoutRef.current = null;
+      }
+      
       socketService.removeAllListeners('room_update');
       socketService.removeAllListeners('player_joined');
       socketService.removeAllListeners('player_left');

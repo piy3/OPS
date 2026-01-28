@@ -1,4 +1,8 @@
 @import url('https://fonts.googleapis.com/css2?family=Doto:wght@100..900&family=Jersey+10&family=Jersey+15&family=Pixelify+Sans:wght@400..700&display=swap');
+
+@import "tailwindcss";
+@source "../**/*.{js,jsx,ts,tsx}";
+
 * {
   margin: 0;
   padding: 0;
@@ -210,7 +214,7 @@ body, html {
   height: var(--cell-size);
   background-color: #ffeb3b;
   border-radius: 50%;
-  z-index: 10;
+  z-index: 20; /* Above Phaser layer (z-index: 10) and coins/powerups (z-index: 15) */
   /* Remove transition - we're using requestAnimationFrame for smooth movement */
   will-change: transform, left, top;
   /* box-shadow: 0 0 10px rgba(255, 235, 59, 0.5); */
@@ -245,7 +249,7 @@ body, html {
   text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
   white-space: nowrap;
   pointer-events: none;
-  z-index: 11;
+  z-index: 21; /* Above players (z-index: 20) */
   background: rgba(0, 0, 0, 0.6);
   padding: 0.2rem 0.5rem;
   border-radius: 8px;
@@ -958,7 +962,7 @@ body, html {
   font-size: 1.5rem;
   text-shadow: 0 0 10px rgba(147, 197, 253, 0.8);
   animation: frozenFloat 1s infinite ease-in-out;
-  z-index: 12;
+  z-index: 22; /* Above player names (z-index: 21) */
   pointer-events: none;
 }
 
@@ -1057,7 +1061,7 @@ body, html {
   position: absolute;
   transform: translate(-50%, -50%);
   font-size: 1.2rem;
-  z-index: 5;
+  z-index: 15; /* Above Phaser layer (z-index: 10) */
   animation: coinBounce 0.5s ease infinite alternate, coinGlow 1s ease infinite;
   filter: drop-shadow(0 0 5px rgba(255, 215, 0, 0.8));
   cursor: pointer;
@@ -1079,6 +1083,7 @@ body, html {
   50% {
     filter: drop-shadow(0 0 12px rgba(255, 215, 0, 1));
   }
+
 }
 
 /* Powerups */
@@ -1086,7 +1091,7 @@ body, html {
   position: absolute;
   transform: translate(-50%, -50%);
   font-size: 1.5rem;
-  z-index: 5;
+  z-index: 15; /* Above Phaser layer (z-index: 10) */
   animation: powerupFloat 1.5s ease-in-out infinite, powerupPulse 0.8s ease infinite;
   cursor: pointer;
 }
