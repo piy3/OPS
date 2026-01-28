@@ -209,6 +209,16 @@ function StartGame() {
     }
   }, [roomData, gameState, navigate])
 
+  // ============ ROOM CLEANUP: Leave room on unmount ============
+  // This ensures the client always emits leave_room when leaving the game screen,
+  // regardless of how the user left (Escape, browser back, refresh, link, etc.)
+  useEffect(() => {
+    return () => {
+      log.log('StartGame unmounting - leaving room')
+      socketService.leaveRoom()
+    }
+  }, [socketService])
+
   // Setup socket listeners for multiplayer
   useEffect(() => {
     // Listen for position updates from other players

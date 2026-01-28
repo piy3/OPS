@@ -221,7 +221,7 @@ body, html {
 }
 
 .local-player {
-  background-color: blue;
+  background-color: rgb(211, 211, 238);
   /* box-shadow: 0 0 15px rgba(59, 98, 255, 0.8), 0 0 30px rgba(255, 235, 59, 0.4); */
 }
 

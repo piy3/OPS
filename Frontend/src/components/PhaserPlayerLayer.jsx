@@ -883,7 +883,7 @@ class PlayerScene extends Phaser.Scene {
     const {
       color = '#FFFFFF',
       strokeColor = '#000000',
-      fontSize = this.cellSize * 0.5,
+      fontSize = this.cellSize * 0.2,
       duration = 1000,
       floatDistance = this.cellSize * 1.5,
       driftX = 0
@@ -1610,6 +1610,56 @@ class PlayerScene extends Phaser.Scene {
     } else if (newRow !== target.lastRow) {
       const direction = newRow > target.lastRow ? 'down' : 'up'
       playerObj.setData('direction', direction)
+    }
+    
+    // Update immunity shield visual for remote players
+    if (options.hasImmunity !== undefined) {
+      const existingShield = playerObj.getData('shield')
+      const playerSize = this.cellSize * 0.6
+      
+      if (options.hasImmunity && !existingShield) {
+        // Add immunity shield - cyan ring matching local player style
+        const shield = this.add.graphics()
+        shield.lineStyle(3, 0x00FFFF, 0.8)
+        shield.strokeCircle(0, 0, playerSize / 2 + 5)
+        playerObj.add(shield)
+        playerObj.setData('shield', shield)
+      } else if (!options.hasImmunity && existingShield) {
+        // Remove immunity shield
+        existingShield.destroy()
+        playerObj.setData('shield', null)
+      }
+    }
+    
+    // Update frozen visual for remote players
+    if (options.isFrozen !== undefined) {
+      const existingFrozen = playerObj.getData('frozenOverlay')
+      const existingFrozenText = playerObj.getData('frozenText')
+      const playerSize = this.cellSize * 0.6
+      
+      if (options.isFrozen && !existingFrozen) {
+        // Add frozen overlay - light blue fill matching local player style
+        const frozenOverlay = this.add.graphics()
+        frozenOverlay.fillStyle(0x87CEEB, 0.5)
+        frozenOverlay.fillCircle(0, 0, playerSize / 2 + 3)
+        playerObj.add(frozenOverlay)
+        playerObj.setData('frozenOverlay', frozenOverlay)
+        
+        // Add frozen icon above player
+        const frozenText = this.add.text(0, -playerSize / 2 - 15, '❄️', {
+          fontSize: `${playerSize * 0.5}px`,
+        }).setOrigin(0.5, 0.5)
+        playerObj.add(frozenText)
+        playerObj.setData('frozenText', frozenText)
+      } else if (!options.isFrozen && existingFrozen) {
+        // Remove frozen overlay
+        existingFrozen.destroy()
+        playerObj.setData('frozenOverlay', null)
+        if (existingFrozenText) {
+          existingFrozenText.destroy()
+          playerObj.setData('frozenText', null)
+        }
+      }
     }
   }
 
