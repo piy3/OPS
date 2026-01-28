@@ -131,7 +131,7 @@ export const COIN_CONFIG = {
         { row: 1, col: 19 },
         { row: 1, col: 25 },
         { row: 4, col: 3 },
-        { row: 4, col: 15 },
+        // { row: 4, col: 15 },
         { row: 4, col: 28 },
         // { row: 7, col: 8 },
         // { row: 7, col: 23 },
