@@ -600,14 +600,14 @@ function StartGame() {
         // Only allow direction change if there's no wall
         if (!isWall(checkRow, wrappedCheckCol)) {
           // Check if player is aligned with grid (at a turn point)
-          const cellSize = Math.min(window.innerWidth / MAZE_COLS, window.innerHeight / MAZE_ROWS)
+          const cellSize = Math.min(window.innerWidth / MAZE_COLS, window.innerHeight / MAZE_ROWS) // width, height
           const current = playerPixelPosRef.current
           const targetX = targetGridPosRef.current.col * cellSize + cellSize / 2
           const targetY = targetGridPosRef.current.row * cellSize + cellSize / 2
           
           // Use a more lenient threshold (30% of cell size) for better responsiveness
           const threshold = cellSize * 0.3
-          const dx = Math.abs(current.x - targetX)
+          const dx = Math.abs(current.x - targetX) // difference between current pixel and target pixel in x
           const dy = Math.abs(current.y - targetY)
           const isAligned = dx < threshold && dy < threshold
           
@@ -1127,8 +1127,10 @@ function StartGame() {
   const playerTopPercent = (playerPixelPos.y / mazeHeight) * 100
 
   // Get current player's coins
-  const myPlayer = roomData?.players?.find(p => p.id === socketService.getSocket()?.id)
-  const myCoins = myPlayer?.coins || 100
+const myId = socketService.getSocket()?.id;
+const myLeaderboardEntry = leaderboard?.find(p => p.id === myId);
+const myPlayer = roomData?.players?.find(p => p.id === myId);
+const myCoins = myLeaderboardEntry?.coins ?? myPlayer?.coins ?? 100;
 
   // Helper function to get rotation transform based on facing direction
   const getDirectionTransform = (direction) => {
@@ -1354,7 +1356,7 @@ function StartGame() {
                   {player.name}
                   {player.id === socketService.getSocket()?.id && ' (You)'}
                 </span>
-                <span className="coins">💰 {player.coins}</span>
+                <span className="coins"><img className='w-8' src={coinAnimation}/> {player.coins}</span>
               </div>
             ))}
           </div>
