@@ -122,7 +122,7 @@ export const COIN_CONFIG = {
     RESPAWN_TIME: 5000,             // 5 seconds after collection
     MAX_COINS: 15,                  // Maximum coins on map at once
     INITIAL_SPAWN_COUNT: 10,        // Coins spawned at Hunt start
-    COLLECTION_RADIUS: 1,           // Player must be within 1 cell to collect
+    COLLECTION_RADIUS: 0,           // Player must be within 1 cell to collect
     
     // Predefined coin spawn slots (row, col) - scattered throughout the maze
     SPAWN_SLOTS: [
@@ -133,24 +133,24 @@ export const COIN_CONFIG = {
         { row: 4, col: 3 },
         { row: 4, col: 15 },
         { row: 4, col: 28 },
-        { row: 7, col: 8 },
-        { row: 7, col: 23 },
+        // { row: 7, col: 8 },
+        // { row: 7, col: 23 },
         { row: 10, col: 1 },
         { row: 10, col: 15 },
         { row: 10, col: 30 },
         { row: 13, col: 6 },
         { row: 13, col: 25 },
         { row: 16, col: 3 },
-        { row: 16, col: 15 },
-        { row: 16, col: 28 },
-        { row: 19, col: 8 },
-        { row: 19, col: 23 },
+        // { row: 16, col: 15 },
+        // { row: 16, col: 28 },
+        // { row: 19, col: 8 },
+        // { row: 19, col: 23 },
         { row: 22, col: 6 },
         { row: 22, col: 15 },
         { row: 22, col: 25 },
         { row: 25, col: 3 },
-        { row: 25, col: 12 },
-        { row: 25, col: 19 },
+        // { row: 25, col: 12 },
+        // { row: 25, col: 19 },
         { row: 25, col: 28 }
     ]
 };
@@ -163,8 +163,8 @@ export const POWERUP_CONFIG = {
     SPAWN_INTERVAL_MIN: 10000,      // Minimum 10 seconds between spawns
     SPAWN_INTERVAL_MAX: 15000,      // Maximum 15 seconds between spawns
     DURATION: 10000,                // 10 seconds of immunity
-    MAX_POWERUPS: 2,                // Maximum powerups on map at once
-    COLLECTION_RADIUS: 1,           // Player must be within 1 cell to collect
+    MAX_POWERUPS: 4,                // Maximum powerups on map at once
+    COLLECTION_RADIUS: 0,           // Player must be within 1 cell to collect
     
     // Types of powerups
     TYPES: {

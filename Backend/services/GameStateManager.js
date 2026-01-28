@@ -908,6 +908,9 @@ class GameStateManager {
 
         // Clear knockback
         this.playerKnockbacks.delete(playerId);
+
+        // Clear immunity if player has one
+        this.cleanupPlayerImmunity(playerId);
     }
 
     /**
@@ -2463,16 +2466,18 @@ class GameStateManager {
                 powerupId: powerupId,
                 playerId: playerId,
                 playerName: player.name,
-                type: powerup.type
+                type: powerup.type,
+                row: powerup.row,    // Always include these
+                col: powerup.col      // for client fallback
             });
 
             // Activate the powerup effect
             this.activatePowerup(roomCode, playerId, powerup.type, io);
 
             // Remove powerup from map after short delay
-            setTimeout(() => {
+            // setTimeout(() => {
                 powerupMap.delete(powerupId);
-            }, 100);
+            // }, 100);
 
             return true;
         } finally {
@@ -2580,13 +2585,21 @@ class GameStateManager {
      */
     cleanupPowerups(roomCode) {
         // Clear spawn timer
-        if (this.powerupSpawnTimers.has(roomCode)) {
-            clearTimeout(this.powerupSpawnTimers.get(roomCode));
+        const timerId = this.powerupSpawnTimers.get(roomCode);
+        if (timerId) {
+            clearTimeout(timerId);
             this.powerupSpawnTimers.delete(roomCode);
         }
 
         // Clear powerup map
         this.roomPowerups.delete(roomCode);
+
+        // NEW: Clear any active locks for this room
+        for (const lockKey of this.powerupLocks.keys()) {
+            if (lockKey.startsWith(`${roomCode}:`)) {
+                this.powerupLocks.delete(lockKey);
+            }
+        }
     }
 
     /**
