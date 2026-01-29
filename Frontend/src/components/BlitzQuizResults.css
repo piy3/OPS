@@ -45,9 +45,10 @@
 /* Winner Announcement */
 .winner-announcement {
   text-align: center;
-  padding: 25px;
+  padding: 10px;
   margin-bottom: 20px;
   border-radius: 15px;
+  /* background-color: #4ade80; */
   animation: announceSlide 0.5s ease-out;
 }
 
@@ -65,6 +66,7 @@
 .you-are-unicorn {
   background: linear-gradient(135deg, rgba(255, 215, 0, 0.2), rgba(255, 0, 128, 0.2));
   border: 2px solid rgba(255, 215, 0, 0.5);
+  border-radius: 15px;
 }
 
 .you-are-unicorn .unicorn-icon {
@@ -93,6 +95,7 @@
 .you-are-reserve {
   background: linear-gradient(135deg, rgba(192, 192, 192, 0.2), rgba(138, 43, 226, 0.2));
   border: 2px solid rgba(192, 192, 192, 0.5);
+  border-radius: 15px;
 }
 
 .you-are-reserve .reserve-icon {
@@ -115,6 +118,7 @@
 .you-are-survivor {
   background: linear-gradient(135deg, rgba(74, 222, 128, 0.2), rgba(34, 197, 94, 0.2));
   border: 2px solid rgba(74, 222, 128, 0.5);
+  border-radius: 15px;
 }
 
 .you-are-survivor .survivor-icon {
@@ -163,6 +167,7 @@
 /* Rankings */
 .blitz-rankings {
   margin-bottom: 20px;
+  /* background-color: #ff0909; */
 }
 
 .blitz-rankings h4 {
@@ -170,6 +175,7 @@
   font-size: 1rem;
   margin-bottom: 15px;
   text-align: center;
+  /* background-color: #ef4444; */
 }
 
 .rankings-list {
@@ -178,6 +184,7 @@
   gap: 8px;
   max-height: 200px;
   overflow-y: auto;
+  /* background-color: #ffd700; */
 }
 
 .ranking-item {
@@ -211,10 +218,10 @@
   flex-shrink: 0;
 }
 
-.player-name {
+/* .player-name {
   flex: 1;
   color: white;
-}
+} */
 
 .response-time {
   color: #9ca3af;
@@ -232,7 +239,7 @@
 /* Hunt Countdown */
 .hunt-countdown {
   text-align: center;
-  padding: 20px;
+  padding: 10px;
   background: linear-gradient(135deg, rgba(239, 68, 68, 0.2), rgba(220, 38, 38, 0.2));
   border-radius: 15px;
   border: 2px solid rgba(239, 68, 68, 0.3);
@@ -241,7 +248,7 @@
 .countdown-label {
   color: #f87171;
   font-size: 1rem;
-  margin-bottom: 10px;
+  margin-bottom: 5px;
   text-transform: uppercase;
   letter-spacing: 2px;
 }

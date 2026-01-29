@@ -79,7 +79,7 @@ function BlitzQuizResults({ results }) {
                   }`}
                 >
                   <span className="rank">#{ranking.rank}</span>
-                  <span className="player-name">
+                  <span className="text-[#9ca3af] text-[0.9rem] text-center font-mono">
                     {ranking.isUnicorn && '🦄 '}
                     {ranking.isReserve && '🥈 '}
                     {ranking.playerName}

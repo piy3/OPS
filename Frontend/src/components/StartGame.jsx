@@ -651,7 +651,7 @@ function StartGame() {
           const target = gridToPixel(targetGridPosRef.current.row, targetGridPosRef.current.col, cellSize)
           
           // Use a more lenient threshold (30% of cell size) for better responsiveness
-          const threshold = cellSize * 0.3
+          const threshold = cellSize * 0.5
           const dx = Math.abs(current.x - target.x)
           const dy = Math.abs(current.y - target.y)
           const isAligned = dx < threshold && dy < threshold
@@ -787,7 +787,7 @@ function StartGame() {
       
       // Check if we have a pending direction change and player is now aligned
       if (pendingDirectionRef.current) {
-        const threshold = cellSize * 0.3
+        const threshold = cellSize * 0.5
         const pdx = Math.abs(current.x - targetX)
         const pdy = Math.abs(current.y - targetY)
         
@@ -1166,7 +1166,7 @@ function StartGame() {
       )}*/}
 
       {/* Central Phase Timer - Prominent display at top */}
-      {gamePhase === GAME_PHASE.HUNT && huntData && (
+      {/* {gamePhase === GAME_PHASE.HUNT && huntData && (
         <div className={`central-phase-timer ${huntTimeRemaining <= 10000 ? 'timer-ending' : ''}`}>
           <div className="phase-timer-header">
             <span className="phase-timer-icon">🏃</span>
@@ -1182,88 +1182,74 @@ function StartGame() {
             />
           </div>
         </div>
-      )}
+      )} */}
 
-      {/* Game Info HUD */}
-      <div className="h-[150px] w-full overflow-scroll flex flex-wrap">
-        <div className="p-2 border-2 border-red-800 w-fit h-fit rounded-2xl">
-          Room: {roomData?.code || 'N/A'}
-        </div>
-        <div className="hud-item">
-          Players: {Object.keys(remotePlayers).length + 1}
-        </div>
-        <div className="hud-item coins-display">
-          💰 {myCoins} Coins
+      {/* Game Info HUD - Minimalistic Arcade Style */}
+      <div className="game-hud-bar">
+        {/* Left Section - Room Info */}
+        <div className="hud-section hud-left">
+          <span className="hud-room">#{roomData?.code || '---'}</span>
+          <span className="hud-players">{Object.keys(remotePlayers).length + 1}P</span>
         </div>
 
-        {/* Health Bar */}
-        <div className="hud-item health-display">
-          <div className="health-label">
-            ❤️ {myHealth}/{COMBAT_CONFIG.MAX_HEALTH}
+        {/* Center Section - Core Stats */}
+        <div className="hud-section hud-center">
+          {/* Coins */}
+          <span className="hud-stat hud-coins">💰 {myCoins}</span>
+          
+          {/* Health */}
+          <div className="hud-health">
+            <span className="hud-health-text">❤️ {myHealth}</span>
+            <div className="hud-health-bar">
+              <div 
+                className={`hud-health-fill ${myHealth <= 30 ? 'health-critical' : myHealth <= 60 ? 'health-warning' : ''}`}
+                style={{ width: `${(myHealth / COMBAT_CONFIG.MAX_HEALTH) * 100}%` }}
+              />
+            </div>
+            {inIFrames && <span className="hud-status-badge hud-invincible">INV</span>}
+            {myPlayerState === PLAYER_STATE.FROZEN && <span className="hud-status-badge hud-frozen">❄️</span>}
           </div>
-          <div className="health-bar-container">
-            <div 
-              className={`health-bar-fill ${myHealth <= 30 ? 'health-critical' : myHealth <= 60 ? 'health-warning' : ''}`}
-              style={{ width: `${(myHealth / COMBAT_CONFIG.MAX_HEALTH) * 100}%` }}
-            />
-          </div>
-          {inIFrames && <div className="iframe-indicator">INVINCIBLE</div>}
-          {myPlayerState === PLAYER_STATE.FROZEN && <div className="frozen-indicator">FROZEN</div>}
-        </div>
-        
-        {/* Phase Indicator */}
-        {gamePhase === GAME_PHASE.HUNT && huntData && (
-          <div className={`hud-item phase-indicator hunt-phase ${huntTimeRemaining <= 10000 ? 'phase-ending-soon' : ''}`}>
-            <span className="phase-icon">🏃</span>
-            <span className="phase-name">HUNT</span>
-            <span className={`phase-timer ${huntTimeRemaining <= 10000 ? 'timer-urgent' : ''}`}>
-              {formatHuntTime(huntTimeRemaining)}
+
+          {/* Phase */}
+          {gamePhase === GAME_PHASE.HUNT && huntData && (
+            <span className={`hud-stat hud-phase ${huntTimeRemaining <= 10000 ? 'hud-phase-urgent' : ''}`}>
+              🏃 {formatHuntTime(huntTimeRemaining)}
             </span>
-          </div>
-        )}
-        {gamePhase === GAME_PHASE.BLITZ_QUIZ && (
-          <div className="hud-item phase-indicator blitz-phase">
-            <span className="phase-icon">⚡</span>
-            <span className="phase-name">BLITZ QUIZ</span>
-          </div>
-        )}
-        
-        {/* Role Indicator */}
-        {unicornId === myId ? (
-          <div className="hud-item unicorn-indicator">
-            🦄 Unicorn! Tag the survivors.
-          </div>
-        ) : reserveUnicornId === myId ? (
-          <div className="hud-item reserve-indicator">
-            🥈 Reserved Unicorn! Still u gotta run!
-          </div>
-        ) : (
-          <div className="hud-item survivor-indicator">
-            🏃 Survivor! Run from the unicorn and collect gold ﹩!
-          </div>
-        )}
-        
-        <div className="hud-item">
-          Press ESC to leave
+          )}
+          {gamePhase === GAME_PHASE.BLITZ_QUIZ && (
+            <span className="hud-stat hud-phase hud-phase-blitz">⚡ BLITZ</span>
+          )}
+
+          {/* Role - Short */}
+          <span className={`hud-role ${
+            unicornId === myId ? 'hud-role-unicorn' : 
+            reserveUnicornId === myId ? 'hud-role-reserve' : 
+            'hud-role-survivor'
+          }`}>
+            {unicornId === myId ? '🦄 TAG' : 
+             reserveUnicornId === myId ? '🥈 RUN' : 
+             '🏃 COLLECT'}
+          </span>
         </div>
-        <button 
-          className="hud-item leaderboard-toggle"
-          onClick={() => setShowLeaderboard(!showLeaderboard)}
-        >
-          {showLeaderboard ? '📊 Hide' : '📊 Show'} Leaderboard
-        </button>
-        {/* <button 
-          className="hud-item coordinates-toggle"
-          onClick={() => setShowCoordinates(!showCoordinates)}
-        >
-          {showCoordinates ? '📍 Hide' : '📍 Show'} Coords
-        </button> */}
-        <button 
-          className="hud-item sound-toggle"
-          onClick={() => setShowSoundControls(!showSoundControls)}
-        >
-          {muted ? '🔇' : '🔊'} Sound
-        </button>
+
+        {/* Right Section - Actions */}
+        <div className="hud-section hud-right">
+          <span className="hud-hint">ESC</span>
+          <button 
+            className={`hud-btn ${showLeaderboard ? 'hud-btn-active' : ''}`}
+            onClick={() => setShowLeaderboard(!showLeaderboard)}
+            title="Leaderboard"
+          >
+            <span className='text-white'>Leaderboard</span>
+          </button>
+          <button 
+            className="hud-btn"
+            onClick={() => setShowSoundControls(!showSoundControls)}
+            title="Sound"
+          >
+            {muted ? '🔇' : '🔊'}
+          </button>
+        </div>
       </div>
 
       {/* Sound Controls Panel */}
@@ -1298,25 +1284,28 @@ function StartGame() {
         </div>
       )}
 
-      {/* Leaderboard */}
+      {/* Leaderboard - Compact */}
       {showLeaderboard && (
-        <div className="leaderboard-container">
-          <div className="leaderboard-header">
-            <h3>🏆 Leaderboard</h3>
+        <div className="leaderboard-panel">
+          <div className="leaderboard-panel-header">
+            <span>🏆 RANKS</span>
+            <button className="leaderboard-close" onClick={() => setShowLeaderboard(false)}>✕</button>
           </div>
-          <div className="leaderboard-list">
+          <div className="leaderboard-panel-list">
             {leaderboard.map((player, index) => (
               <div 
                 key={player.id} 
-                className={`leaderboard-item ${player.id === myId ? 'current-player' : ''} ${player.isUnicorn ? 'unicorn-player-item' : ''}`}
+                className={`leaderboard-row ${player.id === myId ? 'leaderboard-row-you' : ''} ${player.isUnicorn ? 'leaderboard-row-unicorn' : ''}`}
               >
-                <span className="rank">#{index + 1}</span>
-                <span className="player-info">
-                  {player.isUnicorn && '🦄 '}
-                  {player.name}
-                  {player.id === myId && ' (You)'}
+                <span className="leaderboard-rank">
+                  {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`}
                 </span>
-                <span className="coins"><img className='w-8' src={coinAnimation}/> {player.coins}</span>
+                <span className="leaderboard-name">
+                  {player.isUnicorn && '🦄'}
+                  {player.name}
+                  {player.id === myId && ' •'}
+                </span>
+                <span className="leaderboard-coins">{player.coins}</span>
               </div>
             ))}
           </div>
@@ -1621,6 +1610,23 @@ function StartGame() {
           )
         })}
       </div>
+
+      {/* Role Instruction Bar - Subtle hint at bottom for new players */}
+      {(gamePhase === GAME_PHASE.HUNT || gamePhase === GAME_PHASE.BLITZ_QUIZ) && (
+        <div className={`role-instruction-bar ${
+          unicornId === myId ? 'role-unicorn' : 
+          reserveUnicornId === myId ? 'role-reserve' : 
+          'role-survivor'
+        }`}>
+          {unicornId === myId ? (
+            <span>🦄 Tag runners to steal their coins</span>
+          ) : reserveUnicornId === myId ? (
+            <span>🥈 You're next unicorn — run and survive for now</span>
+          ) : (
+            <span>🏃 Collect coins and avoid the unicorn</span>
+          )}
+        </div>
+      )}
     </div>
   )
 }
