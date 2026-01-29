@@ -59,7 +59,8 @@ const SocketEventHandler = ({ children }) => {
     setGameState, setGamePhase, setIsGameFrozen, setFreezeMessage,
     setQuizActive, setQuizData, setQuizResults,
     setBlitzQuizActive, setBlitzQuizData, setBlitzQuizResults,
-    setHuntData, setHuntTimeRemaining, setTagNotification
+    setHuntData, setHuntTimeRemaining, setTagNotification,
+    setUnfreezeQuizActive, setUnfreezeQuizData
   } = useGamePhase();
   
   const {
@@ -533,7 +534,69 @@ const SocketEventHandler = ({ children }) => {
     setKnockbackPlayers, setKnockbackActive, setMyPlayerState
   ]);
 
-  // ========== EFFECT 6: Coins & Powerups ==========
+  // ========== EFFECT 6: Unfreeze Quiz Events ==========
+  // Handles: personal unfreeze quiz when player health reaches zero
+  useEffect(() => {
+    // Unfreeze Quiz Start - player receives 2-question personal quiz
+    socketService.onUnfreezeQuizStart((data) => {
+      log.log('🧊 ===== UNFREEZE QUIZ START =====');
+      log.log('Questions:', data.questions?.length);
+      log.log('Pass threshold:', data.passThreshold);
+      log.log('=================================');
+      
+      setUnfreezeQuizActive(true);
+      setUnfreezeQuizData({
+        questions: data.questions,
+        totalQuestions: data.totalQuestions,
+        passThreshold: data.passThreshold,
+        currentQuestion: 0,
+        answers: []
+      });
+    });
+
+    // Unfreeze Quiz Complete - quiz finished (passed or failed with retry)
+    socketService.onUnfreezeQuizComplete((data) => {
+      log.log('🧊 ===== UNFREEZE QUIZ COMPLETE =====');
+      log.log('Passed:', data.passed);
+      log.log('Score:', data.correctCount, '/', data.totalQuestions);
+      log.log('Retry:', data.retry);
+      log.log('====================================');
+      
+      if (data.passed) {
+        // Quiz passed - close modal (respawn handled by player_respawn event)
+        setUnfreezeQuizActive(false);
+        setUnfreezeQuizData(null);
+      } else if (data.retry) {
+        // Quiz failed - will receive new UNFREEZE_QUIZ_START shortly
+        // Keep modal open but show failed state briefly
+        setUnfreezeQuizData(prev => ({
+          ...prev,
+          failed: true,
+          correctCount: data.correctCount
+        }));
+      }
+    });
+
+    // Unfreeze Quiz Cancelled - blitz started, close quiz
+    socketService.onUnfreezeQuizCancelled((data) => {
+      log.log('🧊 ===== UNFREEZE QUIZ CANCELLED =====');
+      log.log('Reason:', data.reason);
+      log.log('Message:', data.message);
+      log.log('=====================================');
+      
+      // Close the unfreeze quiz modal
+      setUnfreezeQuizActive(false);
+      setUnfreezeQuizData(null);
+    });
+
+    return () => {
+      socketService.removeAllListeners('unfreeze_quiz_start');
+      socketService.removeAllListeners('unfreeze_quiz_complete');
+      socketService.removeAllListeners('unfreeze_quiz_cancelled');
+    };
+  }, [setUnfreezeQuizActive, setUnfreezeQuizData]);
+
+  // ========== EFFECT 7: Coins & Powerups ==========
   // Handles: coin/powerup spawn, collection, activation, expiration
   useEffect(() => {
     // Coin spawned

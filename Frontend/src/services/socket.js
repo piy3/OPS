@@ -460,6 +460,48 @@ class SocketService {
     socket.on('powerup_expired', callback);
   }
 
+  // ========== UNFREEZE QUIZ EVENTS ==========
+
+  /**
+   * Submit Unfreeze Quiz answer
+   */
+  submitUnfreezeQuizAnswer(questionIndex, answerIndex) {
+    const socket = this.getSocket();
+    socket.emit('submit_unfreeze_quiz_answer', { questionIndex, answerIndex });
+  }
+
+  /**
+   * Listen for unfreeze quiz start event
+   */
+  onUnfreezeQuizStart(callback) {
+    const socket = this.getSocket();
+    socket.on('unfreeze_quiz_start', callback);
+  }
+
+  /**
+   * Listen for unfreeze quiz answer result event
+   */
+  onUnfreezeQuizAnswerResult(callback) {
+    const socket = this.getSocket();
+    socket.on('unfreeze_quiz_answer_result', callback);
+  }
+
+  /**
+   * Listen for unfreeze quiz complete event
+   */
+  onUnfreezeQuizComplete(callback) {
+    const socket = this.getSocket();
+    socket.on('unfreeze_quiz_complete', callback);
+  }
+
+  /**
+   * Listen for unfreeze quiz cancelled event
+   */
+  onUnfreezeQuizCancelled(callback) {
+    const socket = this.getSocket();
+    socket.on('unfreeze_quiz_cancelled', callback);
+  }
+
   /**
    * Remove event listener
    */

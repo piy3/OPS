@@ -44,6 +44,10 @@ export const GamePhaseProvider = ({ children }) => {
   const [huntTimeRemaining, setHuntTimeRemaining] = useState(0);
   const [tagNotification, setTagNotification] = useState(null);
 
+  // Unfreeze Quiz state (personal quiz when player health reaches 0)
+  const [unfreezeQuizActive, setUnfreezeQuizActive] = useState(false);
+  const [unfreezeQuizData, setUnfreezeQuizData] = useState(null);
+
   const value = useMemo(() => ({
     gameState,
     setGameState,
@@ -71,11 +75,17 @@ export const GamePhaseProvider = ({ children }) => {
     setHuntTimeRemaining,
     tagNotification,
     setTagNotification,
+    // Unfreeze Quiz
+    unfreezeQuizActive,
+    setUnfreezeQuizActive,
+    unfreezeQuizData,
+    setUnfreezeQuizData,
   }), [
     gameState, gamePhase, isGameFrozen, freezeMessage,
     quizActive, quizData, quizResults,
     blitzQuizActive, blitzQuizData, blitzQuizResults,
-    huntData, huntTimeRemaining, tagNotification
+    huntData, huntTimeRemaining, tagNotification,
+    unfreezeQuizActive, unfreezeQuizData
   ]);
 
   return (

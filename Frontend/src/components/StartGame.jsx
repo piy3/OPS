@@ -15,6 +15,7 @@ const QuizModal = lazy(() => import('./QuizModal'))
 const QuizResults = lazy(() => import('./QuizResults'))
 const BlitzQuizModal = lazy(() => import('./BlitzQuizModal'))
 const BlitzQuizResults = lazy(() => import('./BlitzQuizResults'))
+const UnfreezeQuizModal = lazy(() => import('./UnfreezeQuizModal'))
 const PhaserPlayerLayer = lazy(() => import('./PhaserPlayerLayer'))
 
 // ============ CENTRALIZED MAZE LAYOUT ============
@@ -75,6 +76,8 @@ function StartGame() {
     huntTimeRemaining,
     reserveUnicornId,
     tagNotification,
+    // Unfreeze Quiz state
+    unfreezeQuizActive,
     // Combat System state
     playersHealth,
     hitNotification,
@@ -1120,6 +1123,10 @@ function StartGame() {
 
         {/* Blitz Quiz Results - Shows to ALL players after Blitz Quiz ends */}
         {blitzQuizResults && <BlitzQuizResults results={blitzQuizResults} />}
+
+        {/* Unfreeze Quiz Modal - Shows to player when their health reaches 0 */}
+        {/* Only show if not in blitz quiz (blitz cancels unfreeze quizzes) */}
+        {unfreezeQuizActive && !blitzQuizActive && <UnfreezeQuizModal />}
 
         {/* Freeze Overlay - Shows when game is frozen but quiz not active yet (legacy) */}
         {isGameFrozen && !quizActive && !quizResults && !blitzQuizActive && !blitzQuizResults && (
