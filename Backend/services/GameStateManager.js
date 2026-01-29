@@ -13,7 +13,8 @@
  */
 
 import roomManager from './RoomManager.js';
-import { SOCKET_EVENTS, GAME_PHASE, COMBAT_CONFIG, PLAYER_STATE } from '../config/constants.js';
+import { SOCKET_EVENTS, GAME_PHASE, COMBAT_CONFIG, PLAYER_STATE, UNFREEZE_QUIZ_CONFIG } from '../config/constants.js';
+import { getRandomQuestions } from '../config/questions.js';
 import log from '../utils/logger.js';
 
 // Import domain managers
@@ -30,6 +31,9 @@ class GameStateManager {
         this._onBlitzEnd = this._onBlitzEnd.bind(this);
         this._onStartHunt = this._onStartHunt.bind(this);
         this._onQuizComplete = this._onQuizComplete.bind(this);
+        
+        // Unfreeze quiz state: Map<roomCode, Map<playerId, { questions, answers, startTime }>>
+        this.unfreezeQuizzes = new Map();
     }
 
     // ==================== PUBLIC API (called by handlers) ====================
@@ -63,6 +67,8 @@ class GameStateManager {
         powerupManager.cleanupRoom(roomCode);
         quizManager.clearQuizState(roomCode);
         gameLoopManager.cleanupRoom(roomCode);
+        // Clean up unfreeze quiz state
+        this.unfreezeQuizzes.delete(roomCode);
     }
 
     /**
@@ -227,6 +233,7 @@ class GameStateManager {
         positionManager.removePlayerPosition(roomCode, playerId);
         combatManager.cleanupPlayer(playerId);
         powerupManager.cleanupPlayerImmunity(playerId);
+        this.cleanupUnfreezeQuiz(roomCode, playerId);
     }
 
     /**
@@ -251,7 +258,7 @@ class GameStateManager {
                 roomCode, 
                 playerId, 
                 io,
-                (code, newId) => roomManager.setUnicorn(code, newId),
+                (code, newId) => roomManager.transferUnicorn(code, newId),
                 (code, socket) => {
                     // Clean up map interactions and restart blitz
                     coinManager.cleanupRoom(code);
@@ -346,8 +353,12 @@ class GameStateManager {
 
     /**
      * Start a new blitz quiz
+     * First cancels all active unfreeze quizzes so those players can join the blitz
      */
     _startNewBlitz(roomCode, io) {
+        // Cancel all unfreeze quizzes - those players respawn and join blitz
+        this._cancelAllUnfreezeQuizzes(roomCode, io);
+        
         gameLoopManager.startBlitzQuiz(roomCode, io, (code) => {
             quizManager.freezeRoom(code);
         });
@@ -501,17 +512,21 @@ class GameStateManager {
 
     /**
      * Handle player reaching zero health
+     * Freezes the player and starts a personal unfreeze quiz
      */
     _handleZeroHealth(roomCode, playerId, playerName, io) {
+        // Freeze the player (no respawn timer - quiz handles unfreeze)
         combatManager.handleZeroHealth(
             roomCode,
             playerId,
             playerName,
             io,
             (code, id, state) => roomManager.setPlayerState(code, id, state),
-            (code, id, value) => roomManager.setPlayerIFrames(code, id, value),
-            () => this._respawnAfterFreeze(roomCode, playerId, io)
+            (code, id, value) => roomManager.setPlayerIFrames(code, id, value)
         );
+        
+        // Start personal unfreeze quiz for this player
+        this._startUnfreezeQuiz(roomCode, playerId, io);
     }
 
     /**
@@ -564,6 +579,229 @@ class GameStateManager {
             state: PLAYER_STATE.ACTIVE,
             inIFrames: true
         });
+    }
+
+    // ==================== UNFREEZE QUIZ METHODS ====================
+
+    /**
+     * Start a personal unfreeze quiz for a frozen player
+     * @param {string} roomCode - Room code
+     * @param {string} playerId - Player ID
+     * @param {Object} io - Socket.IO server
+     */
+    _startUnfreezeQuiz(roomCode, playerId, io) {
+        const room = roomManager.getRoom(roomCode);
+        if (!room) return;
+
+        const player = room.players.find(p => p.id === playerId);
+        if (!player) return;
+
+        // Get 2 random questions for the unfreeze quiz
+        const questions = getRandomQuestions(UNFREEZE_QUIZ_CONFIG.QUESTIONS_COUNT);
+        
+        // Prepare questions for client (without correct answers)
+        const questionsForClient = questions.map(q => ({
+            id: q.id,
+            question: q.question,
+            options: q.options
+        }));
+
+        // Initialize unfreeze quiz state for this room if needed
+        if (!this.unfreezeQuizzes.has(roomCode)) {
+            this.unfreezeQuizzes.set(roomCode, new Map());
+        }
+
+        // Store quiz state for this player
+        this.unfreezeQuizzes.get(roomCode).set(playerId, {
+            questions: questions,           // Full questions with correct answers
+            answers: [],                    // Player's submitted answers
+            startTime: Date.now()
+        });
+
+        log.info(`🧊 Unfreeze quiz started for ${player.name} in room ${roomCode}`);
+
+        // Emit to only this player's socket
+        io.to(playerId).emit(SOCKET_EVENTS.SERVER.UNFREEZE_QUIZ_START, {
+            questions: questionsForClient,
+            totalQuestions: UNFREEZE_QUIZ_CONFIG.QUESTIONS_COUNT,
+            passThreshold: UNFREEZE_QUIZ_CONFIG.PASS_THRESHOLD
+        });
+    }
+
+    /**
+     * Submit an answer to the unfreeze quiz
+     * @param {string} roomCode - Room code
+     * @param {string} playerId - Player ID
+     * @param {number} questionIndex - Index of the question (0 or 1)
+     * @param {number} answerIndex - Selected answer index
+     * @param {Object} io - Socket.IO server
+     * @returns {Object|null} Result of the answer submission
+     */
+    submitUnfreezeQuizAnswer(roomCode, playerId, questionIndex, answerIndex, io) {
+        const roomQuizzes = this.unfreezeQuizzes.get(roomCode);
+        if (!roomQuizzes) {
+            log.warn(`No unfreeze quizzes for room ${roomCode}`);
+            return null;
+        }
+
+        const quizState = roomQuizzes.get(playerId);
+        if (!quizState) {
+            log.warn(`No unfreeze quiz for player ${playerId} in room ${roomCode}`);
+            return null;
+        }
+
+        // Validate question index
+        if (questionIndex < 0 || questionIndex >= quizState.questions.length) {
+            log.warn(`Invalid question index ${questionIndex} for unfreeze quiz`);
+            return null;
+        }
+
+        // Check if already answered this question
+        const alreadyAnswered = quizState.answers.some(a => a.questionIndex === questionIndex);
+        if (alreadyAnswered) {
+            log.warn(`Question ${questionIndex} already answered`);
+            return null;
+        }
+
+        const question = quizState.questions[questionIndex];
+        const isCorrect = answerIndex === question.correctAnswer;
+
+        // Record the answer
+        quizState.answers.push({
+            questionIndex,
+            answerIndex,
+            correct: isCorrect
+        });
+
+        // Send answer result to the player
+        io.to(playerId).emit(SOCKET_EVENTS.SERVER.UNFREEZE_QUIZ_ANSWER_RESULT, {
+            questionIndex,
+            isCorrect,
+            correctAnswer: question.correctAnswer,
+            totalAnswered: quizState.answers.length,
+            totalQuestions: UNFREEZE_QUIZ_CONFIG.QUESTIONS_COUNT
+        });
+
+        // Check if all questions answered
+        if (quizState.answers.length >= UNFREEZE_QUIZ_CONFIG.QUESTIONS_COUNT) {
+            const correctCount = quizState.answers.filter(a => a.correct).length;
+            const passed = correctCount >= UNFREEZE_QUIZ_CONFIG.PASS_THRESHOLD;
+
+            log.info(`🧊 Unfreeze quiz complete for player ${playerId}: ${correctCount}/${UNFREEZE_QUIZ_CONFIG.QUESTIONS_COUNT} correct, passed: ${passed}`);
+
+            if (passed) {
+                // Clear quiz state
+                roomQuizzes.delete(playerId);
+                if (roomQuizzes.size === 0) {
+                    this.unfreezeQuizzes.delete(roomCode);
+                }
+
+                // Clear frozen state in combat manager
+                combatManager.clearFrozenState(playerId);
+
+                // Respawn the player
+                this._respawnAfterFreeze(roomCode, playerId, io);
+
+                // Notify player quiz is complete
+                io.to(playerId).emit(SOCKET_EVENTS.SERVER.UNFREEZE_QUIZ_COMPLETE, {
+                    passed: true,
+                    correctCount,
+                    totalQuestions: UNFREEZE_QUIZ_CONFIG.QUESTIONS_COUNT
+                });
+            } else {
+                // Failed - generate new questions and restart the quiz
+                // This allows the player to try again
+                log.info(`🧊 Player ${playerId} failed unfreeze quiz, restarting with new questions`);
+                
+                // Clear current quiz state
+                roomQuizzes.delete(playerId);
+                if (roomQuizzes.size === 0) {
+                    this.unfreezeQuizzes.delete(roomCode);
+                }
+
+                // Notify player they failed and will get new questions
+                io.to(playerId).emit(SOCKET_EVENTS.SERVER.UNFREEZE_QUIZ_COMPLETE, {
+                    passed: false,
+                    correctCount,
+                    totalQuestions: UNFREEZE_QUIZ_CONFIG.QUESTIONS_COUNT,
+                    retry: true
+                });
+
+                // Start new quiz with new questions after a brief delay
+                setTimeout(() => {
+                    // Check player is still in room and still frozen
+                    const room = roomManager.getRoom(roomCode);
+                    const player = room?.players.find(p => p.id === playerId);
+                    if (player && player.state === PLAYER_STATE.FROZEN) {
+                        this._startUnfreezeQuiz(roomCode, playerId, io);
+                    }
+                }, 1500);
+            }
+        }
+
+        return {
+            isCorrect,
+            totalAnswered: quizState.answers.length,
+            totalQuestions: UNFREEZE_QUIZ_CONFIG.QUESTIONS_COUNT
+        };
+    }
+
+    /**
+     * Cancel all unfreeze quizzes in a room (called when blitz starts)
+     * @param {string} roomCode - Room code
+     * @param {Object} io - Socket.IO server
+     */
+    _cancelAllUnfreezeQuizzes(roomCode, io) {
+        const roomQuizzes = this.unfreezeQuizzes.get(roomCode);
+        if (!roomQuizzes || roomQuizzes.size === 0) {
+            return;
+        }
+
+        log.info(`🧊 Cancelling ${roomQuizzes.size} unfreeze quizzes in room ${roomCode} due to blitz start`);
+
+        // Process each player with an active unfreeze quiz
+        for (const [playerId, quizState] of roomQuizzes) {
+            // Clear frozen state in combat manager
+            combatManager.clearFrozenState(playerId);
+
+            // Respawn the player
+            this._respawnAfterFreeze(roomCode, playerId, io);
+
+            // Notify player their quiz was cancelled
+            io.to(playerId).emit(SOCKET_EVENTS.SERVER.UNFREEZE_QUIZ_CANCELLED, {
+                reason: 'blitz_start',
+                message: 'Blitz Quiz starting - you have been unfrozen!'
+            });
+        }
+
+        // Clear all quiz state for this room
+        this.unfreezeQuizzes.delete(roomCode);
+    }
+
+    /**
+     * Check if a player has an active unfreeze quiz
+     * @param {string} roomCode - Room code
+     * @param {string} playerId - Player ID
+     * @returns {boolean} True if player has active unfreeze quiz
+     */
+    hasUnfreezeQuiz(roomCode, playerId) {
+        const roomQuizzes = this.unfreezeQuizzes.get(roomCode);
+        return roomQuizzes?.has(playerId) ?? false;
+    }
+
+    /**
+     * Clean up unfreeze quiz state for a player (when they leave)
+     * @param {string} roomCode - Room code
+     * @param {string} playerId - Player ID
+     */
+    cleanupUnfreezeQuiz(roomCode, playerId) {
+        const roomQuizzes = this.unfreezeQuizzes.get(roomCode);
+        if (roomQuizzes) {
+            roomQuizzes.delete(playerId);
+            if (roomQuizzes.size === 0) {
+                this.unfreezeQuizzes.delete(roomCode);
+            }
+        }
     }
 
     /**

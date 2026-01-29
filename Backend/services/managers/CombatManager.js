@@ -163,15 +163,15 @@ class CombatManager {
 
     /**
      * Handle player reaching zero health - freeze them
+     * No longer starts a respawn timer - GameStateManager will start an unfreeze quiz instead
      * @param {string} roomCode - Room code
      * @param {string} playerId - Player ID
      * @param {string} playerName - Player name
      * @param {Object} io - Socket.IO server
      * @param {Function} setPlayerState - Callback to set player state
      * @param {Function} setPlayerIFrames - Callback to set player i-frames
-     * @param {Function} onRespawn - Callback when respawn timer completes
      */
-    handleZeroHealth(roomCode, playerId, playerName, io, setPlayerState, setPlayerIFrames, onRespawn) {
+    handleZeroHealth(roomCode, playerId, playerName, io, setPlayerState, setPlayerIFrames) {
         // Set state to FROZEN
         setPlayerState(roomCode, playerId, PLAYER_STATE.FROZEN);
         
@@ -187,20 +187,22 @@ class CombatManager {
         io.to(roomCode).emit(SOCKET_EVENTS.SERVER.PLAYER_STATE_CHANGE, {
             playerId: playerId,
             playerName: playerName,
-            state: PLAYER_STATE.FROZEN,
-            freezeDuration: COMBAT_CONFIG.FREEZE_DURATION
+            state: PLAYER_STATE.FROZEN
+            // No freezeDuration - player must pass unfreeze quiz to respawn
         });
 
-        // Set respawn timer
-        const timeoutId = setTimeout(() => {
-            this.frozenPlayers.delete(playerId);
-            onRespawn();
-        }, COMBAT_CONFIG.FREEZE_DURATION);
-
+        // Track frozen state (no timeout - quiz handles unfreeze)
         this.frozenPlayers.set(playerId, {
-            endTime: Date.now() + COMBAT_CONFIG.FREEZE_DURATION,
-            timeoutId: timeoutId
+            startTime: Date.now()
         });
+    }
+
+    /**
+     * Clear frozen state for a player (called when unfreeze quiz passed or cancelled)
+     * @param {string} playerId - Player ID
+     */
+    clearFrozenState(playerId) {
+        this.frozenPlayers.delete(playerId);
     }
 
     /**

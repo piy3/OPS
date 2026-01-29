@@ -2,7 +2,7 @@
  * Socket event handlers for game operations
  */
 
-import { SOCKET_EVENTS, ROOM_STATUS, GAME_PHASE } from '../config/constants.js';
+import { SOCKET_EVENTS, ROOM_STATUS, GAME_PHASE, PLAYER_STATE } from '../config/constants.js';
 import roomManager from '../services/RoomManager.js';
 import gameStateManager from '../services/GameStateManager.js';
 import { log } from 'console';
@@ -248,6 +248,52 @@ export function registerGameHandlers(socket, io) {
             }
         } catch (error) {
             log(`Error handling quiz answer: ${error.message}`);
+        }
+    });
+
+    // SUBMIT UNFREEZE QUIZ ANSWER: Player submits answer to personal unfreeze quiz
+    socket.on(SOCKET_EVENTS.CLIENT.SUBMIT_UNFREEZE_QUIZ_ANSWER, (answerData) => {
+        try {
+            const roomCode = roomManager.getRoomCodeForSocket(socket.id);
+            if (!roomCode) {
+                return; // Silently ignore if not in a room
+            }
+
+            const room = roomManager.getRoom(roomCode);
+            if (!room || room.status !== ROOM_STATUS.PLAYING) {
+                return; // Silently ignore if game not playing
+            }
+
+            // Verify player is frozen and has an active unfreeze quiz
+            const player = room.players.find(p => p.id === socket.id);
+            if (!player || player.state !== PLAYER_STATE.FROZEN) {
+                log(`Unfreeze quiz answer rejected: Player not frozen`);
+                return;
+            }
+
+            if (!gameStateManager.hasUnfreezeQuiz(roomCode, socket.id)) {
+                log(`Unfreeze quiz answer rejected: No active unfreeze quiz for player`);
+                return;
+            }
+
+            const { questionIndex, answerIndex } = answerData;
+
+            // Submit the answer
+            const result = gameStateManager.submitUnfreezeQuizAnswer(
+                roomCode,
+                socket.id,
+                questionIndex,
+                answerIndex,
+                io
+            );
+
+            if (!result) {
+                log(`Invalid unfreeze quiz answer submission from ${socket.id}`);
+                return;
+            }
+
+        } catch (error) {
+            log(`Error handling unfreeze quiz answer: ${error.message}`);
         }
     });
 }

@@ -91,7 +91,7 @@ export const COMBAT_CONFIG = {
     KNOCKBACK_DURATION: 300,        // Duration of knockback animation in ms
     
     // Zero Health / Death
-    FREEZE_DURATION: 5000,          // 5 seconds frozen when health reaches 0
+    FREEZE_DURATION: 5000,          // 5 seconds frozen when health reaches 0 (legacy, not used with unfreeze quiz)
     RESPAWN_HEALTH: 50,             // Health after respawn (50%)
     
     // Player States
@@ -101,6 +101,16 @@ export const COMBAT_CONFIG = {
         IMMUNE: 'immune',           // Has immunity powerup
         IN_IFRAMES: 'in_iframes'    // In invincibility frames
     }
+};
+
+/**
+ * Unfreeze Quiz Configuration
+ * Personal quiz for players at zero health to unfreeze themselves
+ */
+export const UNFREEZE_QUIZ_CONFIG = {
+    QUESTIONS_COUNT: 2,             // Number of questions in unfreeze quiz
+    PASS_THRESHOLD: 1,              // Minimum correct answers to pass (1 of 2)
+    // No timer - player can take as long as needed
 };
 
 /**
@@ -213,7 +223,8 @@ export const SOCKET_EVENTS = {
         SUBMIT_QUIZ_ANSWER: 'submit_quiz_answer',
         BLITZ_ANSWER: 'blitz_answer',           // Submit blitz quiz answer
         COLLECT_COIN: 'collect_coin',           // Request coin collection
-        COLLECT_POWERUP: 'collect_powerup'      // Request powerup collection
+        COLLECT_POWERUP: 'collect_powerup',     // Request powerup collection
+        SUBMIT_UNFREEZE_QUIZ_ANSWER: 'submit_unfreeze_quiz_answer'  // Submit unfreeze quiz answer
     },
     // Server -> Client
     SERVER: {
@@ -257,7 +268,12 @@ export const SOCKET_EVENTS = {
         POWERUP_SPAWNED: 'powerup_spawned',     // Power-up appeared on map
         POWERUP_COLLECTED: 'powerup_collected', // Player collected a power-up
         POWERUP_ACTIVATED: 'powerup_activated', // Power-up effect started
-        POWERUP_EXPIRED: 'powerup_expired'      // Power-up effect ended
+        POWERUP_EXPIRED: 'powerup_expired',     // Power-up effect ended
+        // Unfreeze Quiz Events
+        UNFREEZE_QUIZ_START: 'unfreeze_quiz_start',           // Personal unfreeze quiz started
+        UNFREEZE_QUIZ_ANSWER_RESULT: 'unfreeze_quiz_answer_result', // Feedback on submitted answer
+        UNFREEZE_QUIZ_COMPLETE: 'unfreeze_quiz_complete',     // Quiz passed, player unfrozen
+        UNFREEZE_QUIZ_CANCELLED: 'unfreeze_quiz_cancelled'    // Quiz cancelled (blitz started)
     }
 };
 
