@@ -989,6 +989,30 @@ class PlayerScene extends Phaser.Scene {
     }
   }
 
+    /**
+   * Create a dashed circle graphic for i-frames (tagged) state. Caller must add to container and rotate in update().
+   * @param {number} radius - Circle radius (e.g. playerSize/2 + 4)
+   * @param {number} [lineWidth=2] - Line width
+   * @param {number} [color=0xffffff] - Hex color
+   * @param {number} [alpha=0.8] - Line alpha
+   * @returns {Phaser.GameObjects.Graphics}
+   */
+    createIframesDashedRing(radius, lineWidth = 2, color = 0xffffff, alpha = 0.8) {
+      const graphics = this.add.graphics()
+      graphics.lineStyle(lineWidth, color, alpha)
+      const segments = 12
+      const segmentAngle = (2 * Math.PI) / segments
+      const dashRatio = 0.6
+      const dashAngle = segmentAngle * dashRatio
+      for (let i = 0; i < segments; i++) {
+        const start = i * segmentAngle
+        graphics.beginPath()
+        graphics.arc(0, 0, radius, start, start + dashAngle, false)
+        graphics.strokePath()
+      }
+      return graphics
+    }
+
   // ========== LOCAL PLAYER RENDERING SYSTEM ==========
 
   /**
@@ -1142,6 +1166,9 @@ class PlayerScene extends Phaser.Scene {
     // I-frames effect (blinking/transparency)
     if (state.inIFrames) {
       container.setAlpha(0.5)
+      const iframesRing = this.createIframesDashedRing(playerSize / 2 + 4)
+      container.add(iframesRing)
+      container.setData('iframesRing', iframesRing)
     }
     
     container.setData('body', body)
@@ -1274,6 +1301,17 @@ class PlayerScene extends Phaser.Scene {
     
     // Update i-frames alpha
     container.setAlpha(state.inIFrames ? 0.5 : 1)
+
+    // Update i-frames dashed ring
+    const existingIframesRing = container.getData('iframesRing')
+    if (state.inIFrames && !existingIframesRing) {
+      const iframesRing = this.createIframesDashedRing(playerSize / 2 + 4)
+      container.add(iframesRing)
+      container.setData('iframesRing', iframesRing)
+    } else if (!state.inIFrames && existingIframesRing) {
+      existingIframesRing.destroy()
+      container.setData('iframesRing', null)
+    }
     
     // Apply facing direction rotation for unicorn
     if (isUnicorn) {
@@ -1444,6 +1482,9 @@ class PlayerScene extends Phaser.Scene {
     // I-frames effect (blinking)
     if (inIFrames) {
       container.setAlpha(0.5)
+      const iframesRing = this.createIframesDashedRing(playerSize / 2+ 4)
+      container.add(iframesRing)
+      container.setData('iframesRing', iframesRing)
     }
     
     // Frozen effect
@@ -1600,6 +1641,20 @@ class PlayerScene extends Phaser.Scene {
     if (options.inIFrames !== undefined) {
       playerObj.setAlpha(options.inIFrames ? 0.5 : 1)
     }
+
+    // update i-frames dashed ring for remote players
+    if (options.inIFrames !== undefined) {
+      const existingIframesRing = playerObj.getData('iframesRing')
+      const playerSize = this.cellSize * 0.6
+      if (options.inIFrames && !existingIframesRing) {
+        const iframesRing = this.createIframesDashedRing(playerSize / 2 + 4)
+        playerObj.add(iframesRing)
+        playerObj.setData('iframesRing', iframesRing)
+      } else if (!options.inIFrames && existingIframesRing) {
+        existingIframesRing.destroy()
+        playerObj.setData('iframesRing', null)
+      }
+    }
     
     // Update direction
     if (colDiff !== 0) {
@@ -1741,6 +1796,17 @@ class PlayerScene extends Phaser.Scene {
         while (playerObj.x < 0) playerObj.x += this.mazeWidth
         while (playerObj.x >= this.mazeWidth) playerObj.x -= this.mazeWidth
       }
+    })
+
+    // Rotate i-frames dashed rings (local + remote)
+    const IFRAMES_RING_ROTATION_SPEED = Math.PI // radians per second (one full turn per 2s)
+    if (this.localPlayerObj) {
+      const ring = this.localPlayerObj.getData('iframesRing')
+      if (ring) ring.rotation += (delta / 1000) * IFRAMES_RING_ROTATION_SPEED
+    }
+    this.players.forEach((playerObj) => {
+      const ring = playerObj.getData('iframesRing')
+      if (ring) ring.rotation += (delta / 1000) * IFRAMES_RING_ROTATION_SPEED
     })
     
     // Update remote unicorn trail (if unicorn is not local player)
