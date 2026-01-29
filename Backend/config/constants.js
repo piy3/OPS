@@ -79,7 +79,7 @@ export const COMBAT_CONFIG = {
     STARTING_HEALTH: 100,
     
     // Damage
-    TAG_DAMAGE: 20,                 // Damage dealt when unicorn tags survivor
+    TAG_DAMAGE: 50,                 // Damage dealt when unicorn tags survivor
     TAG_HEAL: 20,                   // Health/score unicorn gains per tag
     
     // Invincibility Frames
@@ -276,6 +276,23 @@ export const SOCKET_EVENTS = {
  * The server throttle is set slightly lower (30ms vs 33ms) to account for
  * network jitter while still preventing excessive updates.
  */
+/**
+ * Maze Configuration
+ */
+export const MAZE_CONFIG = {
+    MAZE_COLS: 32,                           // Total columns in the maze
+    MAZE_ROWS: 28,                           // Total rows in the maze
+    // Row indices (0-based) where tunnels exist (both col 0 and col 31 are open)
+    WRAP_AROUND_ROWS: [10, 14, 18]
+};
+
+/**
+ * Helper to check if a row has wrap-around (tunnel)
+ * @param {number} row - Row index (0-based)
+ * @returns {boolean} True if the row has wrap-around
+ */
+export const hasWrapAround = (row) => MAZE_CONFIG.WRAP_AROUND_ROWS.includes(row);
+
 export const GAME_CONFIG = {
     // Position update throttling
     POSITION_UPDATE_RATE: 30,                // Target updates per second

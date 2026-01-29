@@ -3,7 +3,7 @@
  * Handles player positions, validation, spawn positions, and path calculations
  */
 
-import { GAME_CONFIG } from '../../config/constants.js';
+import { GAME_CONFIG, MAZE_CONFIG, hasWrapAround } from '../../config/constants.js';
 import log from '../../utils/logger.js';
 
 class PositionManager {
@@ -227,7 +227,7 @@ class PositionManager {
 
     /**
      * Get all cells in a path from old position to new position
-     * Uses Bresenham's line algorithm
+     * Uses Bresenham's line algorithm, with special handling for tunnel wrap-around
      * @param {Object} oldPos - Old position { row, col }
      * @param {Object} newPos - New position { row, col }
      * @returns {Array} Array of cells in the path
@@ -248,7 +248,22 @@ class PositionManager {
             return [{ row: endRow, col: endCol }];
         }
         
-        // Bresenham's line algorithm
+        // Special handling for tunnel wrap-around rows
+        // When moving horizontally on a wrap-around row and the shortest path is through the tunnel,
+        // only return the start and end positions (they are adjacent through the tunnel)
+        if (startRow === endRow && hasWrapAround(startRow)) {
+            const colDiff = Math.abs(endCol - startCol);
+            // If colDiff > half the maze width, the shortest path is through the tunnel
+            if (colDiff > MAZE_CONFIG.MAZE_COLS / 2) {
+                // Movement is through the tunnel - only the two cells are in the path
+                return [
+                    { row: startRow, col: startCol },
+                    { row: endRow, col: endCol }
+                ];
+            }
+        }
+        
+        // Bresenham's line algorithm for normal movement
         let row = startRow;
         let col = startCol;
         const dRow = Math.abs(endRow - startRow);
@@ -278,6 +293,7 @@ class PositionManager {
 
     /**
      * Check if two positions are adjacent
+     * Handles wrap-around adjacency for tunnel rows (col 0 and col 31 are adjacent)
      * @param {Object} pos1 - First position
      * @param {Object} pos2 - Second position
      * @returns {boolean} True if adjacent
@@ -286,7 +302,15 @@ class PositionManager {
         if (!pos1 || !pos2) return false;
         
         const rowDiff = Math.abs(pos1.row - pos2.row);
-        const colDiff = Math.abs(pos1.col - pos2.col);
+        let colDiff = Math.abs(pos1.col - pos2.col);
+        
+        // Check for wrap-around adjacency on tunnel rows
+        // If both positions are on the same wrap-around row and one is at col 0 and the other at col 31
+        if (rowDiff === 0 && hasWrapAround(pos1.row)) {
+            // Calculate wrapped column difference
+            const wrappedColDiff = MAZE_CONFIG.MAZE_COLS - colDiff;
+            colDiff = Math.min(colDiff, wrappedColDiff);
+        }
         
         return rowDiff <= 1 && colDiff <= 1 && !(rowDiff === 0 && colDiff === 0);
     }
