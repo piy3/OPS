@@ -3,7 +3,7 @@
  * Handles all room-related business logic
  */
 
-import { ROOM_CONFIG, ROOM_STATUS, COMBAT_CONFIG, PLAYER_STATE } from '../config/constants.js';
+import { ROOM_CONFIG, ROOM_STATUS, COMBAT_CONFIG, PLAYER_STATE, getNextAvailableCharacterId } from '../config/constants.js';
 import { generateRoomCode, generateDefaultPlayerName } from '../utils/roomUtils.js';
 
 class RoomManager {
@@ -31,7 +31,8 @@ class RoomManager {
                 health: COMBAT_CONFIG.STARTING_HEALTH, // Starting health
                 state: PLAYER_STATE.ACTIVE, // Player state
                 isImmune: false, // Immunity powerup
-                inIFrames: false // Invincibility frames
+                inIFrames: false, // Invincibility frames
+                characterId: getNextAvailableCharacterId([]) // Assign first character (host is first player)
             }],
             status: ROOM_STATUS.WAITING,
             createdAt: Date.now(),
@@ -114,7 +115,8 @@ class RoomManager {
             health: COMBAT_CONFIG.STARTING_HEALTH, // Starting health
             state: PLAYER_STATE.ACTIVE, // Player state
             isImmune: false, // Immunity powerup
-            inIFrames: false // Invincibility frames
+            inIFrames: false, // Invincibility frames
+            characterId: getNextAvailableCharacterId(room.players) // Assign unique character
         };
 
         room.players.push(player);

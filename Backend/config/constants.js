@@ -2,6 +2,22 @@
  * Application constants and configuration
  */
 
+/**
+ * Character IDs for player avatars
+ * Each player in a room gets a unique character ID
+ */
+export const CHARACTER_IDS = ['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
+
+/**
+ * Get the next available character ID that is not already assigned in the room
+ * @param {Array} players - Array of player objects with characterId property
+ * @returns {string} The first available character ID
+ */
+export const getNextAvailableCharacterId = (players) => {
+    const usedIds = new Set(players.map(p => p.characterId).filter(Boolean));
+    return CHARACTER_IDS.find(id => !usedIds.has(id)) || CHARACTER_IDS[0];
+};
+
 export const ROOM_CONFIG = {
     DEFAULT_MAX_PLAYERS: 9,
     ROOM_CODE_LENGTH: 6,

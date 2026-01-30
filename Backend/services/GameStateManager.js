@@ -92,6 +92,7 @@ class GameStateManager {
                 name: player.name,
                 isUnicorn: player.isUnicorn,
                 coins: player.coins,
+                characterId: player.characterId, // Include character ID for avatar rendering
                 position: positionManager.getPlayerPosition(roomCode, player.id)
             })),
             unicornId: room.unicornId,
