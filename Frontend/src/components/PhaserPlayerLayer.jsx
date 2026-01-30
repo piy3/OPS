@@ -6,7 +6,7 @@ import { TiledMapLoader, createDynamicTilemap } from '../utils/TiledMapLoader'
 import { PLAYER_STATE, COMBAT_CONFIG } from '../context/CombatContext'
 import log from '../utils/logger'
 
-const PLAYER_SIZE_RATIO = 0.6  // 0.9 – base ratio 0.6, scaled 1.5x
+const PLAYER_SIZE_RATIO = 0.6 * 3  // 0.9 – base ratio 0.6, scaled 1.5x
 // Phaser scene for player rendering with smooth interpolation
 class PlayerScene extends Phaser.Scene {
   constructor() {
@@ -56,6 +56,13 @@ class PlayerScene extends Phaser.Scene {
       isFrozen: false,
       isKnockedBack: false
     }
+    
+    // Character system
+    this.characterImageUrls = null           // Map of characterId -> image URL
+    this.playerCharacters = {}               // Map of playerId -> characterId
+    this.localPlayerCharacterId = null       // Local player's character ID
+    this.characterTexturesLoaded = false     // Whether character textures have been loaded
+    this.loadedCharacterTextures = new Set() // Set of loaded character texture keys
   }
 
   create() {
@@ -72,6 +79,165 @@ class PlayerScene extends Phaser.Scene {
     
     // Initialize coin particle emitter
     this.setupCoinParticles()
+    
+    // Load character textures if URLs are available
+    if (this.characterImageUrls) {
+      this.loadCharacterTextures()
+    }
+  }
+
+  /**
+   * Set character image URLs for texture loading
+   * @param {Object} urls - Map of characterId -> imageUrl
+   */
+  setCharacterImageUrls(urls) {
+    this.characterImageUrls = urls
+    // If scene is already created, load textures now
+    if (this.scene && this.scene.isActive('PlayerScene')) {
+      this.loadCharacterTextures()
+    }
+  }
+
+  /**
+   * Set player characters map
+   * @param {Object} characters - Map of playerId -> characterId
+   */
+  setPlayerCharacters(characters) {
+    this.playerCharacters = characters || {}
+  }
+
+  /**
+   * Set local player's character ID
+   * @param {string} characterId - Character ID
+   */
+  setLocalPlayerCharacterId(characterId) {
+    this.localPlayerCharacterId = characterId
+  }
+
+  /**
+   * Load character textures from URLs
+   * Called when characterImageUrls are set
+   */
+  loadCharacterTextures() {
+    if (!this.characterImageUrls || this.characterTexturesLoaded) return
+    
+    const urlsToLoad = []
+    
+    Object.entries(this.characterImageUrls).forEach(([characterId, url]) => {
+      const textureKey = `char_${characterId}`
+      // Only load if not already loaded
+      if (!this.textures.exists(textureKey) && !this.loadedCharacterTextures.has(textureKey)) {
+        urlsToLoad.push({ key: textureKey, url })
+      }
+    })
+    
+    if (urlsToLoad.length === 0) {
+      this.characterTexturesLoaded = true
+      return
+    }
+    
+    // Load all textures
+    urlsToLoad.forEach(({ key, url }) => {
+      this.load.image(key, url)
+      this.loadedCharacterTextures.add(key)
+    })
+    
+    // Start loading and mark as loaded when complete
+    this.load.once('complete', () => {
+      this.characterTexturesLoaded = true
+      log.log(`Character textures loaded: ${urlsToLoad.length}`)
+      
+      // Recreate local player with new textures if they exist
+      if (this.localPlayerObj && this.renderLocalPlayer) {
+        this.destroyLocalPlayer()
+        this.createLocalPlayer()
+      }
+      
+      // Recreate all remote players with new textures
+      this.recreateAllRemotePlayers()
+    })
+    
+    this.load.start()
+  }
+
+  /**
+   * Recreate all remote players to apply character textures
+   * Called after character textures are loaded
+   */
+  recreateAllRemotePlayers() {
+    // Store current player data
+    const playersToRecreate = []
+    
+    this.players.forEach((playerObj, playerId) => {
+      // Skip local player - handled separately
+      if (playerId === this.localPlayerId) return
+      
+      const target = this.playerTargets.get(playerId)
+      if (target) {
+        playersToRecreate.push({
+          playerId,
+          row: target.row,
+          col: target.col,
+          name: playerObj.getData('name'),
+          direction: playerObj.getData('direction')
+        })
+      }
+    })
+    
+    // Recreate each remote player
+    playersToRecreate.forEach(({ playerId, row, col, name, direction }) => {
+      // Remove old player
+      this.removePlayer(playerId)
+      
+      // Create new player with character texture
+      const isUnicorn = playerId === this.unicornId
+      this.addPlayer(playerId, 0, 0, row, col, {
+        name,
+        direction,
+        isUnicorn
+      })
+    })
+    
+    log.log(`Recreated ${playersToRecreate.length} remote players with character textures`)
+  }
+
+  /**
+   * Get the character texture key for a player
+   * @param {string} playerId - Player ID
+   * @returns {string|null} Texture key or null if not available
+   */
+  getCharacterTextureKey(playerId) {
+    const characterId = this.playerCharacters[playerId]
+    if (!characterId) return null
+    
+    const textureKey = `char_${characterId}`
+    if (this.textures.exists(textureKey)) {
+      return textureKey
+    }
+    return null
+  }
+
+  /**
+   * Get the local player's character texture key
+   * @returns {string|null} Texture key or null if not available
+   */
+  getLocalCharacterTextureKey() {
+    const characterId = this.localPlayerCharacterId
+    if (!characterId) return null
+    
+    const textureKey = `char_${characterId}`
+    if (this.textures.exists(textureKey)) {
+      return textureKey
+    }
+    return null
+  }
+
+  /**
+   * Check if character textures are ready
+   * @returns {boolean}
+   */
+  areCharacterTexturesReady() {
+    return this.characterTexturesLoaded
   }
 
   /**
@@ -1092,24 +1258,49 @@ class PlayerScene extends Phaser.Scene {
     const container = this.add.container(pixelX, pixelY)
     container.setDepth(100) // Ensure local player is always visible above remote players
     
-    // Player body - circle
     const playerSize = this.cellSize * PLAYER_SIZE_RATIO
-    const color = 0x4CAF50 // Green for local player
     
-    const body = this.add.graphics()
-    body.fillStyle(isUnicorn ? 0xFF69B4 : color, 1)
-    body.fillCircle(0, 0, playerSize / 2)
-    body.lineStyle(2, isUnicorn ? 0xFF1493 : 0xFFFFFF, 1)
-    body.strokeCircle(0, 0, playerSize / 2)
+    // Try to use character texture, fallback to circle
+    const textureKey = this.getLocalCharacterTextureKey()
+    let body
+    
+    if (textureKey) {
+      // Use character image
+      body = this.add.image(0, 0, textureKey)
+        .setOrigin(0.5, 0.5)
+        .setDisplaySize(playerSize, playerSize)
+      
+      // Add border/highlight for unicorn
+      if (isUnicorn) {
+        body.setTint(0xFFB6C1) // Light pink tint for unicorn
+      }
+      
+      container.setData('isImageBody', true)
+    } else {
+      // Fallback to circle graphics
+      const color = 0x4CAF50 // Green for local player
+      body = this.add.graphics()
+      body.fillStyle(isUnicorn ? 0xFF69B4 : color, 1)
+      body.fillCircle(0, 0, playerSize / 2)
+      body.lineStyle(2, isUnicorn ? 0xFF1493 : 0xFFFFFF, 1)
+      body.strokeCircle(0, 0, playerSize / 2)
+      
+      container.setData('isImageBody', false)
+    }
     container.add(body)
     
-    // Unicorn emoji indicator
+    // Unicorn emoji indicator (only if using circle fallback or to add visual indicator)
     if (isUnicorn) {
-      const unicornEmoji = this.add.text(0, 0, '🦄', {
-        fontSize: `${playerSize * 0.8}px`,
+      const unicornEmoji = this.add.text(0, -playerSize / 2 - 10, '🦄', {
+        fontSize: `${playerSize * 0.5}px`,
       }).setOrigin(0.5, 0.5)
       container.add(unicornEmoji)
       container.setData('unicornEmoji', unicornEmoji)
+      
+      // Permanent rotating pink dashed ring for unicorn
+      const unicornRing = this.createIframesDashedRing(playerSize / 2 + 6, 3, 0xFF69B4, 0.9)
+      container.add(unicornRing)
+      container.setData('unicornRing', unicornRing)
     }
     
     // Immunity shield (visual ring)
@@ -1191,28 +1382,51 @@ class PlayerScene extends Phaser.Scene {
     const state = this.localPlayerState
     const isUnicorn = this.localPlayerId === this.unicornId
     const playerSize = this.cellSize * PLAYER_SIZE_RATIO
+    const isImageBody = container.getData('isImageBody')
     
-    // Update body color
+    // Update body based on type
     const body = container.getData('body')
     if (body) {
-      body.clear()
-      body.fillStyle(isUnicorn ? 0xFF69B4 : 0x4CAF50, 1)
-      body.fillCircle(0, 0, playerSize / 2)
-      body.lineStyle(2, isUnicorn ? 0xFF1493 : 0xFFFFFF, 1)
-      body.strokeCircle(0, 0, playerSize / 2)
+      if (isImageBody) {
+        // For image body, update tint based on unicorn status
+        if (isUnicorn) {
+          body.setTint(0xFFB6C1) // Light pink tint for unicorn
+        } else {
+          body.clearTint()
+        }
+        body.setDisplaySize(playerSize, playerSize)
+      } else {
+        // For graphics body, redraw the circle
+        body.clear()
+        body.fillStyle(isUnicorn ? 0xFF69B4 : 0x4CAF50, 1)
+        body.fillCircle(0, 0, playerSize / 2)
+        body.lineStyle(2, isUnicorn ? 0xFF1493 : 0xFFFFFF, 1)
+        body.strokeCircle(0, 0, playerSize / 2)
+      }
     }
     
-    // Update or create unicorn emoji
+    // Update or create unicorn emoji (positioned above player for images)
     const existingEmoji = container.getData('unicornEmoji')
     if (isUnicorn && !existingEmoji) {
-      const unicornEmoji = this.add.text(0, 0, '🦄', {
-        fontSize: `${playerSize * 0.8}px`,
+      const unicornEmoji = this.add.text(0, -playerSize / 2 - 10, '🦄', {
+        fontSize: `${playerSize * 0.5}px`,
       }).setOrigin(0.5, 0.5)
       container.add(unicornEmoji)
       container.setData('unicornEmoji', unicornEmoji)
     } else if (!isUnicorn && existingEmoji) {
       existingEmoji.destroy()
       container.setData('unicornEmoji', null)
+    }
+    
+    // Update or create unicorn rotating pink ring
+    const existingUnicornRing = container.getData('unicornRing')
+    if (isUnicorn && !existingUnicornRing) {
+      const unicornRing = this.createIframesDashedRing(playerSize / 2 + 6, 3, 0xFF69B4, 0.9)
+      container.add(unicornRing)
+      container.setData('unicornRing', unicornRing)
+    } else if (!isUnicorn && existingUnicornRing) {
+      existingUnicornRing.destroy()
+      container.setData('unicornRing', null)
     }
     
     // Update immunity shield
@@ -1314,8 +1528,8 @@ class PlayerScene extends Phaser.Scene {
       container.setData('iframesRing', null)
     }
     
-    // Apply facing direction rotation for unicorn
-    if (isUnicorn) {
+    // Apply facing direction rotation for unicorn (only for non-image bodies)
+    if (isUnicorn && !isImageBody) {
       const rotation = this.getDirectionRotation(state.facingDirection)
       container.setRotation(rotation)
     } else {
@@ -1446,29 +1660,56 @@ class PlayerScene extends Phaser.Scene {
     this.localPlayerObj.y = currentPos.y
   }
 
-  createPlayerGraphic(isUnicorn, isLocal, health, maxHealth, inIFrames, isFrozen, hasImmunity, isKnockedBack) {
+  createPlayerGraphic(isUnicorn, isLocal, health, maxHealth, inIFrames, isFrozen, hasImmunity, isKnockedBack, playerId = null) {
     const container = this.add.container(0, 0)
     
-    // Player body - circle
     const playerSize = this.cellSize * PLAYER_SIZE_RATIO
-    const color = isLocal ? 0x4CAF50 : (isUnicorn ? 0xFF69B4 : 0x2196F3)
     
-    const body = this.add.graphics()
-    body.fillStyle(color, 1)
-    body.fillCircle(0, 0, playerSize)
+    // Try to use character texture, fallback to circle
+    const textureKey = playerId ? this.getCharacterTextureKey(playerId) : null
+    let body
     
-    // Add border
-    body.lineStyle(2, isUnicorn ? 0xFF1493 : 0xFFFFFF, 1)
-    body.strokeCircle(0, 0, playerSize)
+    if (textureKey) {
+      // Use character image
+      body = this.add.image(0, 0, textureKey)
+        .setOrigin(0.5, 0.5)
+        .setDisplaySize(playerSize, playerSize)
+      
+      // Add tint for unicorn
+      if (isUnicorn) {
+        body.setTint(0xFFB6C1) // Light pink tint for unicorn
+      }
+      
+      container.setData('isImageBody', true)
+    } else {
+      // Fallback to circle graphics
+      const color = isLocal ? 0x4CAF50 : (isUnicorn ? 0xFF69B4 : 0x2196F3)
+      
+      body = this.add.graphics()
+      body.fillStyle(color, 1)
+      body.fillCircle(0, 0, playerSize / 2)
+      
+      // Add border
+      body.lineStyle(2, isUnicorn ? 0xFF1493 : 0xFFFFFF, 1)
+      body.strokeCircle(0, 0, playerSize / 2)
+      
+      container.setData('isImageBody', false)
+    }
     
     container.add(body)
     
-    // Unicorn emoji indicator
+    // Unicorn emoji indicator (positioned above for images)
     if (isUnicorn) {
-      const unicornEmoji = this.add.text(0, 0, '🦄', {
-        fontSize: `${playerSize * 0.8}px`,
+      const unicornEmoji = this.add.text(0, -playerSize / 2 - 10, '🦄', {
+        fontSize: `${playerSize * 0.5}px`,
       }).setOrigin(0.5, 0.5)
       container.add(unicornEmoji)
+      container.setData('unicornEmoji', unicornEmoji)
+      
+      // Permanent rotating pink dashed ring for unicorn
+      const unicornRing = this.createIframesDashedRing(playerSize / 2 + 6, 3, 0xFF69B4, 0.9)
+      container.add(unicornRing)
+      container.setData('unicornRing', unicornRing)
     }
     
     // Immunity shield
@@ -1483,7 +1724,7 @@ class PlayerScene extends Phaser.Scene {
     // I-frames effect (blinking)
     if (inIFrames) {
       container.setAlpha(0.5)
-      const iframesRing = this.createIframesDashedRing(playerSize / 2+ 4)
+      const iframesRing = this.createIframesDashedRing(playerSize / 2 + 4)
       container.add(iframesRing)
       container.setData('iframesRing', iframesRing)
     }
@@ -1532,16 +1773,52 @@ class PlayerScene extends Phaser.Scene {
     const isUnicorn = playerId === this.unicornId
     const isLocal = playerId === this.localPlayerId
     const playerSize = this.cellSize * PLAYER_SIZE_RATIO
-    const color = isLocal ? 0x4CAF50 : (isUnicorn ? 0xFF69B4 : 0x2196F3)
+    const isImageBody = playerObj.getData('isImageBody')
     
-    // Update body color
+    // Update body based on type
     const body = playerObj.getData('body')
     if (body) {
-      body.clear()
-      body.fillStyle(color, 1)
-      body.fillCircle(0, 0, playerSize / 2)
-      body.lineStyle(2, isUnicorn ? 0xFF1493 : 0xFFFFFF, 1)
-      body.strokeCircle(0, 0, playerSize / 2)
+      if (isImageBody) {
+        // For image body, update tint based on unicorn status
+        if (isUnicorn) {
+          body.setTint(0xFFB6C1) // Light pink tint for unicorn
+        } else {
+          body.clearTint()
+        }
+        body.setDisplaySize(playerSize, playerSize)
+      } else {
+        // For graphics body, redraw the circle
+        const color = isLocal ? 0x4CAF50 : (isUnicorn ? 0xFF69B4 : 0x2196F3)
+        body.clear()
+        body.fillStyle(color, 1)
+        body.fillCircle(0, 0, playerSize / 2)
+        body.lineStyle(2, isUnicorn ? 0xFF1493 : 0xFFFFFF, 1)
+        body.strokeCircle(0, 0, playerSize / 2)
+      }
+    }
+    
+    // Update unicorn emoji
+    const existingEmoji = playerObj.getData('unicornEmoji')
+    if (isUnicorn && !existingEmoji) {
+      const unicornEmoji = this.add.text(0, -playerSize / 2 - 10, '🦄', {
+        fontSize: `${playerSize * 0.5}px`,
+      }).setOrigin(0.5, 0.5)
+      playerObj.add(unicornEmoji)
+      playerObj.setData('unicornEmoji', unicornEmoji)
+    } else if (!isUnicorn && existingEmoji) {
+      existingEmoji.destroy()
+      playerObj.setData('unicornEmoji', null)
+    }
+    
+    // Update unicorn rotating pink ring
+    const existingUnicornRing = playerObj.getData('unicornRing')
+    if (isUnicorn && !existingUnicornRing) {
+      const unicornRing = this.createIframesDashedRing(playerSize / 2 + 6, 3, 0xFF69B4, 0.9)
+      playerObj.add(unicornRing)
+      playerObj.setData('unicornRing', unicornRing)
+    } else if (!isUnicorn && existingUnicornRing) {
+      existingUnicornRing.destroy()
+      playerObj.setData('unicornRing', null)
     }
   }
 
@@ -1565,11 +1842,15 @@ class PlayerScene extends Phaser.Scene {
       options.inIFrames,
       options.isFrozen,
       options.hasImmunity,
-      options.isKnockedBack
+      options.isKnockedBack,
+      playerId // Pass playerId for character texture lookup
     )
     
     playerObj.x = pixelX
     playerObj.y = pixelY
+    
+    // Set depth so remote players appear above walls (wall layer is depth 1, local player is 100)
+    playerObj.setDepth(50)
     
     // Store player data
     playerObj.setData('playerId', playerId)
@@ -1801,13 +2082,18 @@ class PlayerScene extends Phaser.Scene {
 
     // Rotate i-frames dashed rings (local + remote)
     const IFRAMES_RING_ROTATION_SPEED = Math.PI // radians per second (one full turn per 2s)
+    const UNICORN_RING_ROTATION_SPEED = Math.PI * 0.5 // radians per second (slower rotation for unicorn)
     if (this.localPlayerObj) {
       const ring = this.localPlayerObj.getData('iframesRing')
       if (ring) ring.rotation += (delta / 1000) * IFRAMES_RING_ROTATION_SPEED
+      const unicornRing = this.localPlayerObj.getData('unicornRing')
+      if (unicornRing) unicornRing.rotation += (delta / 1000) * UNICORN_RING_ROTATION_SPEED
     }
     this.players.forEach((playerObj) => {
       const ring = playerObj.getData('iframesRing')
       if (ring) ring.rotation += (delta / 1000) * IFRAMES_RING_ROTATION_SPEED
+      const unicornRing = playerObj.getData('unicornRing')
+      if (unicornRing) unicornRing.rotation += (delta / 1000) * UNICORN_RING_ROTATION_SPEED
     })
     
     // Update remote unicorn trail (if unicorn is not local player)
@@ -1837,6 +2123,10 @@ const PhaserPlayerLayer = forwardRef(({
   localPlayerState = null,
   localPlayerKnockback = false,
   renderLocalPlayer = false,      // Whether to render local player in Phaser
+  // Character system props
+  playerCharacters = {},           // Map of playerId -> characterId
+  localPlayerCharacterId = null,   // Local player's character ID
+  characterImageUrls = null,       // Map of characterId -> imageUrl
 }, ref) => {
   const gameRef = useRef(null)
   const sceneRef = useRef(null)
@@ -1924,6 +2214,41 @@ const PhaserPlayerLayer = forwardRef(({
     sceneRef.current.setUnicornId(unicornId)
   }, [unicornId, sceneReady])
 
+  // ========== CHARACTER SYSTEM SETUP ==========
+  
+  // Set character image URLs for texture loading - must run early
+  useEffect(() => {
+    if (!sceneReady || !sceneRef.current || !characterImageUrls) return
+    sceneRef.current.setCharacterImageUrls(characterImageUrls)
+  }, [characterImageUrls, sceneReady])
+
+  // Set player characters map - must run before remote players are created
+  useEffect(() => {
+    if (!sceneReady || !sceneRef.current) return
+    sceneRef.current.setPlayerCharacters(playerCharacters)
+    
+    // If textures are already loaded, recreate players that need character textures
+    if (sceneRef.current.characterTexturesLoaded && Object.keys(playerCharacters).length > 0) {
+      sceneRef.current.recreateAllRemotePlayers()
+    }
+  }, [playerCharacters, sceneReady])
+
+  // Set local player character ID
+  useEffect(() => {
+    if (!sceneReady || !sceneRef.current) return
+    sceneRef.current.setLocalPlayerCharacterId(localPlayerCharacterId)
+    
+    // If textures are loaded and local player exists with circle, recreate it
+    if (sceneRef.current.characterTexturesLoaded && sceneRef.current.localPlayerObj) {
+      const isUsingCircle = !sceneRef.current.localPlayerObj.getData('isImageBody')
+      const hasTexture = sceneRef.current.getLocalCharacterTextureKey() !== null
+      if (isUsingCircle && hasTexture) {
+        sceneRef.current.destroyLocalPlayer()
+        sceneRef.current.createLocalPlayer()
+      }
+    }
+  }, [localPlayerCharacterId, sceneReady])
+
   // Handle renderMaze prop changes
   useEffect(() => {
     if (!sceneReady || !sceneRef.current) return
@@ -2001,6 +2326,11 @@ const PhaserPlayerLayer = forwardRef(({
     
     const scene = sceneRef.current
     
+    // Ensure playerCharacters is set on the scene before creating players
+    if (playerCharacters && Object.keys(playerCharacters).length > 0) {
+      scene.setPlayerCharacters(playerCharacters)
+    }
+    
     // Get current player IDs in scene
     const currentPlayerIds = new Set(scene.players.keys())
     currentPlayerIds.delete(localPlayerId) // Don't remove local player
@@ -2015,23 +2345,43 @@ const PhaserPlayerLayer = forwardRef(({
       const row = posData?.row ?? 1
       const col = posData?.col ?? 1
       
-      scene.updatePlayerTarget(playerId, row, col, {
-        name: player.name,
-        health: healthData.health,
-        maxHealth: healthData.maxHealth,
-        inIFrames: healthData.inIFrames,
-        isFrozen: healthData.state === PLAYER_STATE.FROZEN,
-        hasImmunity: immunePlayers?.has?.(playerId),
-        isKnockedBack: knockbackPlayers?.has?.(playerId),
-        isUnicorn: player.isUnicorn || playerId === unicornId
-      })
+      // Check if player exists but doesn't have character texture yet
+      const existingPlayer = scene.players.get(playerId)
+      const hasTextureNow = scene.getCharacterTextureKey(playerId) !== null
+      const isUsingCircle = existingPlayer && !existingPlayer.getData('isImageBody')
+      
+      // If player exists with circle but texture is now available, recreate them
+      if (existingPlayer && isUsingCircle && hasTextureNow && scene.characterTexturesLoaded) {
+        scene.removePlayer(playerId)
+        scene.addPlayer(playerId, 0, 0, row, col, {
+          name: player.name,
+          health: healthData.health,
+          maxHealth: healthData.maxHealth,
+          inIFrames: healthData.inIFrames,
+          isFrozen: healthData.state === PLAYER_STATE.FROZEN,
+          hasImmunity: immunePlayers?.has?.(playerId),
+          isKnockedBack: knockbackPlayers?.has?.(playerId),
+          isUnicorn: player.isUnicorn || playerId === unicornId
+        })
+      } else {
+        scene.updatePlayerTarget(playerId, row, col, {
+          name: player.name,
+          health: healthData.health,
+          maxHealth: healthData.maxHealth,
+          inIFrames: healthData.inIFrames,
+          isFrozen: healthData.state === PLAYER_STATE.FROZEN,
+          hasImmunity: immunePlayers?.has?.(playerId),
+          isKnockedBack: knockbackPlayers?.has?.(playerId),
+          isUnicorn: player.isUnicorn || playerId === unicornId
+        })
+      }
     })
     
     // Remove players that are no longer in the game
     currentPlayerIds.forEach(playerId => {
       scene.removePlayer(playerId)
     })
-  }, [sceneReady, remotePlayers, remotePlayerPositions, playersHealth, immunePlayers, knockbackPlayers, unicornId, localPlayerId])
+  }, [sceneReady, remotePlayers, remotePlayerPositions, playersHealth, immunePlayers, knockbackPlayers, unicornId, localPlayerId, playerCharacters])
 
   // Expose methods via ref
   useImperativeHandle(ref, () => ({

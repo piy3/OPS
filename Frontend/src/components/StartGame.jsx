@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useSocket, GAME_PHASE, PLAYER_STATE, COMBAT_CONFIG } from '../context/SocketContext'
 import { useSound } from '../context/SoundContext'
 import { POSITION_CONFIG } from '../config/gameConfig'
+import { getCharacterImageUrls } from '../config/characters'
 import log from '../utils/logger'
 import '../App.css'
 import { maze, MAZE_ROWS, MAZE_COLS, isWall, hasWrapAround, getWrappedCol, getWallBorders } from '../maze'
@@ -40,6 +41,17 @@ const pixelToPercent = (x, y, mazeWidth, mazeHeight) => ({
   left: (x / mazeWidth) * 100,
   top: (y / mazeHeight) * 100
 })
+
+// Helper to get grid cell from pixel position (for turn logic - "cell player is actually in")
+const pixelToGrid = (pixelX, pixelY, cellSize, mazeWidth) => {
+  const row = Math.max(0, Math.min(MAZE_ROWS - 1, Math.floor(pixelY / cellSize)))
+  let normalizedX = pixelX
+  if (hasWrapAround(row)) {
+    normalizedX = ((pixelX % mazeWidth) + mazeWidth) % mazeWidth
+  }
+  const col = Math.max(0, Math.min(MAZE_COLS - 1, Math.floor(normalizedX / cellSize)))
+  return getWrappedCol(row, col) !== undefined ? { row, col: getWrappedCol(row, col) } : { row, col }
+}
 
 // Helper to get CSS rotation transform based on facing direction
 const getDirectionTransform = (direction) => {
@@ -633,41 +645,77 @@ function StartGame() {
       }
 
       if (newDirection) {
-        // Check if there's a wall in the new direction from current cell
-        const { row, col } = targetGridPosRef.current
-        let checkRow = row
-        let checkCol = col
+        const { cellSize, mazeWidth } = mazeLayoutRef.current
+        const current = playerPixelPosRef.current
+        const currentMovementDir = directionRef.current
         
-        switch (newDirection) {
-          case 'up': checkRow = row - 1; break
-          case 'down': checkRow = row + 1; break
-          case 'left': checkCol = col - 1; break
-          case 'right': checkCol = col + 1; break
+        // Use larger threshold (70% of cell size) for more forgiving turn registration
+        const threshold = cellSize * 0.7
+        
+        // Get the cell the player is currently in
+        const currentCell = pixelToGrid(current.x, current.y, cellSize, mazeWidth)
+        
+        // Also compute the NEXT cell in the current movement direction
+        // This is the cell the player is approaching
+        let nextCell = { row: currentCell.row, col: currentCell.col }
+        if (currentMovementDir === 'up') nextCell.row = currentCell.row - 1
+        else if (currentMovementDir === 'down') nextCell.row = currentCell.row + 1
+        else if (currentMovementDir === 'left') nextCell.col = getWrappedCol(currentCell.row, currentCell.col - 1) ?? currentCell.col - 1
+        else if (currentMovementDir === 'right') nextCell.col = getWrappedCol(currentCell.row, currentCell.col + 1) ?? currentCell.col + 1
+        
+        // Clamp nextCell to valid bounds
+        nextCell.row = Math.max(0, Math.min(MAZE_ROWS - 1, nextCell.row))
+        nextCell.col = Math.max(0, Math.min(MAZE_COLS - 1, nextCell.col))
+        
+        // Helper to check if turn is valid from a cell and player is close enough
+        const canTurnFromCell = (cell) => {
+          let checkRow = cell.row
+          let checkCol = cell.col
+          switch (newDirection) {
+            case 'up': checkRow = cell.row - 1; break
+            case 'down': checkRow = cell.row + 1; break
+            case 'left': checkCol = cell.col - 1; break
+            case 'right': checkCol = cell.col + 1; break
+          }
+          const wrappedCol = getWrappedCol(checkRow, checkCol)
+          return !isWall(checkRow, wrappedCol)
         }
         
-        const wrappedCheckCol = getWrappedCol(checkRow, checkCol)
-        const canTurnFromCurrentCell = !isWall(checkRow, wrappedCheckCol)
+        const distanceToCell = (cell) => {
+          const center = gridToPixel(cell.row, cell.col, cellSize)
+          return Math.sqrt(Math.pow(current.x - center.x, 2) + Math.pow(current.y - center.y, 2))
+        }
         
-        const { cellSize } = mazeLayoutRef.current
-        const current = playerPixelPosRef.current
-        const target = gridToPixel(targetGridPosRef.current.row, targetGridPosRef.current.col, cellSize)
+        // Check both current cell and next cell - use whichever is valid and closest
+        const currentCellDist = distanceToCell(currentCell)
+        const nextCellDist = distanceToCell(nextCell)
+        const canTurnCurrent = canTurnFromCell(currentCell)
+        const canTurnNext = canTurnFromCell(nextCell) && !isWall(nextCell.row, nextCell.col)
         
-        // Use a more lenient threshold (50% of cell size) for better responsiveness
-        const threshold = cellSize * 0.5
-        const dx = Math.abs(current.x - target.x)
-        const dy = Math.abs(current.y - target.y)
-        const isAligned = dx < threshold && dy < threshold
+        let turnApplied = false
+        let turnCell = null
         
-        // Pac-Man style turning: 
-        // - If aligned AND can turn from current cell → apply immediately
-        // - Otherwise → always store as pending (turn when walls end)
-        if (isAligned && canTurnFromCurrentCell) {
+        // Prefer the cell the player is closer to, if turn is valid from there
+        if (canTurnCurrent && currentCellDist < threshold) {
+          turnCell = currentCell
+          turnApplied = true
+        } else if (canTurnNext && nextCellDist < threshold) {
+          turnCell = nextCell
+          turnApplied = true
+        }
+        
+        if (turnApplied && turnCell) {
           setDirection(newDirection)
           setFacingDirection(newDirection)
           pendingDirectionRef.current = null
+          
+          // Snap player to the turn cell to ensure clean turning
+          const snapCenter = gridToPixel(turnCell.row, turnCell.col, cellSize)
+          playerPixelPosRef.current = { x: snapCenter.x, y: snapCenter.y }
+          targetGridPosRef.current = { row: turnCell.row, col: turnCell.col }
+          setPlayerPos({ row: turnCell.row, col: turnCell.col })
         } else {
-          // Always store the intended direction, even if there's a wall
-          // The turn will be applied when the player reaches a cell where it's valid
+          // Store as pending - will be applied when reaching a valid intersection
           pendingDirectionRef.current = newDirection
         }
       }
@@ -791,39 +839,74 @@ function StartGame() {
         sendPositionUpdate(current.x, current.y)
       }
       
-      // Check if we have a pending direction change and player is now aligned
-      // Pac-Man style: only apply the turn when aligned AND the direction is valid from current cell
+      // Check if we have a pending direction change
+      // Use same logic as key handler: check current cell AND next cell in movement direction
       if (pendingDirectionRef.current) {
-        const threshold = cellSize * 0.5
-        const pdx = Math.abs(current.x - targetX)
-        const pdy = Math.abs(current.y - targetY)
+        const threshold = cellSize * 0.7
+        const pendingDir = pendingDirectionRef.current
+        const currentMovementDir = directionRef.current
         
-        if (pdx < threshold && pdy < threshold) {
-          // Player is aligned with current cell - check if pending direction is valid
-          const { row, col } = targetGridPosRef.current
-          const pendingDir = pendingDirectionRef.current
-          
-          // Compute the next cell in the pending direction
-          let nextRow = row
-          let nextCol = col
+        // Get the cell the player is currently in
+        const currentCell = pixelToGrid(current.x, current.y, cellSize, mazeWidth)
+        
+        // Also compute the NEXT cell in the current movement direction
+        let nextCellInMovement = { row: currentCell.row, col: currentCell.col }
+        if (currentMovementDir === 'up') nextCellInMovement.row = currentCell.row - 1
+        else if (currentMovementDir === 'down') nextCellInMovement.row = currentCell.row + 1
+        else if (currentMovementDir === 'left') nextCellInMovement.col = getWrappedCol(currentCell.row, currentCell.col - 1) ?? currentCell.col - 1
+        else if (currentMovementDir === 'right') nextCellInMovement.col = getWrappedCol(currentCell.row, currentCell.col + 1) ?? currentCell.col + 1
+        
+        // Clamp to valid bounds
+        nextCellInMovement.row = Math.max(0, Math.min(MAZE_ROWS - 1, nextCellInMovement.row))
+        nextCellInMovement.col = Math.max(0, Math.min(MAZE_COLS - 1, nextCellInMovement.col))
+        
+        // Helper to check if pending turn is valid from a cell
+        const canTurnFromCell = (cell) => {
+          let checkRow = cell.row
+          let checkCol = cell.col
           switch (pendingDir) {
-            case 'up': nextRow = row - 1; break
-            case 'down': nextRow = row + 1; break
-            case 'left': nextCol = col - 1; break
-            case 'right': nextCol = col + 1; break
+            case 'up': checkRow = cell.row - 1; break
+            case 'down': checkRow = cell.row + 1; break
+            case 'left': checkCol = cell.col - 1; break
+            case 'right': checkCol = cell.col + 1; break
           }
-          
-          const wrappedNextCol = getWrappedCol(nextRow, nextCol)
-          
-          // Only apply the turn if the direction is valid (no wall in that direction)
-          if (!isWall(nextRow, wrappedNextCol)) {
-            setDirection(pendingDir)
-            setFacingDirection(pendingDir)
-            pendingDirectionRef.current = null
-          }
-          // If there IS a wall, keep pendingDirectionRef set - it will be checked again
-          // when the player reaches the next cell (turn when the walls end)
+          const wrappedCol = getWrappedCol(checkRow, checkCol)
+          return !isWall(checkRow, wrappedCol)
         }
+        
+        const distanceToCell = (cell) => {
+          const center = gridToPixel(cell.row, cell.col, cellSize)
+          return Math.sqrt(Math.pow(current.x - center.x, 2) + Math.pow(current.y - center.y, 2))
+        }
+        
+        // Check both current cell and next cell in movement direction
+        const currentCellDist = distanceToCell(currentCell)
+        const nextCellDist = distanceToCell(nextCellInMovement)
+        const canTurnCurrent = canTurnFromCell(currentCell)
+        const canTurnNext = canTurnFromCell(nextCellInMovement) && !isWall(nextCellInMovement.row, nextCellInMovement.col)
+        
+        let turnCell = null
+        
+        // Prefer the cell the player is closer to, if turn is valid from there
+        if (canTurnCurrent && currentCellDist < threshold) {
+          turnCell = currentCell
+        } else if (canTurnNext && nextCellDist < threshold) {
+          turnCell = nextCellInMovement
+        }
+        
+        if (turnCell) {
+          setDirection(pendingDir)
+          setFacingDirection(pendingDir)
+          pendingDirectionRef.current = null
+          
+          // Snap player to the turn cell to ensure clean turning
+          const snapCenter = gridToPixel(turnCell.row, turnCell.col, cellSize)
+          current.x = snapCenter.x
+          current.y = snapCenter.y
+          targetGridPosRef.current = { row: turnCell.row, col: turnCell.col }
+          setPlayerPos({ row: turnCell.row, col: turnCell.col })
+        }
+        // If turn not valid from either cell, keep pending - will be checked next frame
       }
       
       // Update remote players - interpolate positions in refs every frame
@@ -1137,6 +1220,26 @@ function StartGame() {
   const myPlayer = useMemo(() => roomData?.players?.find(p => p.id === myId), [roomData?.players, myId]);
   const myCoins = myLeaderboardEntry?.coins ?? myPlayer?.coins ?? 100;
 
+  // ============ CHARACTER SYSTEM ============
+  // Build playerCharacters map: playerId -> characterId
+  const playerCharacters = useMemo(() => {
+    const characters = {};
+    roomData?.players?.forEach(p => {
+      if (p.characterId) {
+        characters[p.id] = p.characterId;
+      }
+    });
+    return characters;
+  }, [roomData?.players]);
+
+  // Get local player's character ID
+  const localPlayerCharacterId = useMemo(() => {
+    return myPlayer?.characterId || playerCharacters[myId] || null;
+  }, [myPlayer?.characterId, playerCharacters, myId]);
+
+  // Get character image URLs for Phaser texture loading
+  const characterImageUrls = useMemo(() => getCharacterImageUrls(), []);
+
   return (
     <div className="game-container">
       {/* ============ SUSPENSE BOUNDARY FOR MODALS ============ */}
@@ -1430,6 +1533,10 @@ function StartGame() {
               localPlayerState={myPlayerState}
               localPlayerKnockback={knockbackActive}
               renderLocalPlayer={true}
+              // Character system props
+              playerCharacters={playerCharacters}
+              localPlayerCharacterId={localPlayerCharacterId}
+              characterImageUrls={characterImageUrls}
             />
           </Suspense>
         )}

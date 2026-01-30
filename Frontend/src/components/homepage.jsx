@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useRoom } from '../context/RoomContext'
+import { CHARACTER_MAP } from '../config/characters'
 import log from '../utils/logger'
 import './homepage.css'
 
@@ -217,7 +218,15 @@ function HomePage() {
                   <div className="users-list">
                     {players.map((player, index) => (
                       <div key={index} className="user-item">
-                        <span className="user-avatar">👤</span>
+                        {player.characterId && CHARACTER_MAP[player.characterId] ? (
+                          <img 
+                            src={CHARACTER_MAP[player.characterId].image} 
+                            alt={CHARACTER_MAP[player.characterId].name}
+                            className="user-avatar user-avatar-img"
+                          />
+                        ) : (
+                          <span className="user-avatar">👤</span>
+                        )}
                         <span className="user-name">
                           {player.name} {player.isHost && '(Host)'}
                         </span>
@@ -275,7 +284,15 @@ function HomePage() {
                   <div className="users-list">
                     {players.map((player, index) => (
                       <div key={index} className="user-item">
-                        <span className="user-avatar">👤</span>
+                        {player.characterId && CHARACTER_MAP[player.characterId] ? (
+                          <img 
+                            src={CHARACTER_MAP[player.characterId].image} 
+                            alt={CHARACTER_MAP[player.characterId].name}
+                            className="user-avatar user-avatar-img"
+                          />
+                        ) : (
+                          <span className="user-avatar">👤</span>
+                        )}
                         <span className="user-name">
                           {player.name} {player.isHost && '(Host)'}
                         </span>

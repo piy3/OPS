@@ -189,7 +189,7 @@ function drawWallTile(graphics, x, y, mask) {
   
   // Draw base wall fill with rounded corners
   graphics.fillStyle(COLORS.wallBase, 1);
-  drawRoundedRectWithSelectiveCorners(graphics, wx, wy, ww, wh, {
+  drawRoundedRectWithSelectiveCorners(graphics, x, y, TILE_SIZE, TILE_SIZE, {
     tl: roundTL ? cornerRadius : 0,
     tr: roundTR ? cornerRadius : 0,
     bl: roundBL ? cornerRadius : 0,
