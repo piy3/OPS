@@ -6,6 +6,7 @@ import { TiledMapLoader, createDynamicTilemap } from '../utils/TiledMapLoader'
 import { PLAYER_STATE, COMBAT_CONFIG } from '../context/CombatContext'
 import log from '../utils/logger'
 
+const PLAYER_SIZE_RATIO = 0.6  // 0.9 – base ratio 0.6, scaled 1.5x
 // Phaser scene for player rendering with smooth interpolation
 class PlayerScene extends Phaser.Scene {
   constructor() {
@@ -958,7 +959,7 @@ class PlayerScene extends Phaser.Scene {
   }
 
   updatePlayerSize(playerObj) {
-    const playerSize = this.cellSize * 0.6
+    const playerSize = this.cellSize * PLAYER_SIZE_RATIO
     const body = playerObj.getData('body')
     if (body) {
       const isUnicorn = playerObj.getData('playerId') === this.unicornId
@@ -1092,7 +1093,7 @@ class PlayerScene extends Phaser.Scene {
     container.setDepth(100) // Ensure local player is always visible above remote players
     
     // Player body - circle
-    const playerSize = this.cellSize * 0.6
+    const playerSize = this.cellSize * PLAYER_SIZE_RATIO
     const color = 0x4CAF50 // Green for local player
     
     const body = this.add.graphics()
@@ -1189,7 +1190,7 @@ class PlayerScene extends Phaser.Scene {
     const container = this.localPlayerObj
     const state = this.localPlayerState
     const isUnicorn = this.localPlayerId === this.unicornId
-    const playerSize = this.cellSize * 0.6
+    const playerSize = this.cellSize * PLAYER_SIZE_RATIO
     
     // Update body color
     const body = container.getData('body')
@@ -1449,16 +1450,16 @@ class PlayerScene extends Phaser.Scene {
     const container = this.add.container(0, 0)
     
     // Player body - circle
-    const playerSize = this.cellSize * 0.6
+    const playerSize = this.cellSize * PLAYER_SIZE_RATIO
     const color = isLocal ? 0x4CAF50 : (isUnicorn ? 0xFF69B4 : 0x2196F3)
     
     const body = this.add.graphics()
     body.fillStyle(color, 1)
-    body.fillCircle(0, 0, playerSize / 2)
+    body.fillCircle(0, 0, playerSize)
     
     // Add border
     body.lineStyle(2, isUnicorn ? 0xFF1493 : 0xFFFFFF, 1)
-    body.strokeCircle(0, 0, playerSize / 2)
+    body.strokeCircle(0, 0, playerSize)
     
     container.add(body)
     
@@ -1530,7 +1531,7 @@ class PlayerScene extends Phaser.Scene {
     
     const isUnicorn = playerId === this.unicornId
     const isLocal = playerId === this.localPlayerId
-    const playerSize = this.cellSize * 0.6
+    const playerSize = this.cellSize * PLAYER_SIZE_RATIO
     const color = isLocal ? 0x4CAF50 : (isUnicorn ? 0xFF69B4 : 0x2196F3)
     
     // Update body color
@@ -1645,7 +1646,7 @@ class PlayerScene extends Phaser.Scene {
     // update i-frames dashed ring for remote players
     if (options.inIFrames !== undefined) {
       const existingIframesRing = playerObj.getData('iframesRing')
-      const playerSize = this.cellSize * 0.6
+      const playerSize = this.cellSize * PLAYER_SIZE_RATIO
       if (options.inIFrames && !existingIframesRing) {
         const iframesRing = this.createIframesDashedRing(playerSize / 2 + 4)
         playerObj.add(iframesRing)
@@ -1670,7 +1671,7 @@ class PlayerScene extends Phaser.Scene {
     // Update immunity shield visual for remote players
     if (options.hasImmunity !== undefined) {
       const existingShield = playerObj.getData('shield')
-      const playerSize = this.cellSize * 0.6
+      const playerSize = this.cellSize * PLAYER_SIZE_RATIO
       
       if (options.hasImmunity && !existingShield) {
         // Add immunity shield - cyan ring matching local player style
@@ -1690,7 +1691,7 @@ class PlayerScene extends Phaser.Scene {
     if (options.isFrozen !== undefined) {
       const existingFrozen = playerObj.getData('frozenOverlay')
       const existingFrozenText = playerObj.getData('frozenText')
-      const playerSize = this.cellSize * 0.6
+      const playerSize = this.cellSize * PLAYER_SIZE_RATIO
       
       if (options.isFrozen && !existingFrozen) {
         // Add frozen overlay - light blue fill matching local player style
@@ -1863,9 +1864,9 @@ const PhaserPlayerLayer = forwardRef(({
         forceSetTimeOut: false
       },
       render: {
-        antialias: true,
-        pixelArt: false,
-        roundPixels: false
+        antialias: false,
+        pixelArt: true,
+        roundPixels: true
       },
       scale: {
         mode: Phaser.Scale.NONE,

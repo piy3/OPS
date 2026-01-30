@@ -31,11 +31,11 @@ export const COLORS = {
   // Wall colors
   wallBase: 0x1a0033,         // Dark purple base
   wallGlow: 0xbf00ff,         // Bright purple glow
-  wallGlowInner: 0xe066ff,    // Lighter purple for inner glow
+  wallGlowInner: 0x0d001a,    // Lighter purple for inner glow
   wallBorder: 0x8000aa,       // Medium purple for wall borders
   
   // Decoration
-  decorGlow: 0x00ffff,        // Cyan accent
+  decorGlow: 0x0d001a,        // Cyan accent
   decorGlowDim: 0x008888,     // Dimmer cyan
 };
 
@@ -145,30 +145,35 @@ function drawFloorTile(graphics, x, y) {
   graphics.fillStyle(COLORS.floorBase, 1);
   graphics.fillRect(x, y, TILE_SIZE, TILE_SIZE);
   
-  // Subtle grid lines
-  graphics.lineStyle(0.5, COLORS.floorGrid, 0.5);
-  const gridSpacing = 8;
+  // // Subtle grid lines
+  // graphics.lineStyle(0.5, COLORS.floorGrid, 0.5);
+  // const gridSpacing = 8;
   
-  for (let i = gridSpacing; i < TILE_SIZE; i += gridSpacing) {
-    // Horizontal
-    graphics.lineBetween(x, y + i, x + TILE_SIZE, y + i);
-    // Vertical
-    graphics.lineBetween(x + i, y, x + i, y + TILE_SIZE);
-  }
+  // for (let i = gridSpacing; i < TILE_SIZE; i += gridSpacing) {
+  //   // Horizontal
+  //   graphics.lineBetween(x, y + i, x + TILE_SIZE, y + i);
+  //   // Vertical
+  //   graphics.lineBetween(x + i, y, x + i, y + TILE_SIZE);
+  // }
   
   // Center dot
-  graphics.fillStyle(COLORS.floorGrid, 0.5);
-  graphics.fillCircle(x + TILE_SIZE / 2, y + TILE_SIZE / 2, 1);
+  // graphics.fillStyle(COLORS.floorGrid, 0.5);
+  // graphics.fillCircle(x + TILE_SIZE / 2, y + TILE_SIZE / 2, 1);
 }
 
 /**
  * Draw wall tile with borders based on neighbor mask
- * Features rounded corners on outer edges
+ * Features rounded corners on outer edges with clean single-stroke borders
  */
 function drawWallTile(graphics, x, y, mask) {
+  // const inset = 4;  // pixels on each side (e.g. 4 → 24×24 wall in 32×32 tile)
+  // const wx = x + inset;
+  // const wy = y + inset;
+  // const ww = TILE_SIZE - 3 * inset;
+  // const wh = TILE_SIZE - 3 * inset;
+
   const borderWidth = 3;
-  const glowWidth = 2;
-  const cornerRadius = 6; // Radius for rounded corners
+  const cornerRadius = 10; // Larger radius for more rounded corners
   
   // Check which sides have wall neighbors (no border needed)
   const hasNorth = (mask & NEIGHBOR.NORTH) !== 0;
@@ -184,131 +189,128 @@ function drawWallTile(graphics, x, y, mask) {
   
   // Draw base wall fill with rounded corners
   graphics.fillStyle(COLORS.wallBase, 1);
-  drawRoundedRectWithSelectiveCorners(graphics, x, y, TILE_SIZE, TILE_SIZE, {
+  drawRoundedRectWithSelectiveCorners(graphics, wx, wy, ww, wh, {
     tl: roundTL ? cornerRadius : 0,
     tr: roundTR ? cornerRadius : 0,
     bl: roundBL ? cornerRadius : 0,
     br: roundBR ? cornerRadius : 0
   });
   
-  // Draw glowing borders on sides facing empty space
-  // North border
+  // Draw glowing border as a single continuous stroke path
+  drawWallBorderPath(graphics, x, y, TILE_SIZE, TILE_SIZE, {
+    hasNorth,
+    hasEast,
+    hasSouth,
+    hasWest,
+    cornerRadius,
+    borderWidth
+  });
+}
+
+/**
+ * Draw wall border as a continuous path to avoid corner overlaps
+ */
+function drawWallBorderPath(graphics, x, y, width, height, options) {
+  const { hasNorth, hasEast, hasSouth, hasWest, cornerRadius, borderWidth } = options;
+
+  const roundTL = !hasNorth && !hasWest;
+  const roundTR = !hasNorth && !hasEast;
+  const roundBL = !hasSouth && !hasWest;
+  const roundBR = !hasSouth && !hasEast;
+
+  if (hasNorth && hasEast && hasSouth && hasWest) {
+    return;
+  }
+
+  graphics.lineStyle(borderWidth, COLORS.wallGlow, 1);
+  graphics.beginPath();
+
+  const r = cornerRadius;
+  const inset = borderWidth / 2;
+
   if (!hasNorth) {
-    graphics.fillStyle(COLORS.wallGlow, 1);
-    if (roundTL && roundTR) {
-      // Both corners rounded
-      drawRoundedRectWithSelectiveCorners(graphics, x, y, TILE_SIZE, borderWidth + cornerRadius, {
-        tl: cornerRadius, tr: cornerRadius, bl: 0, br: 0
-      });
-    } else if (roundTL) {
-      drawRoundedRectWithSelectiveCorners(graphics, x, y, TILE_SIZE, borderWidth + cornerRadius / 2, {
-        tl: cornerRadius, tr: 0, bl: 0, br: 0
-      });
-    } else if (roundTR) {
-      drawRoundedRectWithSelectiveCorners(graphics, x, y, TILE_SIZE, borderWidth + cornerRadius / 2, {
-        tl: 0, tr: cornerRadius, bl: 0, br: 0
-      });
+    const endX = roundTR ? x + width - r : x + width;
+    if (roundTL) {
+      graphics.arc(x + r + inset, y + r + inset, r, Math.PI, Math.PI * 1.5, false);
     } else {
-      graphics.fillRect(x, y, TILE_SIZE, borderWidth);
+      graphics.moveTo(x + inset, y + inset);
     }
-    // Inner glow
-    graphics.fillStyle(COLORS.wallGlowInner, 0.6);
-    graphics.fillRect(x + (roundTL ? cornerRadius : 0), y + borderWidth, 
-                      TILE_SIZE - (roundTL ? cornerRadius : 0) - (roundTR ? cornerRadius : 0), glowWidth);
+    graphics.lineTo(endX - inset, y + inset);
+    if (roundTR) {
+      graphics.arc(x + width - r - inset, y + r + inset, r, Math.PI * 1.5, 0, false);
+    }
   }
-  
-  // East border
+
   if (!hasEast) {
-    graphics.fillStyle(COLORS.wallGlow, 1);
-    if (roundTR && roundBR) {
-      drawRoundedRectWithSelectiveCorners(graphics, x + TILE_SIZE - borderWidth - cornerRadius, y, 
-                                          borderWidth + cornerRadius, TILE_SIZE, {
-        tl: 0, tr: cornerRadius, bl: 0, br: cornerRadius
-      });
-    } else if (roundTR) {
-      drawRoundedRectWithSelectiveCorners(graphics, x + TILE_SIZE - borderWidth - cornerRadius / 2, y, 
-                                          borderWidth + cornerRadius / 2, TILE_SIZE, {
-        tl: 0, tr: cornerRadius, bl: 0, br: 0
-      });
-    } else if (roundBR) {
-      drawRoundedRectWithSelectiveCorners(graphics, x + TILE_SIZE - borderWidth - cornerRadius / 2, y, 
-                                          borderWidth + cornerRadius / 2, TILE_SIZE, {
-        tl: 0, tr: 0, bl: 0, br: cornerRadius
-      });
-    } else {
-      graphics.fillRect(x + TILE_SIZE - borderWidth, y, borderWidth, TILE_SIZE);
+    const startY = roundTR ? y + r : y;
+    const endY = roundBR ? y + height - r : y + height;
+    if (!hasNorth || !roundTR) {
+      if (hasNorth) {
+        graphics.moveTo(x + width - inset, startY + inset);
+      }
     }
-    // Inner glow
-    graphics.fillStyle(COLORS.wallGlowInner, 0.6);
-    graphics.fillRect(x + TILE_SIZE - borderWidth - glowWidth, y + (roundTR ? cornerRadius : 0), 
-                      glowWidth, TILE_SIZE - (roundTR ? cornerRadius : 0) - (roundBR ? cornerRadius : 0));
+    graphics.lineTo(x + width - inset, endY - inset);
+    if (roundBR) {
+      graphics.arc(x + width - r - inset, y + height - r - inset, r, 0, Math.PI / 2, false);
+    }
   }
-  
-  // South border
+
   if (!hasSouth) {
-    graphics.fillStyle(COLORS.wallGlow, 1);
-    if (roundBL && roundBR) {
-      drawRoundedRectWithSelectiveCorners(graphics, x, y + TILE_SIZE - borderWidth - cornerRadius, 
-                                          TILE_SIZE, borderWidth + cornerRadius, {
-        tl: 0, tr: 0, bl: cornerRadius, br: cornerRadius
-      });
-    } else if (roundBL) {
-      drawRoundedRectWithSelectiveCorners(graphics, x, y + TILE_SIZE - borderWidth - cornerRadius / 2, 
-                                          TILE_SIZE, borderWidth + cornerRadius / 2, {
-        tl: 0, tr: 0, bl: cornerRadius, br: 0
-      });
-    } else if (roundBR) {
-      drawRoundedRectWithSelectiveCorners(graphics, x, y + TILE_SIZE - borderWidth - cornerRadius / 2, 
-                                          TILE_SIZE, borderWidth + cornerRadius / 2, {
-        tl: 0, tr: 0, bl: 0, br: cornerRadius
-      });
-    } else {
-      graphics.fillRect(x, y + TILE_SIZE - borderWidth, TILE_SIZE, borderWidth);
+    const startX = roundBR ? x + width - r : x + width;
+    const endX = roundBL ? x + r : x;
+    if (!hasEast || !roundBR) {
+      if (hasEast) {
+        graphics.moveTo(startX - inset, y + height - inset);
+      }
     }
-    // Inner glow
-    graphics.fillStyle(COLORS.wallGlowInner, 0.6);
-    graphics.fillRect(x + (roundBL ? cornerRadius : 0), y + TILE_SIZE - borderWidth - glowWidth, 
-                      TILE_SIZE - (roundBL ? cornerRadius : 0) - (roundBR ? cornerRadius : 0), glowWidth);
+    graphics.lineTo(endX + inset, y + height - inset);
+    if (roundBL) {
+      graphics.arc(x + r + inset, y + height - r - inset, r, Math.PI / 2, Math.PI, false);
+    }
   }
-  
-  // West border
+
   if (!hasWest) {
-    graphics.fillStyle(COLORS.wallGlow, 1);
-    if (roundTL && roundBL) {
-      drawRoundedRectWithSelectiveCorners(graphics, x, y, borderWidth + cornerRadius, TILE_SIZE, {
-        tl: cornerRadius, tr: 0, bl: cornerRadius, br: 0
-      });
-    } else if (roundTL) {
-      drawRoundedRectWithSelectiveCorners(graphics, x, y, borderWidth + cornerRadius / 2, TILE_SIZE, {
-        tl: cornerRadius, tr: 0, bl: 0, br: 0
-      });
-    } else if (roundBL) {
-      drawRoundedRectWithSelectiveCorners(graphics, x, y, borderWidth + cornerRadius / 2, TILE_SIZE, {
-        tl: 0, tr: 0, bl: cornerRadius, br: 0
-      });
-    } else {
-      graphics.fillRect(x, y, borderWidth, TILE_SIZE);
+    const startY = roundBL ? y + height - r : y + height;
+    const endY = roundTL ? y + r : y;
+    if (!hasSouth || !roundBL) {
+      if (hasSouth) {
+        graphics.moveTo(x + inset, startY - inset);
+      }
     }
-    // Inner glow
-    graphics.fillStyle(COLORS.wallGlowInner, 0.6);
-    graphics.fillRect(x + borderWidth, y + (roundTL ? cornerRadius : 0), 
-                      glowWidth, TILE_SIZE - (roundTL ? cornerRadius : 0) - (roundBL ? cornerRadius : 0));
+    graphics.lineTo(x + inset, endY + inset);
+    if (roundTL && hasNorth) {
+      graphics.arc(x + r + inset, y + r + inset, r, Math.PI, Math.PI * 1.5, false);
+    }
   }
-  
-  // Draw subtle corner glow highlights for outer corners
-  graphics.fillStyle(COLORS.wallGlowInner, 0.8);
-  
-  if (roundTL) {
-    graphics.fillCircle(x + cornerRadius + 2, y + cornerRadius + 2, 2);
+
+  graphics.strokePath();
+
+  graphics.lineStyle(1, COLORS.wallGlowInner, 0.5);
+  const glowInset = borderWidth + 1;
+
+  if (!hasNorth) {
+    graphics.beginPath();
+    graphics.moveTo(x + (roundTL ? r + glowInset : glowInset), y + glowInset);
+    graphics.lineTo(x + width - (roundTR ? r + glowInset : glowInset), y + glowInset);
+    graphics.strokePath();
   }
-  if (roundTR) {
-    graphics.fillCircle(x + TILE_SIZE - cornerRadius - 2, y + cornerRadius + 2, 2);
+  if (!hasEast) {
+    graphics.beginPath();
+    graphics.moveTo(x + width - glowInset, y + (roundTR ? r + glowInset : glowInset));
+    graphics.lineTo(x + width - glowInset, y + height - (roundBR ? r + glowInset : glowInset));
+    graphics.strokePath();
   }
-  if (roundBL) {
-    graphics.fillCircle(x + cornerRadius + 2, y + TILE_SIZE - cornerRadius - 2, 2);
+  if (!hasSouth) {
+    graphics.beginPath();
+    graphics.moveTo(x + width - (roundBR ? r + glowInset : glowInset), y + height - glowInset);
+    graphics.lineTo(x + (roundBL ? r + glowInset : glowInset), y + height - glowInset);
+    graphics.strokePath();
   }
-  if (roundBR) {
-    graphics.fillCircle(x + TILE_SIZE - cornerRadius - 2, y + TILE_SIZE - cornerRadius - 2, 2);
+  if (!hasWest) {
+    graphics.beginPath();
+    graphics.moveTo(x + glowInset, y + height - (roundBL ? r + glowInset : glowInset));
+    graphics.lineTo(x + glowInset, y + (roundTL ? r + glowInset : glowInset));
+    graphics.strokePath();
   }
 }
 

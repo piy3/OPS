@@ -205,6 +205,9 @@ body, html {
   left: 0;
   width: 100% !important;
   height: 100% !important;
+  /* Pixel-perfect rendering - prevents browser anti-aliasing on scaled tiles */
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
 }
 
 .player {

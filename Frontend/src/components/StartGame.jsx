@@ -633,7 +633,7 @@ function StartGame() {
       }
 
       if (newDirection) {
-        // Check if there's a wall in the new direction
+        // Check if there's a wall in the new direction from current cell
         const { row, col } = targetGridPosRef.current
         let checkRow = row
         let checkCol = col
@@ -646,26 +646,29 @@ function StartGame() {
         }
         
         const wrappedCheckCol = getWrappedCol(checkRow, checkCol)
+        const canTurnFromCurrentCell = !isWall(checkRow, wrappedCheckCol)
         
-        // Only allow direction change if there's no wall
-        if (!isWall(checkRow, wrappedCheckCol)) {
-          const { cellSize } = mazeLayoutRef.current
-          const current = playerPixelPosRef.current
-          const target = gridToPixel(targetGridPosRef.current.row, targetGridPosRef.current.col, cellSize)
-          
-          // Use a more lenient threshold (30% of cell size) for better responsiveness
-          const threshold = cellSize * 0.5
-          const dx = Math.abs(current.x - target.x)
-          const dy = Math.abs(current.y - target.y)
-          const isAligned = dx < threshold && dy < threshold
-          
-          if (isAligned) {
-            setDirection(newDirection)
-            setFacingDirection(newDirection)
-            pendingDirectionRef.current = null
-          } else {
-            pendingDirectionRef.current = newDirection
-          }
+        const { cellSize } = mazeLayoutRef.current
+        const current = playerPixelPosRef.current
+        const target = gridToPixel(targetGridPosRef.current.row, targetGridPosRef.current.col, cellSize)
+        
+        // Use a more lenient threshold (50% of cell size) for better responsiveness
+        const threshold = cellSize * 0.5
+        const dx = Math.abs(current.x - target.x)
+        const dy = Math.abs(current.y - target.y)
+        const isAligned = dx < threshold && dy < threshold
+        
+        // Pac-Man style turning: 
+        // - If aligned AND can turn from current cell → apply immediately
+        // - Otherwise → always store as pending (turn when walls end)
+        if (isAligned && canTurnFromCurrentCell) {
+          setDirection(newDirection)
+          setFacingDirection(newDirection)
+          pendingDirectionRef.current = null
+        } else {
+          // Always store the intended direction, even if there's a wall
+          // The turn will be applied when the player reaches a cell where it's valid
+          pendingDirectionRef.current = newDirection
         }
       }
     }
@@ -789,16 +792,37 @@ function StartGame() {
       }
       
       // Check if we have a pending direction change and player is now aligned
+      // Pac-Man style: only apply the turn when aligned AND the direction is valid from current cell
       if (pendingDirectionRef.current) {
         const threshold = cellSize * 0.5
         const pdx = Math.abs(current.x - targetX)
         const pdy = Math.abs(current.y - targetY)
         
         if (pdx < threshold && pdy < threshold) {
-          const newDir = pendingDirectionRef.current
-          setDirection(newDir)
-          setFacingDirection(newDir)
-          pendingDirectionRef.current = null
+          // Player is aligned with current cell - check if pending direction is valid
+          const { row, col } = targetGridPosRef.current
+          const pendingDir = pendingDirectionRef.current
+          
+          // Compute the next cell in the pending direction
+          let nextRow = row
+          let nextCol = col
+          switch (pendingDir) {
+            case 'up': nextRow = row - 1; break
+            case 'down': nextRow = row + 1; break
+            case 'left': nextCol = col - 1; break
+            case 'right': nextCol = col + 1; break
+          }
+          
+          const wrappedNextCol = getWrappedCol(nextRow, nextCol)
+          
+          // Only apply the turn if the direction is valid (no wall in that direction)
+          if (!isWall(nextRow, wrappedNextCol)) {
+            setDirection(pendingDir)
+            setFacingDirection(pendingDir)
+            pendingDirectionRef.current = null
+          }
+          // If there IS a wall, keep pendingDirectionRef set - it will be checked again
+          // when the player reaches the next cell (turn when the walls end)
         }
       }
       
