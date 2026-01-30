@@ -3,7 +3,8 @@
  * Changes with game phase transitions
  */
 
-import { createContext, useContext, useState, useMemo } from 'react';
+import { createContext, useContext, useState, useMemo, useEffect, useRef } from 'react';
+import { useSound } from './SoundContext';
 
 // Game phase constants (matching backend)
 export const GAME_PHASE = {
@@ -24,6 +25,8 @@ export const useGamePhase = () => {
 };
 
 export const GamePhaseProvider = ({ children }) => {
+  const { playTimerWarning } = useSound();
+  
   const [gameState, setGameState] = useState(null);
   const [gamePhase, setGamePhase] = useState(GAME_PHASE.WAITING);
   
@@ -47,6 +50,52 @@ export const GamePhaseProvider = ({ children }) => {
   // Unfreeze Quiz state (personal quiz when player health reaches 0)
   const [unfreezeQuizActive, setUnfreezeQuizActive] = useState(false);
   const [unfreezeQuizData, setUnfreezeQuizData] = useState(null);
+
+  // Ref to track last warning second played (prevents duplicate plays)
+  const lastWarningSecondRef = useRef(null);
+
+  // Local countdown timer for hunt phase (updates every second from endTime)
+  // Also triggers timer warning sounds at 10, 5, 3, 2, 1 seconds
+  useEffect(() => {
+    // Only run interval when in HUNT phase and we have an endTime
+    if (gamePhase !== GAME_PHASE.HUNT || !huntData?.endTime) {
+      // Reset warning ref when leaving hunt or no endTime
+      lastWarningSecondRef.current = null;
+      return;
+    }
+
+    const WARNING_SECONDS = [10, 5, 3, 2, 1];
+
+    // Function to update time and check for warning
+    const updateTimeAndCheckWarning = () => {
+      const remaining = Math.max(0, huntData.endTime - Date.now());
+      setHuntTimeRemaining(remaining);
+
+      // Check if we should play timer warning sound
+      const seconds = Math.floor(remaining / 1000);
+      if (WARNING_SECONDS.includes(seconds) && lastWarningSecondRef.current !== seconds) {
+        lastWarningSecondRef.current = seconds;
+        playTimerWarning();
+      }
+
+      // Reset ref when timer reaches 0 so next hunt can trigger warnings again
+      if (remaining <= 0) {
+        lastWarningSecondRef.current = null;
+      }
+    };
+
+    // Start 1-second interval to compute remaining time from endTime
+    const intervalId = setInterval(updateTimeAndCheckWarning, 1000);
+
+    // Initial update immediately (don't wait 1 second)
+    updateTimeAndCheckWarning();
+
+    // Cleanup: clear interval and reset ref when phase changes or huntData.endTime changes
+    return () => {
+      clearInterval(intervalId);
+      lastWarningSecondRef.current = null;
+    };
+  }, [gamePhase, huntData?.endTime, playTimerWarning]);
 
   const value = useMemo(() => ({
     gameState,

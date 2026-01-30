@@ -416,6 +416,18 @@ class PhaserSoundManager {
         oscillator.stop(now + 0.4);
         break;
 
+      case SOUNDS.TIMER_WARNING:
+        // Urgent timer warning - double beep
+        oscillator.type = 'square';
+        oscillator.frequency.setValueAtTime(1000, now);
+        gainNode.gain.setValueAtTime(volume * 0.35, now);
+        gainNode.gain.setValueAtTime(0.01, now + 0.1);
+        gainNode.gain.setValueAtTime(volume * 0.35, now + 0.2);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+        oscillator.start(now);
+        oscillator.stop(now + 0.35);
+        break;
+
       default:
         // Generic beep for unknown sounds
         oscillator.type = 'sine';

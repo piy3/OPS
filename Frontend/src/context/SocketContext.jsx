@@ -272,13 +272,12 @@ const SocketEventHandler = ({ children }) => {
       setReserveUnicornId(data.reserveUnicornId);
     });
 
-    // Hunt Timer Update
-    socketService.onHuntEnd((data) => {
-      const seconds = Math.floor(data.remainingTime / 1000);
-      if ([10, 5, 3, 2, 1].includes(seconds)) {
-        soundManager.playTimerWarning();
-      }
-      setHuntTimeRemaining(data.remainingTime);
+    // Hunt Timer Update - listen for hunt_end events from server
+    // Note: Timer display and warning sounds are now driven by local 1-second countdown
+    // in GamePhaseContext using huntData.endTime for accuracy. This listener is kept
+    // for potential future use (e.g., syncing endTime if server adjusts it).
+    socketService.onHuntEnd(() => {
+      // Timer display and warning sounds handled in GamePhaseContext
     });
 
     // Player Tagged
@@ -324,7 +323,7 @@ const SocketEventHandler = ({ children }) => {
   }, [
     setIsGameFrozen, setFreezeMessage, setQuizActive, setQuizData, setQuizResults,
     setGamePhase, setBlitzQuizActive, setBlitzQuizData, setBlitzQuizResults,
-    setUnicornId, setReserveUnicornId, setHuntTimeRemaining, setTagNotification,
+    setUnicornId, setReserveUnicornId, setTagNotification,
     setLeaderboard
   ]);
 

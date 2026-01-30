@@ -293,9 +293,9 @@ body, html {
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  height: 48px;
-  padding: 0 12px;
-  background: rgba(10, 5, 15, 0.9);
+  height: 56px;
+  padding: 0 16px;
+  background: rgba(10, 5, 15, 0.92);
   border-bottom: 1px solid rgba(128, 0, 128, 0.4);
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.6), inset 0 -1px 0 rgba(128, 0, 128, 0.2);
   z-index: 50;
@@ -305,69 +305,70 @@ body, html {
 .hud-section {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 14px;
 }
 
 .hud-left {
-  gap: 8px;
-}
-
-.hud-center {
   gap: 12px;
 }
 
+.hud-center {
+  gap: 16px;
+}
+
 .hud-right {
-  gap: 6px;
+  gap: 10px;
 }
 
 /* Room & Players */
 .hud-room {
-  font-size: 0.7rem;
+  font-size: 0.85rem;
   font-weight: 600;
-  color: rgba(255, 255, 255, 0.4);
+  color: rgba(255, 255, 255, 0.5);
   font-family: monospace;
   letter-spacing: 0.05em;
 }
 
 .hud-players {
-  font-size: 0.65rem;
+  font-size: 0.8rem;
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.35);
+  color: rgba(255, 255, 255, 0.45);
   text-transform: uppercase;
 }
 
 /* Stats */
 .hud-stat {
-  font-size: 0.75rem;
+  font-size: 0.9rem;
   font-weight: 700;
   color: white;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.04em;
 }
 
 .hud-coins {
+  font-size: 0.95rem;
   color: #FFD700;
-  text-shadow: 0 0 6px rgba(255, 215, 0, 0.4);
+  text-shadow: 0 0 8px rgba(255, 215, 0, 0.5);
 }
 
 /* Health */
 .hud-health {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 
 .hud-health-text {
-  font-size: 0.7rem;
+  font-size: 0.85rem;
   font-weight: 600;
   color: #ff6b6b;
 }
 
 .hud-health-bar {
-  width: 50px;
-  height: 6px;
+  width: 70px;
+  height: 8px;
   background: rgba(0, 0, 0, 0.5);
-  border-radius: 3px;
+  border-radius: 4px;
   overflow: hidden;
   border: 1px solid rgba(255, 100, 100, 0.3);
 }
@@ -394,10 +395,10 @@ body, html {
 }
 
 .hud-status-badge {
-  font-size: 0.55rem;
+  font-size: 0.7rem;
   font-weight: 700;
-  padding: 1px 4px;
-  border-radius: 3px;
+  padding: 2px 6px;
+  border-radius: 4px;
   text-transform: uppercase;
 }
 
@@ -412,41 +413,49 @@ body, html {
   color: #87CEEB;
 }
 
-/* Phase */
+/* Phase - THE BIGGEST ELEMENT */
 .hud-phase {
-  padding: 2px 8px;
-  background: rgba(128, 0, 128, 0.3);
-  border: 1px solid rgba(128, 0, 128, 0.5);
-  border-radius: 4px;
+  font-size: 1.15rem;
+  font-weight: 800;
+  padding: 6px 14px;
+  background: rgba(128, 0, 128, 0.35);
+  border: 2px solid rgba(128, 0, 128, 0.6);
+  border-radius: 6px;
   font-family: monospace;
+  letter-spacing: 0.08em;
+  text-shadow: 0 0 10px rgba(128, 0, 128, 0.5);
 }
 
 .hud-phase-urgent {
-  background: rgba(239, 68, 68, 0.3);
-  border-color: rgba(239, 68, 68, 0.6);
+  font-size: 1.2rem;
+  background: rgba(239, 68, 68, 0.4);
+  border-color: rgba(239, 68, 68, 0.8);
   color: #ff6b6b;
+  text-shadow: 0 0 12px rgba(239, 68, 68, 0.6);
   animation: phaseUrgent 0.5s ease-in-out infinite;
 }
 
 @keyframes phaseUrgent {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.7; }
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.85; transform: scale(1.02); }
 }
 
 .hud-phase-blitz {
-  background: rgba(255, 215, 0, 0.3);
-  border-color: rgba(255, 215, 0, 0.6);
+  font-size: 1.15rem;
+  background: rgba(255, 215, 0, 0.35);
+  border-color: rgba(255, 215, 0, 0.7);
   color: #FFD700;
+  text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
 }
 
 /* Role */
 .hud-role {
-  font-size: 0.65rem;
+  font-size: 0.8rem;
   font-weight: 700;
-  padding: 3px 8px;
-  border-radius: 4px;
+  padding: 4px 10px;
+  border-radius: 5px;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
 }
 
 .hud-role-unicorn {
@@ -469,24 +478,24 @@ body, html {
 
 /* Actions */
 .hud-hint {
-  font-size: 0.55rem;
+  font-size: 0.7rem;
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.3);
-  padding: 2px 6px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 3px;
+  color: rgba(255, 255, 255, 0.4);
+  padding: 3px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
   font-family: monospace;
 }
 
 .hud-btn {
   background: transparent;
   border: none;
-  font-size: 1rem;
+  font-size: 1.15rem;
   cursor: pointer;
-  padding: 4px 6px;
-  border-radius: 4px;
+  padding: 5px 8px;
+  border-radius: 5px;
   transition: all 0.2s ease;
-  opacity: 0.7;
+  opacity: 0.75;
 }
 
 .hud-btn:hover {
@@ -944,25 +953,63 @@ body, html {
 @media (max-width: 900px) {
   /* New arcade HUD bar */
   .game-hud-bar {
-    height: 55px;
-    padding: 0 8px;
+    height: 52px;
+    padding: 0 10px;
   }
   
   .hud-section {
-    gap: 6px;
+    gap: 10px;
   }
   
-  .hud-stat {
+  .hud-room {
+    font-size: 0.75rem;
+  }
+  
+  .hud-players {
     font-size: 0.7rem;
   }
   
+  .hud-stat {
+    font-size: 0.8rem;
+  }
+  
+  .hud-coins {
+    font-size: 0.85rem;
+  }
+  
+  .hud-health-text {
+    font-size: 0.75rem;
+  }
+  
   .hud-health-bar {
-    width: 50px;
+    width: 55px;
+    height: 7px;
+  }
+  
+  .hud-phase {
+    font-size: 1rem;
+    padding: 4px 10px;
+  }
+  
+  .hud-phase-urgent {
+    font-size: 1.05rem;
+  }
+  
+  .hud-phase-blitz {
+    font-size: 1rem;
   }
   
   .hud-role {
     font-size: 0.7rem;
-    padding: 2px 6px;
+    padding: 3px 8px;
+  }
+  
+  .hud-hint {
+    font-size: 0.6rem;
+  }
+  
+  .hud-btn {
+    font-size: 1rem;
   }
   
   .leaderboard-panel {
@@ -1025,12 +1072,12 @@ body, html {
 @media (max-width: 600px) {
   /* New arcade HUD bar */
   .game-hud-bar {
-    height: 40px;
-    padding: 0 6px;
+    height: 46px;
+    padding: 0 8px;
   }
   
   .hud-section {
-    gap: 4px;
+    gap: 6px;
   }
   
   .hud-left {
@@ -1038,34 +1085,50 @@ body, html {
   }
   
   .hud-stat {
-    font-size: 0.65rem;
-  }
-  
-  .hud-coins {
     font-size: 0.7rem;
   }
   
+  .hud-coins {
+    font-size: 0.75rem;
+  }
+  
   .hud-health-text {
-    font-size: 0.6rem;
+    font-size: 0.65rem;
   }
   
   .hud-health-bar {
-    width: 35px;
-    height: 5px;
+    width: 40px;
+    height: 6px;
   }
   
+  /* Phase timer stays prominent even on mobile */
   .hud-phase {
-    font-size: 0.65rem;
-    padding: 1px 5px;
+    font-size: 0.9rem;
+    padding: 3px 8px;
+    font-weight: 800;
+  }
+  
+  .hud-phase-urgent {
+    font-size: 0.95rem;
+  }
+  
+  .hud-phase-blitz {
+    font-size: 0.9rem;
   }
   
   .hud-role {
-    font-size: 0.55rem;
-    padding: 2px 5px;
+    font-size: 0.6rem;
+    padding: 2px 6px;
   }
   
   .hud-hint {
-    font-size: 0.5rem;
+    font-size: 0.55rem;
+    display: none; /* Hide hints on mobile to save space */
+  }
+  
+  .hud-btn {
+    font-size: 0.95rem;
+    padding: 4px 5px;
   }
   
   .hud-btn {
