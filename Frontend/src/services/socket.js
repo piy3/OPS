@@ -4,6 +4,7 @@
 
 import { io } from 'socket.io-client';
 import log from '../utils/logger';
+import { MAX_ALLOWED_PLAYER_IN_ROOM } from '../config/characters';
 
 // Socket configuration from environment variable
 // In Vite, use import.meta.env (not process.env)
@@ -101,7 +102,7 @@ class SocketService {
   /**
    * Create a new room
    */
-  createRoom(playerName, maxPlayers = 9) {
+  createRoom(playerName, maxPlayers = MAX_ALLOWED_PLAYER_IN_ROOM) {
     return new Promise((resolve, reject) => {
       const socket = this.getSocket();
       

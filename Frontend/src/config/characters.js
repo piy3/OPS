@@ -16,7 +16,7 @@ import unicornImg from '../assets/characters/unicorn.png';
 
 // Character IDs in order (must match backend CHARACTER_IDS)
 export const CHARACTER_IDS = ['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
-
+export const MAX_ALLOWED_PLAYER_IN_ROOM = 9;
 /**
  * Character map: id -> { id, name, image }
  * Frontend owns this map and resolves id -> image locally

@@ -116,7 +116,6 @@ function StartGame() {
   const myId = useMemo(() => socketService.getSocket()?.id, [socketService])
   
   const [showLeaderboard, setShowLeaderboard] = useState(false)
-  const [showCoordinates, setShowCoordinates] = useState(false)
   const [showSoundControls, setShowSoundControls] = useState(false)
   
   const [playerPos, setPlayerPos] = useState({ row: null, col: null })
@@ -142,7 +141,6 @@ function StartGame() {
   
   // State for UI elements that need React re-renders (updated at lower rate)
   const [playerPixelPos, setPlayerPixelPos] = useState({ x: 0, y: 0 })
-  const [remotePlayerPixelPos, setRemotePlayerPixelPos] = useState({}) // Only for DOM fallback rendering
   
   const directionRef = useRef(null)
   const targetGridPosRef = useRef({ row: 1, col: 1 })
@@ -158,7 +156,6 @@ function StartGame() {
   const lastPositionUpdateTimeRef = useRef(0) // Track when we last sent position update
   const phaserLayerRef = useRef(null) // Phaser player layer reference
   const previousPowerupsRef = useRef([]) // Track previous powerups for aura management
-  const [usePhaserRendering, setUsePhaserRendering] = useState(true) // Toggle between Phaser and DOM rendering
   const [usePhaserMaze, setUsePhaserMaze] = useState(true) // Whether to render maze via Phaser tilemap
   const [phaserMazeReady, setPhaserMazeReady] = useState(false) // Whether Phaser maze has loaded
   
@@ -220,9 +217,8 @@ function StartGame() {
   useEffect(() => {
     if (!roomData || !gameState) {
       log.log('No room or game state, redirecting to home')
-      // navigate('/')
     }
-  }, [roomData, gameState, navigate])
+  }, [roomData, gameState])
 
   // ============ ROOM CLEANUP: Leave room on unmount ============
   // This ensures the client always emits leave_room when leaving the game screen,
@@ -465,7 +461,6 @@ function StartGame() {
           }
         })
         setRemotePlayers(newRemotePlayers)
-        setRemotePlayerPixelPos(newRemotePixelPos)
         remotePlayerPixelPosRef.current = newRemotePixelPos
         setRemotePlayerDirections(newRemoteDirections)
         remotePlayerPositionsRef.current = newRemotePositions
@@ -478,9 +473,9 @@ function StartGame() {
       // Clear all remote player data to prevent stale positions
       // This ensures we start fresh with spawn positions
       setRemotePlayers({})
-      setRemotePlayerPixelPos({})
       setRemotePlayerDirections({})
       remotePlayerPositionsRef.current = {}
+      remotePlayerPixelPosRef.current = {}
       // Request initial game state
       socketService.getGameState()
     }
@@ -500,17 +495,13 @@ function StartGame() {
         delete updated[playerId]
         return updated
       })
-      setRemotePlayerPixelPos(prev => {
-        const updated = { ...prev }
-        delete updated[playerId]
-        return updated
-      })
       setRemotePlayerDirections(prev => {
         const updated = { ...prev }
         delete updated[playerId]
         return updated
       })
       delete remotePlayerPositionsRef.current[playerId]
+      delete remotePlayerPixelPosRef.current[playerId]
     }
 
     socketService.onPlayerLeft(handlePlayerLeft)
@@ -547,10 +538,6 @@ function StartGame() {
         setRemotePlayers(prev => ({
           ...prev,
           [playerId]: { row: position.row, col: position.col }
-        }))
-        setRemotePlayerPixelPos(prev => ({
-          ...prev,
-          [playerId]: { x: pixelPos.x, y: pixelPos.y }
         }))
         remotePlayerPixelPosRef.current[playerId] = { x: pixelPos.x, y: pixelPos.y }
         
@@ -993,14 +980,8 @@ function StartGame() {
       if (now - lastUIUpdateTimeRef.current > UI_UPDATE_INTERVAL) {
         lastUIUpdateTimeRef.current = now
         
-        // Update local player pixel position state (for DOM fallback only)
+        // Update local player pixel position state (for UI elements that need it)
         setPlayerPixelPos({ x: current.x, y: current.y })
-        
-        // Batch update remote player pixel positions (for DOM fallback only)
-        // Only update if not using Phaser rendering, or if needed for UI elements
-        if (!usePhaserRendering) {
-          setRemotePlayerPixelPos({ ...remotePlayerPixelPosRef.current })
-        }
       }
       
       animationFrameRef.current = requestAnimationFrame(animate)
@@ -1037,10 +1018,6 @@ function StartGame() {
         }
       })
       
-      // Update React state for DOM fallback
-      if (!usePhaserRendering) {
-        setRemotePlayerPixelPos({ ...remotePlayerPixelPosRef.current })
-      }
     }
     
     window.addEventListener('resize', handleResize)
@@ -1051,7 +1028,7 @@ function StartGame() {
       }
       window.removeEventListener('resize', handleResize)
     }
-  }, [playerPos, isGameFrozen, sendPositionUpdate, updateMazeLayout, usePhaserRendering])
+  }, [playerPos, isGameFrozen, sendPositionUpdate, updateMazeLayout])
 
   // Callback when Phaser map is loaded
   const handleMapLoaded = (mapLoader) => {
@@ -1255,15 +1232,15 @@ function StartGame() {
         {/* Only show if not in blitz quiz (blitz cancels unfreeze quizzes) */}
         {unfreezeQuizActive && !blitzQuizActive && <UnfreezeQuizModal />}
 
-        {/* Freeze Overlay - Shows when game is frozen but quiz not active yet (legacy) */}
+        {/* Freeze Overlay - Shows when game is frozen but quiz not active yet */}
         {isGameFrozen && !quizActive && !quizResults && !blitzQuizActive && !blitzQuizResults && (
           <FreezeOverlay message={freezeMessage} />
         )}
 
-        {/* Quiz Modal - Shows only for caught player (legacy collision quiz) */}
+        {/* Quiz Modal - Shows only for caught player */}
         {quizActive && <QuizModal />}
 
-        {/* Quiz Results - Shows to all players after quiz completes (legacy) */}
+        {/* Quiz Results - Shows to all players after quiz completes */}
         {quizResults && <QuizResults results={quizResults} />}
       </Suspense>
 
@@ -1278,45 +1255,6 @@ function StartGame() {
         </div>
       )}
 
-      {/* Hit Notification - Shows when a player takes damage */}
-      {/* {hitNotification && (
-        <div className={`hit-notification ${hitNotification.victimId === socketService.getSocket()?.id ? 'hit-self' : ''}`}>
-          <span className="hit-icon">💥</span>
-          <span className="hit-text">
-            {hitNotification.attackerName} hit {hitNotification.victimName}!
-          </span>
-          <span className="hit-damage">-{hitNotification.damage} HP</span>
-        </div>
-      )} */}
-
-      {/* Coin collection now uses Phaser floating numbers at collection location */}
-
-      {/* Immunity Indicator - Shows when you have immunity shield */}
-      {/*{isImmune && (
-        <div className="immunity-indicator">
-          <span className="immunity-icon">🛡️</span>
-          <span className="immunity-text">IMMUNITY ACTIVE</span>
-        </div>
-      )}*/}
-
-      {/* Central Phase Timer - Prominent display at top */}
-      {/* {gamePhase === GAME_PHASE.HUNT && huntData && (
-        <div className={`central-phase-timer ${huntTimeRemaining <= 10000 ? 'timer-ending' : ''}`}>
-          <div className="phase-timer-header">
-            <span className="phase-timer-icon">🏃</span>
-            <span className="phase-timer-label">HUNT PHASE</span>
-          </div>
-          <div className={`phase-timer-countdown ${huntTimeRemaining <= 10000 ? 'countdown-urgent' : ''}`}>
-            {formatHuntTime(huntTimeRemaining)}
-          </div>
-          <div className="phase-timer-bar">
-            <div 
-              className={`phase-timer-fill ${huntTimeRemaining <= 10000 ? 'fill-urgent' : ''}`}
-              style={{ width: `${(huntTimeRemaining / (huntData.duration || 60000)) * 100}%` }}
-            />
-          </div>
-        </div>
-      )} */}
 
       {/* Game Info HUD - Minimalistic Arcade Style */}
       <div className="game-hud-bar">
@@ -1446,71 +1384,13 @@ function StartGame() {
         </div>
       )}
 
-      {/* Coordinates Panel */}
-      {showCoordinates && (
-        <div className="coordinates-container">
-          <div className="coordinates-header">
-            <h3>📍 Player Coordinates</h3>
-          </div>
-          <div className="coordinates-list">
-            {/* Local Player */}
-            <div className="coordinate-item current-player-coord">
-              <div className="coord-player-name">
-                {unicornId === myId && '🦄 '}
-                {myPlayer?.name || 'You'} (You)
-              </div>
-              <div className="coord-details">
-                <div className="coord-row">
-                  <span className="coord-label">Grid:</span>
-                  <span className="coord-value">Row {playerPos.row}, Col {playerPos.col}</span>
-                </div>
-                <div className="coord-row">
-                  <span className="coord-label">Pixel:</span>
-                  <span className="coord-value">X {Math.round(playerPixelPos.x)}, Y {Math.round(playerPixelPos.y)}</span>
-                </div>
-              </div>
-            </div>
-            
-            {/* Remote Players */}
-            {Object.entries(remotePlayers).map(([playerId, player]) => {
-              const pixelPos = remotePlayerPixelPos[playerId] || { x: player.x, y: player.y }
-              const remotePos = remotePlayerPositionsRef.current[playerId]
-              const isUnicorn = player.isUnicorn || playerId === unicornId
-              
-              return (
-                <div key={playerId} className={`coordinate-item ${isUnicorn ? 'unicorn-player-coord' : ''}`}>
-                  <div className="coord-player-name">
-                    {isUnicorn && '🦄 '}
-                    {player.name}
-                  </div>
-                  <div className="coord-details">
-                    <div className="coord-row">
-                      <span className="coord-label">Grid:</span>
-                      <span className="coord-value">
-                        Row {remotePos?.row || 'N/A'}, Col {remotePos?.col || 'N/A'}
-                      </span>
-                    </div>
-                    <div className="coord-row">
-                      <span className="coord-label">Pixel:</span>
-                      <span className="coord-value">X {Math.round(pixelPos.x)}, Y {Math.round(pixelPos.y)}</span>
-                    </div>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
       <div className="maze-container" ref={mazeContainerRef}>
         {/* DOM maze rendering - only show when Phaser maze is not ready */}
         {(!usePhaserMaze || !phaserMazeReady) && mazeGrid}
 
         {/* Phaser Player Layer - Smooth interpolation for ALL players + Tilemap maze rendering */}
-        {/* Wrapped in Suspense with minimal loading indicator */}
-        {usePhaserRendering && (
-          <Suspense fallback={<div className="phaser-loading" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888', fontSize: '14px' }}>Loading game...</div>}>
-            <PhaserPlayerLayer
+        <Suspense fallback={<div className="phaser-loading" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888', fontSize: '14px' }}>Loading game...</div>}>
+          <PhaserPlayerLayer
               ref={phaserLayerRef}
               localPlayerId={myId}
               remotePlayers={remotePlayers}
@@ -1537,9 +1417,8 @@ function StartGame() {
               playerCharacters={playerCharacters}
               localPlayerCharacterId={localPlayerCharacterId}
               characterImageUrls={characterImageUrls}
-            />
-          </Suspense>
-        )}
+          />
+        </Suspense>
 
         {/* Coins */}
         {coins.map(coin => {
@@ -1579,137 +1458,10 @@ function StartGame() {
           )
         })}
         
-        {/* Local Player - DOM rendering fallback (only when Phaser rendering disabled) */}
-        {!usePhaserRendering && (
-          <div
-            ref={playerRef}
-            className={`player local-player ${unicornId === myId ? 'unicorn-player unicorn-speed' : ''} ${inIFrames ? 'player-iframes' : ''} ${myPlayerState === PLAYER_STATE.FROZEN ? 'player-frozen' : ''} ${isImmune ? 'player-immune' : ''} ${knockbackActive ? 'player-knockback' : ''}`}
-            style={{
-              left: `${playerLeftPercent}%`,
-              top: `${playerTopPercent}%`,
-              transform: `translate(-50%, -50%) ${unicornId === myId ? getDirectionTransform(facingDirection) : ''}`,
-            }}
-          >
-            {/* Immunity Shield Visual */}
-            {isImmune && <div className="immunity-shield">🛡️</div>}
-            
-            {/* Unicorn Speed Lines */}
-            {unicornId === myId && (
-              <div className="speed-lines">
-                <div className="speed-line"></div>
-                <div className="speed-line"></div>
-                <div className="speed-line"></div>
-              </div>
-            )}
-            {/* Local Player Health Bar */}
-            {gamePhase === GAME_PHASE.HUNT && unicornId !== myId && (
-              <div className="player-health-bar">
-                <div 
-                  className={`player-health-fill ${myHealth <= 30 ? 'health-critical' : myHealth <= 60 ? 'health-warning' : ''}`}
-                  style={{ width: `${(myHealth / COMBAT_CONFIG.MAX_HEALTH) * 100}%` }}
-                />
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Frozen Overlay for Local Player (DOM fallback only) */}
-        {!usePhaserRendering && myPlayerState === PLAYER_STATE.FROZEN && (
-          <div 
-            className="frozen-player-overlay"
-            style={{
-              left: `${playerLeftPercent}%`,
-              top: `${playerTopPercent}%`,
-            }}
-          >
-            ❄️ FROZEN
-          </div>
-        )}
-
-        {/* Remote Players - DOM fallback when Phaser not used */}
-        {!usePhaserRendering && Object.entries(remotePlayers).map(([playerId, player]) => {
-          // Use interpolated pixel position for smooth movement
-          const pixelPos = remotePlayerPixelPos[playerId] || { x: player.x, y: player.y }
-          const remotePercent = pixelToPercent(pixelPos.x, pixelPos.y, renderLayout.mazeWidth, renderLayout.mazeHeight)
-          const remoteLeftPercent = remotePercent.left
-          const remoteTopPercent = remotePercent.top
-          const isUnicorn = player.isUnicorn || playerId === unicornId
-          const playerDirection = remotePlayerDirections[playerId] || 'right'
-          
-          // Get combat state for this player
-          const playerHealthData = playersHealth[playerId] || { health: COMBAT_CONFIG.MAX_HEALTH, maxHealth: COMBAT_CONFIG.MAX_HEALTH }
-          const isInIFrames = playerHealthData.inIFrames
-          const isFrozen = playerHealthData.state === PLAYER_STATE.FROZEN
-          const healthPercent = (playerHealthData.health / playerHealthData.maxHealth) * 100
-          const hasImmunity = immunePlayers.has(playerId)
-          const isKnockedBack = knockbackPlayers.has(playerId)
-          
-          return (
-            <div key={playerId}>
-              <div
-                className={`player remote-player ${isUnicorn ? 'unicorn-player unicorn-speed' : ''} ${isInIFrames ? 'player-iframes' : ''} ${isFrozen ? 'player-frozen' : ''} ${hasImmunity ? 'player-immune' : ''} ${isKnockedBack ? 'player-knockback' : ''}`}
-                style={{
-                  left: `${remoteLeftPercent}%`,
-                  top: `${remoteTopPercent}%`,
-                  transform: `translate(-50%, -50%) ${isUnicorn ? getDirectionTransform(playerDirection) : ''}`,
-                }}
-              >
-                {/* Immunity Shield Visual */}
-                {hasImmunity && <div className="immunity-shield">🛡️</div>}
-                
-                {/* Unicorn Speed Lines */}
-                {isUnicorn && (
-                  <div className="speed-lines">
-                    <div className="speed-line"></div>
-                    <div className="speed-line"></div>
-                    <div className="speed-line"></div>
-                  </div>
-                )}
-                
-                {/* Remote Player Health Bar (only for survivors during hunt) */}
-                {gamePhase === GAME_PHASE.HUNT && !isUnicorn && (
-                  <div className="player-health-bar">
-                    <div 
-                      className={`player-health-fill ${healthPercent <= 30 ? 'health-critical' : healthPercent <= 60 ? 'health-warning' : ''}`}
-                      style={{ width: `${healthPercent}%` }}
-                    />
-                  </div>
-                )}
-              </div>
-              
-              {/* Player Name */}
-              <div
-                className={`player-name ${isUnicorn ? 'unicorn-name' : ''} ${isFrozen ? 'frozen-name' : ''}`}
-                style={{
-                  left: `${remoteLeftPercent}%`,
-                  top: `${remoteTopPercent}%`,
-                  transform: 'translate(-50%, calc(-100% - 10px))',
-                }}
-              >
-                {isFrozen && '❄️ '}
-                {isUnicorn && '🦄 '}{player.name}
-              </div>
-              
-              {/* Frozen overlay for remote player */}
-              {isFrozen && (
-                <div 
-                  className="frozen-player-overlay remote-frozen"
-                  style={{
-                    left: `${remoteLeftPercent}%`,
-                    top: `${remoteTopPercent}%`,
-                  }}
-                >
-                  ❄️
-                </div>
-              )}
-            </div>
-          )
-        })}
-
-        {/* Player Names Overlay - Always visible even with Phaser rendering */}
-        {usePhaserRendering && Object.entries(remotePlayers).map(([playerId, player]) => {
+        {/* Player Names Overlay - Always visible with Phaser rendering */}
+        {Object.entries(remotePlayers).map(([playerId, player]) => {
           // Use ref for smoother updates when Phaser is rendering
-          const pixelPos = remotePlayerPixelPosRef.current[playerId] || remotePlayerPixelPos[playerId] || { x: player.x, y: player.y }
+          const pixelPos = remotePlayerPixelPosRef.current[playerId] || { x: player.x, y: player.y }
           const remotePercent = pixelToPercent(pixelPos.x, pixelPos.y, renderLayout.mazeWidth, renderLayout.mazeHeight)
           const remoteLeftPercent = remotePercent.left
           const remoteTopPercent = remotePercent.top
