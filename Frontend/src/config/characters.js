@@ -12,6 +12,7 @@ import fiveImg from '../assets/characters/five.png';
 import sixImg from '../assets/characters/six.png';
 import sevenImg from '../assets/characters/seven.png';
 import eightImg from '../assets/characters/eight.png';
+import unicornImg from '../assets/characters/unicorn.png';
 
 // Character IDs in order (must match backend CHARACTER_IDS)
 export const CHARACTER_IDS = ['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
@@ -66,6 +67,12 @@ export const CHARACTER_MAP = {
     id: 'nine',
     name: 'Character Nine',
     image: eightImg // Placeholder - replace with nineImg when available
+  },
+  // Special unicorn character - used when a player becomes the unicorn
+  unicorn: {
+    id: 'unicorn',
+    name: 'Unicorn',
+    image: unicornImg
   }
 };
 

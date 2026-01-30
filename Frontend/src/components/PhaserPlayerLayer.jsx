@@ -203,10 +203,19 @@ class PlayerScene extends Phaser.Scene {
 
   /**
    * Get the character texture key for a player
+   * If player is the unicorn, returns unicorn texture instead of their assigned character
    * @param {string} playerId - Player ID
    * @returns {string|null} Texture key or null if not available
    */
   getCharacterTextureKey(playerId) {
+    // If player is the unicorn, use unicorn texture
+    if (playerId === this.unicornId) {
+      const unicornTextureKey = 'char_unicorn'
+      if (this.textures.exists(unicornTextureKey)) {
+        return unicornTextureKey
+      }
+    }
+    
     const characterId = this.playerCharacters[playerId]
     if (!characterId) return null
     
@@ -219,9 +228,18 @@ class PlayerScene extends Phaser.Scene {
 
   /**
    * Get the local player's character texture key
+   * If local player is the unicorn, returns unicorn texture instead
    * @returns {string|null} Texture key or null if not available
    */
   getLocalCharacterTextureKey() {
+    // If local player is the unicorn, use unicorn texture
+    if (this.localPlayerId === this.unicornId) {
+      const unicornTextureKey = 'char_unicorn'
+      if (this.textures.exists(unicornTextureKey)) {
+        return unicornTextureKey
+      }
+    }
+    
     const characterId = this.localPlayerCharacterId
     if (!characterId) return null
     
@@ -1265,17 +1283,13 @@ class PlayerScene extends Phaser.Scene {
     let body
     
     if (textureKey) {
-      // Use character image
+      // Use character image (unicorn uses unicorn.png, others use their assigned character)
       body = this.add.image(0, 0, textureKey)
         .setOrigin(0.5, 0.5)
         .setDisplaySize(playerSize, playerSize)
       
-      // Add border/highlight for unicorn
-      if (isUnicorn) {
-        body.setTint(0xFFB6C1) // Light pink tint for unicorn
-      }
-      
       container.setData('isImageBody', true)
+      container.setData('currentTextureKey', textureKey)
     } else {
       // Fallback to circle graphics
       const color = 0x4CAF50 // Green for local player
@@ -1386,14 +1400,19 @@ class PlayerScene extends Phaser.Scene {
     
     // Update body based on type
     const body = container.getData('body')
+    const currentTextureKey = container.getData('currentTextureKey')
+    const expectedTextureKey = this.getLocalCharacterTextureKey()
+    
     if (body) {
       if (isImageBody) {
-        // For image body, update tint based on unicorn status
-        if (isUnicorn) {
-          body.setTint(0xFFB6C1) // Light pink tint for unicorn
-        } else {
-          body.clearTint()
+        // Check if texture needs to be swapped (unicorn status changed)
+        if (expectedTextureKey && currentTextureKey !== expectedTextureKey) {
+          // Swap texture
+          body.setTexture(expectedTextureKey)
+          container.setData('currentTextureKey', expectedTextureKey)
         }
+        // Clear any tint - unicorn now uses unicorn.png directly
+        body.clearTint()
         body.setDisplaySize(playerSize, playerSize)
       } else {
         // For graphics body, redraw the circle
@@ -1670,17 +1689,13 @@ class PlayerScene extends Phaser.Scene {
     let body
     
     if (textureKey) {
-      // Use character image
+      // Use character image (unicorn uses unicorn.png, others use their assigned character)
       body = this.add.image(0, 0, textureKey)
         .setOrigin(0.5, 0.5)
         .setDisplaySize(playerSize, playerSize)
       
-      // Add tint for unicorn
-      if (isUnicorn) {
-        body.setTint(0xFFB6C1) // Light pink tint for unicorn
-      }
-      
       container.setData('isImageBody', true)
+      container.setData('currentTextureKey', textureKey)
     } else {
       // Fallback to circle graphics
       const color = isLocal ? 0x4CAF50 : (isUnicorn ? 0xFF69B4 : 0x2196F3)
@@ -1777,14 +1792,19 @@ class PlayerScene extends Phaser.Scene {
     
     // Update body based on type
     const body = playerObj.getData('body')
+    const currentTextureKey = playerObj.getData('currentTextureKey')
+    const expectedTextureKey = this.getCharacterTextureKey(playerId)
+    
     if (body) {
       if (isImageBody) {
-        // For image body, update tint based on unicorn status
-        if (isUnicorn) {
-          body.setTint(0xFFB6C1) // Light pink tint for unicorn
-        } else {
-          body.clearTint()
+        // Check if texture needs to be swapped (unicorn status changed)
+        if (expectedTextureKey && currentTextureKey !== expectedTextureKey) {
+          // Swap texture
+          body.setTexture(expectedTextureKey)
+          playerObj.setData('currentTextureKey', expectedTextureKey)
         }
+        // Clear any tint - unicorn now uses unicorn.png directly
+        body.clearTint()
         body.setDisplaySize(playerSize, playerSize)
       } else {
         // For graphics body, redraw the circle
