@@ -63,6 +63,12 @@ class PlayerScene extends Phaser.Scene {
     this.localPlayerCharacterId = null       // Local player's character ID
     this.characterTexturesLoaded = false     // Whether character textures have been loaded
     this.loadedCharacterTextures = new Set() // Set of loaded character texture keys
+    
+    // Local player name
+    this.localPlayerName = null              // Local player's display name
+    
+    // Health data for remote players
+    this.playersHealth = null                // Object of playerId -> health data
   }
 
   create() {
@@ -112,6 +118,22 @@ class PlayerScene extends Phaser.Scene {
    */
   setLocalPlayerCharacterId(characterId) {
     this.localPlayerCharacterId = characterId
+  }
+
+  /**
+   * Set local player's display name
+   * @param {string} name - Display name
+   */
+  setLocalPlayerName(name) {
+    this.localPlayerName = name
+  }
+
+  /**
+   * Set players health data for visual updates
+   * @param {Object} healthData - Object of playerId -> health data
+   */
+  setPlayersHealth(healthData) {
+    this.playersHealth = healthData
   }
 
   /**
@@ -1303,19 +1325,29 @@ class PlayerScene extends Phaser.Scene {
     }
     container.add(body)
     
-    // Unicorn emoji indicator (only if using circle fallback or to add visual indicator)
+    // Unicorn rotating pink dashed ring (keep visual effect, emoji now in name text)
     if (isUnicorn) {
-      const unicornEmoji = this.add.text(0, -playerSize / 2 - 10, '🦄', {
-        fontSize: `${playerSize * 0.5}px`,
-      }).setOrigin(0.5, 0.5)
-      container.add(unicornEmoji)
-      container.setData('unicornEmoji', unicornEmoji)
-      
-      // Permanent rotating pink dashed ring for unicorn
       const unicornRing = this.createIframesDashedRing(playerSize / 2 + 6, 3, 0xFF69B4, 0.9)
       container.add(unicornRing)
       container.setData('unicornRing', unicornRing)
     }
+    
+    // Player name text (positioned at top, above player)
+    // Always show "You" for local player (other players see our actual name on their screens)
+    const playerName = 'You'
+    const isFrozen = state.isFrozen
+    const namePrefix = isUnicorn ? '🦄 ' : (isFrozen ? '❄️ ' : '')
+    const nameText = this.add.text(0, -playerSize / 2 - 8, namePrefix + playerName, {
+      fontSize: '12px',
+      fontFamily: 'Arial, sans-serif',
+      color: isUnicorn ? '#FF69B4' : '#ffffff',
+      stroke: '#000000',
+      strokeThickness: 3,
+      shadow: { offsetX: 0, offsetY: 2, color: '#000000', blur: 4, fill: true }
+    }).setOrigin(0.5, 1)
+    container.add(nameText)
+    container.setData('nameText', nameText)
+    container.setData('name', playerName)
     
     // Immunity shield (visual ring)
     if (state.isImmune) {
@@ -1424,17 +1456,13 @@ class PlayerScene extends Phaser.Scene {
       }
     }
     
-    // Update or create unicorn emoji (positioned above player for images)
-    const existingEmoji = container.getData('unicornEmoji')
-    if (isUnicorn && !existingEmoji) {
-      const unicornEmoji = this.add.text(0, -playerSize / 2 - 10, '🦄', {
-        fontSize: `${playerSize * 0.5}px`,
-      }).setOrigin(0.5, 0.5)
-      container.add(unicornEmoji)
-      container.setData('unicornEmoji', unicornEmoji)
-    } else if (!isUnicorn && existingEmoji) {
-      existingEmoji.destroy()
-      container.setData('unicornEmoji', null)
+    // Update name text prefix based on unicorn/frozen status
+    const existingNameText = container.getData('nameText')
+    if (existingNameText) {
+      // Always show "You" for local player
+      const namePrefix = isUnicorn ? '🦄 ' : (state.isFrozen ? '❄️ ' : '')
+      existingNameText.setText(namePrefix + 'You')
+      existingNameText.setColor(isUnicorn ? '#FF69B4' : '#ffffff')
     }
     
     // Update or create unicorn rotating pink ring
@@ -1679,7 +1707,7 @@ class PlayerScene extends Phaser.Scene {
     this.localPlayerObj.y = currentPos.y
   }
 
-  createPlayerGraphic(isUnicorn, isLocal, health, maxHealth, inIFrames, isFrozen, hasImmunity, isKnockedBack, playerId = null) {
+  createPlayerGraphic(isUnicorn, isLocal, health, maxHealth, inIFrames, isFrozen, hasImmunity, isKnockedBack, playerId = null, playerName = null) {
     const container = this.add.container(0, 0)
     
     const playerSize = this.cellSize * PLAYER_SIZE_RATIO
@@ -1713,19 +1741,27 @@ class PlayerScene extends Phaser.Scene {
     
     container.add(body)
     
-    // Unicorn emoji indicator (positioned above for images)
+    // Unicorn rotating pink dashed ring (keep visual effect, emoji now in name text)
     if (isUnicorn) {
-      const unicornEmoji = this.add.text(0, -playerSize / 2 - 10, '🦄', {
-        fontSize: `${playerSize * 0.5}px`,
-      }).setOrigin(0.5, 0.5)
-      container.add(unicornEmoji)
-      container.setData('unicornEmoji', unicornEmoji)
-      
-      // Permanent rotating pink dashed ring for unicorn
       const unicornRing = this.createIframesDashedRing(playerSize / 2 + 6, 3, 0xFF69B4, 0.9)
       container.add(unicornRing)
       container.setData('unicornRing', unicornRing)
     }
+    
+    // Player name text (positioned at top, above player)
+    const displayName = playerName || 'Player'
+    const namePrefix = isUnicorn ? '🦄 ' : (isFrozen ? '❄️ ' : '')
+    const nameText = this.add.text(0, -playerSize / 2 - 8, namePrefix + displayName, {
+      fontSize: '12px',
+      fontFamily: 'Arial, sans-serif',
+      color: isUnicorn ? '#FF69B4' : '#ffffff',
+      stroke: '#000000',
+      strokeThickness: 3,
+      shadow: { offsetX: 0, offsetY: 2, color: '#000000', blur: 4, fill: true }
+    }).setOrigin(0.5, 1)
+    container.add(nameText)
+    container.setData('nameText', nameText)
+    container.setData('name', displayName)
     
     // Immunity shield
     if (hasImmunity) {
@@ -1817,17 +1853,16 @@ class PlayerScene extends Phaser.Scene {
       }
     }
     
-    // Update unicorn emoji
-    const existingEmoji = playerObj.getData('unicornEmoji')
-    if (isUnicorn && !existingEmoji) {
-      const unicornEmoji = this.add.text(0, -playerSize / 2 - 10, '🦄', {
-        fontSize: `${playerSize * 0.5}px`,
-      }).setOrigin(0.5, 0.5)
-      playerObj.add(unicornEmoji)
-      playerObj.setData('unicornEmoji', unicornEmoji)
-    } else if (!isUnicorn && existingEmoji) {
-      existingEmoji.destroy()
-      playerObj.setData('unicornEmoji', null)
+    // Update name text prefix based on unicorn/frozen status
+    const existingNameText = playerObj.getData('nameText')
+    if (existingNameText) {
+      const playerName = playerObj.getData('name') || 'Player'
+      // Get frozen state from playersHealth if available
+      const healthData = this.playersHealth?.[playerId] || {}
+      const isFrozen = healthData.state === 'frozen'
+      const namePrefix = isUnicorn ? '🦄 ' : (isFrozen ? '❄️ ' : '')
+      existingNameText.setText(namePrefix + playerName)
+      existingNameText.setColor(isUnicorn ? '#FF69B4' : '#ffffff')
     }
     
     // Update unicorn rotating pink ring
@@ -1863,7 +1898,8 @@ class PlayerScene extends Phaser.Scene {
       options.isFrozen,
       options.hasImmunity,
       options.isKnockedBack,
-      playerId // Pass playerId for character texture lookup
+      playerId, // Pass playerId for character texture lookup
+      options.name // Pass player name for name text rendering
     )
     
     playerObj.x = pixelX
@@ -2147,6 +2183,8 @@ const PhaserPlayerLayer = forwardRef(({
   playerCharacters = {},           // Map of playerId -> characterId
   localPlayerCharacterId = null,   // Local player's character ID
   characterImageUrls = null,       // Map of characterId -> imageUrl
+  // Local player name prop
+  localPlayerName = null,          // Local player's display name
 }, ref) => {
   const gameRef = useRef(null)
   const sceneRef = useRef(null)
@@ -2268,6 +2306,18 @@ const PhaserPlayerLayer = forwardRef(({
       }
     }
   }, [localPlayerCharacterId, sceneReady])
+
+  // Set local player name (stored for reference, but display always shows "You")
+  useEffect(() => {
+    if (!sceneReady || !sceneRef.current) return
+    sceneRef.current.setLocalPlayerName(localPlayerName)
+  }, [localPlayerName, sceneReady])
+
+  // Set players health data for frozen status in name display
+  useEffect(() => {
+    if (!sceneReady || !sceneRef.current) return
+    sceneRef.current.setPlayersHealth(playersHealth)
+  }, [playersHealth, sceneReady])
 
   // Handle renderMaze prop changes
   useEffect(() => {

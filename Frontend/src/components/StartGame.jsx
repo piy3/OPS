@@ -1417,6 +1417,8 @@ function StartGame() {
               playerCharacters={playerCharacters}
               localPlayerCharacterId={localPlayerCharacterId}
               characterImageUrls={characterImageUrls}
+              // Local player name for Phaser name rendering
+              localPlayerName={myPlayer?.name}
           />
         </Suspense>
 
@@ -1458,47 +1460,6 @@ function StartGame() {
           )
         })}
         
-        {/* Player Names Overlay - Always visible with Phaser rendering */}
-        {Object.entries(remotePlayers).map(([playerId, player]) => {
-          // Use ref for smoother updates when Phaser is rendering
-          const pixelPos = remotePlayerPixelPosRef.current[playerId] || { x: player.x, y: player.y }
-          const remotePercent = pixelToPercent(pixelPos.x, pixelPos.y, renderLayout.mazeWidth, renderLayout.mazeHeight)
-          const remoteLeftPercent = remotePercent.left
-          const remoteTopPercent = remotePercent.top
-          const isUnicorn = player.isUnicorn || playerId === unicornId
-          const playerHealthData = playersHealth[playerId] || { health: COMBAT_CONFIG.MAX_HEALTH, maxHealth: COMBAT_CONFIG.MAX_HEALTH }
-          const isFrozen = playerHealthData.state === PLAYER_STATE.FROZEN
-          
-          return (
-            <div key={`name-${playerId}`}>
-              {/* Player Name */}
-              <div
-                className={`player-name ${isUnicorn ? 'unicorn-name' : ''} ${isFrozen ? 'frozen-name' : ''}`}
-                style={{
-                  left: `${remoteLeftPercent}%`,
-                  top: `${remoteTopPercent}%`,
-                  transform: 'translate(-50%, calc(-100% - 10px))',
-                }}
-              >
-                {isFrozen && '❄️ '}
-                {isUnicorn && '🦄 '}{player.name}
-              </div>
-              
-              {/* Frozen overlay for remote player */}
-              {isFrozen && (
-                <div 
-                  className="frozen-player-overlay remote-frozen"
-                  style={{
-                    left: `${remoteLeftPercent}%`,
-                    top: `${remoteTopPercent}%`,
-                  }}
-                >
-                  ❄️
-                </div>
-              )}
-            </div>
-          )
-        })}
       </div>
 
       {/* Role Instruction Bar - Subtle hint at bottom for new players */}
