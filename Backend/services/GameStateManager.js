@@ -61,8 +61,15 @@ class GameStateManager {
      * Clean up game state for a room
      */
     cleanupRoom(roomCode) {
+        const room = roomManager.getRoom(roomCode);
+        
         positionManager.cleanupRoom(roomCode);
-        combatManager.cleanupRoom([]);
+        // Clean up combat state for each player
+        if (room?.players) {
+            room.players.forEach(player => {
+                combatManager.cleanupPlayer(player.id);
+            });
+        }
         coinManager.cleanupRoom(roomCode);
         powerupManager.cleanupRoom(roomCode);
         quizManager.clearQuizState(roomCode);

@@ -107,7 +107,6 @@ export const COMBAT_CONFIG = {
     KNOCKBACK_DURATION: 300,        // Duration of knockback animation in ms
     
     // Zero Health / Death
-    FREEZE_DURATION: 5000,          // 5 seconds frozen when health reaches 0 (legacy, not used with unfreeze quiz)
     RESPAWN_HEALTH: 50,             // Health after respawn (50%)
     
     // Player States
@@ -159,24 +158,15 @@ export const COIN_CONFIG = {
         { row: 4, col: 3 },
         { row: 4, col: 15 },
         { row: 4, col: 28 },
-        // { row: 7, col: 8 },
-        // { row: 7, col: 23 },
         { row: 10, col: 1 },
         { row: 10, col: 15 },
         { row: 10, col: 30 },
         { row: 13, col: 6 },
         { row: 13, col: 25 },
-        // { row: 16, col: 3 },
-        // { row: 16, col: 15 },
-        // { row: 16, col: 28 },
-        // { row: 19, col: 8 },
-        // { row: 19, col: 23 },
         { row: 22, col: 6 },
         { row: 22, col: 15 },
         { row: 22, col: 25 },
         { row: 25, col: 3 },
-        // { row: 25, col: 12 },
-        // { row: 25, col: 19 },
         { row: 25, col: 28 }
     ]
 };
@@ -330,9 +320,6 @@ export const GAME_CONFIG = {
     POSITION_UPDATE_RATE: 30,                // Target updates per second
     POSITION_UPDATE_INTERVAL: 30,            // 30ms between updates (~33fps)
     CLIENT_POSITION_SEND_INTERVAL: 33,       // Frontend sends at 33ms (~30fps)
-    
-    // Legacy (keep for backwards compat, but use above values)
-    MAX_POSITION_UPDATE_RATE: 30,
     
     MAX_POSITION_HISTORY: 10, // Keep last N positions for lag compensation
     POSITION_VALIDATION: {
