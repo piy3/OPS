@@ -4,6 +4,9 @@
  */
 
 import { ROOM_CONFIG, ROOM_STATUS, COMBAT_CONFIG, PLAYER_STATE, getNextAvailableCharacterId } from '../config/constants.js';
+
+// Extract starting coins from config for easy reference
+const STARTING_COINS = ROOM_CONFIG.STARTING_COINS;
 import { generateRoomCode, generateDefaultPlayerName } from '../utils/roomUtils.js';
 
 class RoomManager {
@@ -27,7 +30,7 @@ class RoomManager {
                 name: playerData?.name || generateDefaultPlayerName(socketId),
                 isHost: true,
                 isUnicorn: false, // Will be assigned when game starts
-                coins: 100, // Starting coins
+                coins: STARTING_COINS, // Starting coins
                 health: COMBAT_CONFIG.STARTING_HEALTH, // Starting health
                 state: PLAYER_STATE.ACTIVE, // Player state
                 isImmune: false, // Immunity powerup
@@ -111,7 +114,7 @@ class RoomManager {
             name: playerName || generateDefaultPlayerName(socketId),
             isHost: false,
             isUnicorn: false,
-            coins: 100, // Starting coins
+            coins: STARTING_COINS, // Starting coins
             health: COMBAT_CONFIG.STARTING_HEALTH, // Starting health
             state: PLAYER_STATE.ACTIVE, // Player state
             isImmune: false, // Immunity powerup
@@ -205,6 +208,7 @@ class RoomManager {
 
     /**
      * Start game in room
+     * Resets all player coins to STARTING_COINS for a fresh leaderboard
      * @param {string} roomCode - Room code
      * @returns {Object|null} Updated room object or null
      */
@@ -213,6 +217,12 @@ class RoomManager {
         if (!room) return null;
 
         room.status = ROOM_STATUS.PLAYING;
+        
+        // Reset all player coins to starting amount for the new game
+        // This ensures the central leaderboard starts fresh for each game
+        room.players.forEach(player => {
+            player.coins = STARTING_COINS;
+        });
         
         // Assign first player as unicorn when game starts
         if (room.players.length > 0 && !room.unicornId) {
