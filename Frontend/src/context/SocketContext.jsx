@@ -60,7 +60,8 @@ const SocketEventHandler = ({ children }) => {
     setQuizActive, setQuizData, setQuizResults,
     setBlitzQuizActive, setBlitzQuizData, setBlitzQuizResults,
     setHuntData, setHuntTimeRemaining, setTagNotification,
-    setUnfreezeQuizActive, setUnfreezeQuizData
+    setUnfreezeQuizActive, setUnfreezeQuizData,
+    setRoundInfo
   } = useGamePhase();
   
   const {
@@ -154,6 +155,12 @@ const SocketEventHandler = ({ children }) => {
         setLeaderboard(data.gameState.leaderboard);
       }
       
+      // Set round info from payload
+      if (data.roundInfo) {
+        log.log('🎯 Round info:', data.roundInfo);
+        setRoundInfo(data.roundInfo);
+      }
+      
       // Use ref to avoid stale closure
       if (locationRef.current !== '/startgame') {
         navigate('/startgame');
@@ -163,7 +170,7 @@ const SocketEventHandler = ({ children }) => {
     return () => {
       socketService.removeAllListeners('game_started');
     };
-  }, [navigate, setRoomData, setGameState, setUnicornId, setLeaderboard]);
+  }, [navigate, setRoomData, setGameState, setUnicornId, setLeaderboard, setRoundInfo]);
 
   // ========== EFFECT 3: Game Phase & Quiz Events ==========
   // Handles: freeze, quiz, blitz, phase changes, hunt, tagging
@@ -234,8 +241,16 @@ const SocketEventHandler = ({ children }) => {
     socketService.onPhaseChange((data) => {
       log.log('🔄 ===== PHASE CHANGE =====');
       log.log(`${data.previousPhase} → ${data.phase}`);
+      if (data.roundInfo) {
+        log.log('Round:', data.roundInfo.currentRound, '/', data.roundInfo.totalRounds);
+      }
       log.log('===========================');
       setGamePhase(data.phase);
+      
+      // Update round info if present
+      if (data.roundInfo) {
+        setRoundInfo(data.roundInfo);
+      }
     });
 
     // Blitz Quiz
@@ -324,7 +339,7 @@ const SocketEventHandler = ({ children }) => {
     setIsGameFrozen, setFreezeMessage, setQuizActive, setQuizData, setQuizResults,
     setGamePhase, setBlitzQuizActive, setBlitzQuizData, setBlitzQuizResults,
     setUnicornId, setReserveUnicornId, setTagNotification,
-    setLeaderboard
+    setLeaderboard, setRoundInfo
   ]);
 
   // ========== EFFECT 4: Hunt Start (bridges phase & combat) ==========
@@ -345,6 +360,12 @@ const SocketEventHandler = ({ children }) => {
         reserveUnicornName: data.reserveUnicornName
       });
       setHuntTimeRemaining(data.duration);
+      
+      // Update round info if present
+      if (data.roundInfo) {
+        log.log('🎯 Hunt start round info:', data.roundInfo);
+        setRoundInfo(data.roundInfo);
+      }
 
       // Combat state - reset for new round
       setPowerups([]);
@@ -379,7 +400,7 @@ const SocketEventHandler = ({ children }) => {
   }, [
     setIsGameFrozen, setBlitzQuizResults, setHuntData, setHuntTimeRemaining,
     setPowerups, setPowerupCollectNotification, setInIFrames, setPlayersHealth,
-    setMyHealth, setMyPlayerState
+    setMyHealth, setMyPlayerState, setRoundInfo
   ]);
 
   // ========== EFFECT 5: Combat Events ==========
@@ -594,6 +615,40 @@ const SocketEventHandler = ({ children }) => {
       socketService.removeAllListeners('unfreeze_quiz_cancelled');
     };
   }, [setUnfreezeQuizActive, setUnfreezeQuizData]);
+
+  // ========== EFFECT 6b: Game End Event ==========
+  // Handles: game end when all rounds are completed
+  useEffect(() => {
+    socketService.onGameEnd((data) => {
+      log.log('🏆 ===== GAME END =====');
+      log.log('Room:', data.roomCode);
+      log.log('Total Rounds:', data.totalRounds);
+      log.log('Leaderboard:', data.leaderboard?.map(p => `${p.name}: ${p.coins}`).join(', '));
+      log.log('======================');
+      
+      // Set phase to GAME_END
+      setGamePhase(GAME_PHASE.GAME_END);
+      
+      // Update leaderboard with final standings
+      if (data.leaderboard) {
+        setLeaderboard(data.leaderboard);
+      }
+      
+      // Clear any active game state
+      setIsGameFrozen(false);
+      setBlitzQuizActive(false);
+      setBlitzQuizData(null);
+      setBlitzQuizResults(null);
+      setUnfreezeQuizActive(false);
+      setUnfreezeQuizData(null);
+      setHuntData(null);
+      setRoundInfo(null); // Clear round info on game end
+    });
+
+    return () => {
+      socketService.removeAllListeners('game_end');
+    };
+  }, [setGamePhase, setLeaderboard, setIsGameFrozen, setBlitzQuizActive, setBlitzQuizData, setBlitzQuizResults, setUnfreezeQuizActive, setUnfreezeQuizData, setHuntData, setRoundInfo]);
 
   // ========== EFFECT 7: Coins & Powerups ==========
   // Handles: coin/powerup spawn, collection, activation, expiration

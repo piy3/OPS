@@ -503,6 +503,16 @@ class SocketService {
     socket.on('unfreeze_quiz_cancelled', callback);
   }
 
+  // ========== GAME END EVENTS ==========
+
+  /**
+   * Listen for game end event (all rounds completed)
+   */
+  onGameEnd(callback) {
+    const socket = this.getSocket();
+    socket.on('game_end', callback);
+  }
+
   /**
    * Remove event listener
    */

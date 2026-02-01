@@ -404,6 +404,44 @@ body, html {
   text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
 }
 
+/* Round Indicator */
+.hud-round {
+  font-size: 0.85rem;
+  font-weight: 700;
+  padding: 4px 10px;
+  background: rgba(100, 149, 237, 0.3);
+  border: 1px solid rgba(100, 149, 237, 0.6);
+  border-radius: 8px;
+  color: #87CEEB;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.hud-round-final {
+  background: rgba(255, 165, 0, 0.35);
+  border-color: rgba(255, 165, 0, 0.7);
+  color: #FFA500;
+  animation: finalRoundPulse 1.5s ease-in-out infinite;
+}
+
+.hud-round-final-badge {
+  font-size: 0.6rem;
+  font-weight: 800;
+  background: rgba(255, 69, 0, 0.5);
+  color: #FFD700;
+  padding: 2px 5px;
+  border-radius: 4px;
+  margin-left: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+@keyframes finalRoundPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.02); }
+}
+
 /* Role */
 .hud-role {
   font-size: 0.8rem;
@@ -649,6 +687,16 @@ body, html {
     font-size: 1rem;
   }
   
+  .hud-round {
+    font-size: 0.75rem;
+    padding: 3px 8px;
+  }
+  
+  .hud-round-final-badge {
+    font-size: 0.5rem;
+    padding: 1px 4px;
+  }
+  
   .hud-role {
     font-size: 0.7rem;
     padding: 3px 8px;
@@ -717,6 +765,17 @@ body, html {
     font-size: 0.9rem;
   }
   
+  .hud-round {
+    font-size: 0.65rem;
+    padding: 2px 6px;
+  }
+  
+  .hud-round-final-badge {
+    font-size: 0.45rem;
+    padding: 1px 3px;
+    margin-left: 2px;
+  }
+
   .hud-role {
     font-size: 0.6rem;
     padding: 2px 6px;
@@ -1884,4 +1943,271 @@ body, html {
   height: 300vh;
   background: rgba(0, 0, 0, 0.5);
   z-index: -1;
+}
+
+/* ========== GAME END SCREEN ========== */
+.game-end-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  animation: fadeIn 0.5s ease-out;
+}
+
+.game-end-container {
+  background: linear-gradient(145deg, #1a1a2e 0%, #16213e 50%, #0f0f1a 100%);
+  border: 3px solid #FFD700;
+  border-radius: 20px;
+  padding: 40px 50px;
+  max-width: 500px;
+  width: 90%;
+  text-align: center;
+  box-shadow: 
+    0 0 40px rgba(255, 215, 0, 0.3),
+    0 0 80px rgba(128, 0, 128, 0.2),
+    inset 0 0 40px rgba(255, 215, 0, 0.05);
+  animation: scaleIn 0.4s ease-out;
+}
+
+@keyframes scaleIn {
+  from {
+    transform: scale(0.8);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.game-end-header {
+  margin-bottom: 30px;
+}
+
+.game-end-title {
+  font-size: 2.5rem;
+  font-weight: 800;
+  color: #FFD700;
+  text-shadow: 
+    0 0 10px rgba(255, 215, 0, 0.5),
+    0 0 20px rgba(255, 215, 0, 0.3);
+  margin: 0 0 10px 0;
+  animation: glow 2s ease-in-out infinite alternate;
+}
+
+@keyframes glow {
+  from {
+    text-shadow: 
+      0 0 10px rgba(255, 215, 0, 0.5),
+      0 0 20px rgba(255, 215, 0, 0.3);
+  }
+  to {
+    text-shadow: 
+      0 0 20px rgba(255, 215, 0, 0.8),
+      0 0 40px rgba(255, 215, 0, 0.5);
+  }
+}
+
+.game-end-subtitle {
+  font-size: 1.2rem;
+  color: #aaa;
+  margin: 0;
+}
+
+.game-end-leaderboard {
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 30px;
+}
+
+.game-end-leaderboard-title {
+  font-size: 1.3rem;
+  color: #FFD700;
+  margin: 0 0 15px 0;
+  font-weight: 700;
+}
+
+.game-end-leaderboard-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.game-end-leaderboard-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.game-end-leaderboard-list::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+}
+
+.game-end-leaderboard-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 215, 0, 0.3);
+  border-radius: 3px;
+}
+
+.game-end-player-row {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  transition: all 0.2s ease;
+}
+
+.game-end-player-row:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.game-end-player-winner {
+  background: linear-gradient(90deg, rgba(255, 215, 0, 0.2) 0%, rgba(255, 215, 0, 0.05) 100%);
+  border: 1px solid rgba(255, 215, 0, 0.3);
+}
+
+.game-end-player-you {
+  background: linear-gradient(90deg, rgba(128, 0, 128, 0.3) 0%, rgba(128, 0, 128, 0.1) 100%);
+  border: 1px solid rgba(128, 0, 128, 0.5);
+}
+
+.game-end-player-winner.game-end-player-you {
+  background: linear-gradient(90deg, rgba(255, 215, 0, 0.3) 0%, rgba(128, 0, 128, 0.2) 100%);
+  border: 1px solid rgba(255, 215, 0, 0.5);
+}
+
+.game-end-rank {
+  font-size: 1.4rem;
+  min-width: 40px;
+  text-align: center;
+}
+
+.game-end-name {
+  flex: 1;
+  font-size: 1.1rem;
+  color: #fff;
+  text-align: left;
+  padding-left: 10px;
+  font-weight: 500;
+}
+
+.game-end-you-badge {
+  color: #B388FF;
+  font-size: 0.85rem;
+  font-weight: 400;
+  margin-left: 8px;
+}
+
+.game-end-coins {
+  font-size: 1.1rem;
+  color: #FFD700;
+  font-weight: 700;
+  min-width: 80px;
+  text-align: right;
+}
+
+.game-end-actions {
+  display: flex;
+  justify-content: center;
+  gap: 15px;
+}
+
+.game-end-leave-btn {
+  background: linear-gradient(180deg, #8B5CF6 0%, #6D28D9 100%);
+  border: none;
+  color: white;
+  font-size: 1.1rem;
+  font-weight: 700;
+  padding: 14px 40px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 15px rgba(139, 92, 246, 0.4);
+}
+
+.game-end-leave-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(139, 92, 246, 0.6);
+  background: linear-gradient(180deg, #9D6DFA 0%, #7C3AED 100%);
+}
+
+.game-end-leave-btn:active {
+  transform: translateY(0);
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+  .game-end-container {
+    padding: 30px 25px;
+    max-width: 95%;
+  }
+  
+  .game-end-title {
+    font-size: 2rem;
+  }
+  
+  .game-end-subtitle {
+    font-size: 1rem;
+  }
+  
+  .game-end-leaderboard-title {
+    font-size: 1.1rem;
+  }
+  
+  .game-end-player-row {
+    padding: 10px 12px;
+  }
+  
+  .game-end-rank {
+    font-size: 1.2rem;
+    min-width: 35px;
+  }
+  
+  .game-end-name {
+    font-size: 1rem;
+  }
+  
+  .game-end-coins {
+    font-size: 1rem;
+    min-width: 70px;
+  }
+  
+  .game-end-leave-btn {
+    font-size: 1rem;
+    padding: 12px 30px;
+  }
+}
+
+@media (max-width: 480px) {
+  .game-end-container {
+    padding: 25px 20px;
+  }
+  
+  .game-end-title {
+    font-size: 1.6rem;
+  }
+  
+  .game-end-leaderboard {
+    padding: 15px;
+  }
+  
+  .game-end-leaderboard-list {
+    max-height: 220px;
+  }
+  
+  .game-end-player-row {
+    padding: 8px 10px;
+  }
+  
+  .game-end-you-badge {
+    display: none;
+  }
 }

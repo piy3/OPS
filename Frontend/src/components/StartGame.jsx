@@ -105,7 +105,9 @@ function StartGame() {
     immunePlayers,
     // Knockback state
     knockbackActive,
-    knockbackPlayers
+    knockbackPlayers,
+    // Round info
+    roundInfo
   } = useSocket()
   
   // Sound controls
@@ -1217,8 +1219,57 @@ function StartGame() {
   // Get character image URLs for Phaser texture loading
   const characterImageUrls = useMemo(() => getCharacterImageUrls(), []);
 
+  // Handle leave room (used by game-end screen)
+  const handleLeaveRoom = useCallback(() => {
+    socketService.leaveRoom()
+    navigate('/')
+  }, [socketService, navigate])
+
   return (
     <div className="game-container">
+      {/* ============ GAME END SCREEN ============ */}
+      {/* Full-screen overlay when game ends (all rounds completed) */}
+      {gamePhase === GAME_PHASE.GAME_END && (
+        <div className="game-end-overlay">
+          <div className="game-end-container">
+            <div className="game-end-header">
+              <h1 className="game-end-title">🏆 Game Over!</h1>
+              <p className="game-end-subtitle">Final Results</p>
+            </div>
+            
+            <div className="game-end-leaderboard">
+              <h2 className="game-end-leaderboard-title">Leaderboard</h2>
+              <div className="game-end-leaderboard-list">
+                {leaderboard.map((player, index) => (
+                  <div 
+                    key={player.id} 
+                    className={`game-end-player-row ${player.id === myId ? 'game-end-player-you' : ''} ${index === 0 ? 'game-end-player-winner' : ''}`}
+                  >
+                    <span className="game-end-rank">
+                      {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`}
+                    </span>
+                    <span className="game-end-name">
+                      {player.name}
+                      {player.id === myId && <span className="game-end-you-badge">(You)</span>}
+                    </span>
+                    <span className="game-end-coins">💰 {player.coins}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            
+            <div className="game-end-actions">
+              <button 
+                className="game-end-leave-btn"
+                onClick={handleLeaveRoom}
+              >
+                Back to Lobby
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ============ SUSPENSE BOUNDARY FOR MODALS ============ */}
       {/* Lazy-loaded modals share a single Suspense boundary with null fallback */}
       <Suspense fallback={null}>
@@ -1290,6 +1341,14 @@ function StartGame() {
           )}
           {gamePhase === GAME_PHASE.BLITZ_QUIZ && (
             <span className="hud-stat hud-phase hud-phase-blitz">⚡ BLITZ</span>
+          )}
+
+          {/* Round Indicator - Show during active phases */}
+          {roundInfo && (gamePhase === GAME_PHASE.HUNT || gamePhase === GAME_PHASE.BLITZ_QUIZ) && (
+            <span className={`hud-stat hud-round ${roundInfo.roundsRemaining === 1 ? 'hud-round-final' : ''}`}>
+              🎯 R{roundInfo.currentRound}/{roundInfo.totalRounds}
+              {roundInfo.roundsRemaining === 1 && <span className="hud-round-final-badge">FINAL</span>}
+            </span>
           )}
 
           {/* Role - Short */}

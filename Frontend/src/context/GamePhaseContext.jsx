@@ -11,7 +11,8 @@ export const GAME_PHASE = {
   WAITING: 'waiting',
   BLITZ_QUIZ: 'blitz_quiz',
   HUNT: 'hunt',
-  ROUND_END: 'round_end'
+  ROUND_END: 'round_end',
+  GAME_END: 'game_end'
 };
 
 const GamePhaseContext = createContext(null);
@@ -50,6 +51,9 @@ export const GamePhaseProvider = ({ children }) => {
   // Unfreeze Quiz state (personal quiz when player health reaches 0)
   const [unfreezeQuizActive, setUnfreezeQuizActive] = useState(false);
   const [unfreezeQuizData, setUnfreezeQuizData] = useState(null);
+
+  // Round info state: { currentRound, totalRounds, roundsRemaining } or null
+  const [roundInfo, setRoundInfo] = useState(null);
 
   // Ref to track last warning second played (prevents duplicate plays)
   const lastWarningSecondRef = useRef(null);
@@ -129,12 +133,16 @@ export const GamePhaseProvider = ({ children }) => {
     setUnfreezeQuizActive,
     unfreezeQuizData,
     setUnfreezeQuizData,
+    // Round Info
+    roundInfo,
+    setRoundInfo,
   }), [
     gameState, gamePhase, isGameFrozen, freezeMessage,
     quizActive, quizData, quizResults,
     blitzQuizActive, blitzQuizData, blitzQuizResults,
     huntData, huntTimeRemaining, tagNotification,
-    unfreezeQuizActive, unfreezeQuizData
+    unfreezeQuizActive, unfreezeQuizData,
+    roundInfo
   ]);
 
   return (

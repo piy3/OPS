@@ -1339,7 +1339,7 @@ class PlayerScene extends Phaser.Scene {
     const namePrefix = isUnicorn ? '🦄 ' : (isFrozen ? '❄️ ' : '')
     const nameText = this.add.text(0, -playerSize / 2 - 8, namePrefix + playerName, {
       fontSize: '12px',
-      fontFamily: 'Arial, sans-serif',
+      fontFamily: 'Arial, sans-serif', 
       color: isUnicorn ? '#FF69B4' : '#ffffff',
       stroke: '#000000',
       strokeThickness: 3,
