@@ -38,7 +38,8 @@ export const GAME_PHASE = {
     WAITING: 'waiting',           // Before game starts
     BLITZ_QUIZ: 'blitz_quiz',     // All players answer quiz simultaneously
     HUNT: 'hunt',                 // Active gameplay - unicorn hunts survivors
-    ROUND_END: 'round_end'        // Brief pause between rounds
+    ROUND_END: 'round_end',       // Brief pause between rounds
+    GAME_END: 'game_end'          // Game has ended (all rounds completed)
 };
 
 /**
@@ -57,6 +58,9 @@ export const GAME_LOOP_CONFIG = {
     
     // Game Loop
     GAME_LOOP_INTERVAL: 60000,      // Blitz Quiz every 60 seconds during hunt
+    
+    // Game Length
+    TOTAL_GAME_ROUNDS: 4,           // Number of rounds before game ends (1 round = Blitz + Hunt)
     
     // Scoring
     TAG_SCORE_STEAL: 15,            // Unicorn steals 15 points per tag
@@ -279,7 +283,9 @@ export const SOCKET_EVENTS = {
         UNFREEZE_QUIZ_START: 'unfreeze_quiz_start',           // Personal unfreeze quiz started
         UNFREEZE_QUIZ_ANSWER_RESULT: 'unfreeze_quiz_answer_result', // Feedback on submitted answer
         UNFREEZE_QUIZ_COMPLETE: 'unfreeze_quiz_complete',     // Quiz passed, player unfrozen
-        UNFREEZE_QUIZ_CANCELLED: 'unfreeze_quiz_cancelled'    // Quiz cancelled (blitz started)
+        UNFREEZE_QUIZ_CANCELLED: 'unfreeze_quiz_cancelled',   // Quiz cancelled (blitz started)
+        // Game End Events
+        GAME_END: 'game_end'                                  // Game has ended (all rounds completed)
     }
 };
 

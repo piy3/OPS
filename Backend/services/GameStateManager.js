@@ -13,7 +13,7 @@
  */
 
 import roomManager from './RoomManager.js';
-import { SOCKET_EVENTS, GAME_PHASE, COMBAT_CONFIG, PLAYER_STATE, UNFREEZE_QUIZ_CONFIG } from '../config/constants.js';
+import { SOCKET_EVENTS, GAME_PHASE, GAME_LOOP_CONFIG, COMBAT_CONFIG, PLAYER_STATE, UNFREEZE_QUIZ_CONFIG, ROOM_STATUS } from '../config/constants.js';
 import { getRandomQuestions } from '../config/questions.js';
 import log from '../utils/logger.js';
 
@@ -112,6 +112,9 @@ class GameStateManager {
      * Start the game loop for a room
      */
     startGameLoop(roomCode, io) {
+        // Initialize round tracking for this game
+        gameLoopManager.initRoomRounds(roomCode);
+        
         gameLoopManager.startGameLoop(roomCode, io, (code) => {
             quizManager.freezeRoom(code);
         });
@@ -361,9 +364,19 @@ class GameStateManager {
 
     /**
      * Start a new blitz quiz
-     * First cancels all active unfreeze quizzes so those players can join the blitz
+     * First checks if game should end (all rounds completed), then cancels unfreeze quizzes
      */
     _startNewBlitz(roomCode, io) {
+        // Decrement round counter and check if game should end
+        const roundsRemaining = gameLoopManager.decrementRound(roomCode);
+        
+        if (roundsRemaining === 0) {
+            // All rounds completed - end the game
+            log.info(`🏁 Room ${roomCode}: All rounds complete, ending game`);
+            this._endGame(roomCode, io);
+            return;
+        }
+        
         // Cancel all unfreeze quizzes - those players respawn and join blitz
         this._cancelAllUnfreezeQuizzes(roomCode, io);
         
@@ -380,6 +393,62 @@ class GameStateManager {
                 this._onBlitzEnd
             );
         }
+    }
+
+    /**
+     * End the game - called when all rounds are completed
+     * @param {string} roomCode - Room code
+     * @param {Object} io - Socket.IO server
+     */
+    _endGame(roomCode, io) {
+        log.info(`🏆 Room ${roomCode}: === GAME ENDING ===`);
+        
+        // 1. Stop all timers for this room
+        gameLoopManager.clearGameLoopTimers(roomCode);
+        
+        // 2. Get round data before cleanup
+        const roundData = gameLoopManager.getRoomRounds(roomCode);
+        const totalRounds = roundData?.totalRounds || GAME_LOOP_CONFIG.TOTAL_GAME_ROUNDS;
+        
+        // 3. Get the room and set status to finished
+        const room = roomManager.getRoom(roomCode);
+        if (room) {
+            roomManager.setRoomStatus(roomCode, ROOM_STATUS.FINISHED);
+        }
+        
+        // 4. Build final leaderboard
+        const leaderboard = roomManager.getLeaderboard(roomCode);
+        
+        log.info(`🏆 Room ${roomCode}: Final leaderboard:`, leaderboard.map(p => `${p.name}: ${p.coins}`).join(', '));
+        
+        // 5. Set phase to GAME_END
+        gameLoopManager.setGamePhase(roomCode, GAME_PHASE.GAME_END, io);
+        
+        // 6. Emit game end event to all players
+        io.to(roomCode).emit(SOCKET_EVENTS.SERVER.GAME_END, {
+            roomCode,
+            leaderboard,
+            totalRounds,
+            message: `Game over after ${totalRounds} rounds!`
+        });
+        
+        log.info(`🏆 Room ${roomCode}: Game end event emitted`);
+        
+        // 7. Clean up manager state (but keep room so leaderboard is accessible)
+        // Only clean up internal manager state, not the room itself
+        positionManager.cleanupRoom(roomCode);
+        if (room?.players) {
+            room.players.forEach(player => {
+                combatManager.cleanupPlayer(player.id);
+            });
+        }
+        coinManager.cleanupRoom(roomCode);
+        powerupManager.cleanupRoom(roomCode);
+        quizManager.clearQuizState(roomCode);
+        gameLoopManager.cleanupRoom(roomCode);
+        this.unfreezeQuizzes.delete(roomCode);
+        
+        log.info(`🏆 Room ${roomCode}: === GAME ENDED ===`);
     }
 
     /**

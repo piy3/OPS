@@ -2,9 +2,10 @@
  * Socket event handlers for game operations
  */
 
-import { SOCKET_EVENTS, ROOM_STATUS, GAME_PHASE, PLAYER_STATE } from '../config/constants.js';
+import { SOCKET_EVENTS, ROOM_STATUS, GAME_PHASE, PLAYER_STATE, GAME_LOOP_CONFIG } from '../config/constants.js';
 import roomManager from '../services/RoomManager.js';
 import gameStateManager from '../services/GameStateManager.js';
+import gameLoopManager from '../services/managers/GameLoopManager.js';
 import { log } from 'console';
 
 /**
@@ -46,10 +47,18 @@ export function registerGameHandlers(socket, io) {
             // Get game state with spawn positions
             const gameState = gameStateManager.getGameState(roomCode);
             
+            // Get round info (may be null if not initialized yet, use safe default)
+            const roundInfo = gameLoopManager.getRoomRounds(roomCode) || {
+                currentRound: 1,
+                totalRounds: GAME_LOOP_CONFIG.TOTAL_GAME_ROUNDS,
+                roundsRemaining: GAME_LOOP_CONFIG.TOTAL_GAME_ROUNDS
+            };
+            
             // Notify all players in the room with initial game state
             io.to(roomCode).emit(SOCKET_EVENTS.SERVER.GAME_STARTED, { 
                 room: room,
-                gameState: gameState
+                gameState: gameState,
+                roundInfo: roundInfo
             });
             
             // Immediately broadcast initial spawn positions to all players
@@ -191,7 +200,14 @@ export function registerGameHandlers(socket, io) {
             }
 
             const gameState = gameStateManager.getGameState(roomCode);
-            socket.emit(SOCKET_EVENTS.SERVER.GAME_STATE_SYNC, { gameState: gameState });
+            const roundInfo = gameLoopManager.getRoomRounds(roomCode);
+            const currentPhase = gameStateManager.getGamePhase(roomCode);
+            
+            socket.emit(SOCKET_EVENTS.SERVER.GAME_STATE_SYNC, { 
+                gameState: gameState,
+                roundInfo: roundInfo,
+                phase: currentPhase
+            });
         } catch (error) {
             log(`Error getting game state: ${error.message}`);
             socket.emit(SOCKET_EVENTS.SERVER.GAME_STATE_SYNC, { gameState: null });

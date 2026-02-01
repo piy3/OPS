@@ -20,6 +20,64 @@ class GameLoopManager {
         
         // Track reserve unicorn: roomCode -> { playerId, playerName }
         this.reserveUnicorns = new Map();
+        
+        // Track rounds per room: roomCode -> { totalRounds, roundsRemaining, currentRound }
+        this.roomRounds = new Map();
+    }
+
+    // ==================== ROUND TRACKING METHODS ====================
+
+    /**
+     * Initialize round tracking for a room when a game starts
+     * @param {string} roomCode - Room code
+     */
+    initRoomRounds(roomCode) {
+        const totalRounds = GAME_LOOP_CONFIG.TOTAL_GAME_ROUNDS;
+        this.roomRounds.set(roomCode, {
+            totalRounds: totalRounds,
+            roundsRemaining: totalRounds,
+            currentRound: 1
+        });
+        log.info(`🎮 Room ${roomCode}: Initialized rounds - ${totalRounds} total rounds`);
+    }
+
+    /**
+     * Get remaining rounds for a room
+     * @param {string} roomCode - Room code
+     * @returns {number} Rounds remaining (0 if not found)
+     */
+    getRoundsRemaining(roomCode) {
+        return this.roomRounds.get(roomCode)?.roundsRemaining ?? 0;
+    }
+
+    /**
+     * Get full round data for a room
+     * @param {string} roomCode - Room code
+     * @returns {Object|null} { totalRounds, roundsRemaining, currentRound } or null
+     */
+    getRoomRounds(roomCode) {
+        return this.roomRounds.get(roomCode) || null;
+    }
+
+    /**
+     * Decrement the round counter for a room
+     * Called after each Hunt phase ends
+     * @param {string} roomCode - Room code
+     * @returns {number} New rounds remaining (0 if room not found)
+     */
+    decrementRound(roomCode) {
+        const roundData = this.roomRounds.get(roomCode);
+        if (!roundData) {
+            log.warn(`⚠️ Room ${roomCode}: No round data found for decrement`);
+            return 0;
+        }
+        
+        roundData.roundsRemaining = Math.max(0, roundData.roundsRemaining - 1);
+        roundData.currentRound += 1;
+        
+        log.info(`🎮 Room ${roomCode}: Round complete - ${roundData.roundsRemaining} rounds remaining (was round ${roundData.currentRound - 1})`);
+        
+        return roundData.roundsRemaining;
     }
 
     /**
@@ -49,10 +107,14 @@ class GameLoopManager {
         this.gamePhases.set(roomCode, phaseData);
         
         if (io) {
+            // Include round info in phase change event
+            const roundInfo = this.getRoomRounds(roomCode);
+            
             io.to(roomCode).emit(SOCKET_EVENTS.SERVER.PHASE_CHANGE, {
                 phase: phase,
                 previousPhase: phaseData.previousPhase,
-                timestamp: now
+                timestamp: now,
+                roundInfo: roundInfo // { currentRound, totalRounds, roundsRemaining } or null
             });
         }
     }
@@ -329,6 +391,9 @@ class GameLoopManager {
             state: p.state
         }));
 
+        // Include round info in hunt start event
+        const roundInfo = this.getRoomRounds(roomCode);
+        
         io.to(roomCode).emit(SOCKET_EVENTS.SERVER.HUNT_START, {
             duration: GAME_LOOP_CONFIG.HUNT_DURATION,
             endTime: huntEndTime,
@@ -337,7 +402,8 @@ class GameLoopManager {
             reserveUnicornId: reserve?.playerId || null,
             reserveUnicornName: reserve?.playerName || null,
             timestamp: now,
-            playersHealth: playersHealth
+            playersHealth: playersHealth,
+            roundInfo: roundInfo // { currentRound, totalRounds, roundsRemaining } or null
         });
 
         // Initialize coins and powerups
@@ -461,6 +527,8 @@ class GameLoopManager {
         this.gamePhases.delete(roomCode);
         this.blitzQuizzes.delete(roomCode);
         this.reserveUnicorns.delete(roomCode);
+        this.roomRounds.delete(roomCode);
+        log.info(`🧹 Room ${roomCode}: Game loop state cleaned up`);
     }
 }
 

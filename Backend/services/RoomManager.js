@@ -429,6 +429,20 @@ class RoomManager {
             player.isImmune = false;
         });
     }
+
+    /**
+     * Set room status
+     * @param {string} roomCode - Room code
+     * @param {string} status - New status (WAITING, PLAYING, FINISHED)
+     * @returns {Object|null} Updated room or null if not found
+     */
+    setRoomStatus(roomCode, status) {
+        const room = this.rooms.get(roomCode);
+        if (!room) return null;
+
+        room.status = status;
+        return room;
+    }
 }
 
 // Export singleton instance
