@@ -1194,10 +1194,11 @@ function StartGame() {
   const playerLeftPercent = playerPercent.left
   const playerTopPercent = playerPercent.top
 
-  // Get current player's coins (myId is memoized above)
+  // Get current player's coins from the central leaderboard (server-driven)
+  // Only use leaderboard as source of truth for coins - no fallback to local state
   const myLeaderboardEntry = useMemo(() => leaderboard?.find(p => p.id === myId), [leaderboard, myId]);
   const myPlayer = useMemo(() => roomData?.players?.find(p => p.id === myId), [roomData?.players, myId]);
-  const myCoins = myLeaderboardEntry?.coins ?? myPlayer?.coins ?? 100;
+  const myCoins = myLeaderboardEntry?.coins ?? 100;
 
   // ============ CHARACTER SYSTEM ============
   // Build playerCharacters map: playerId -> characterId
