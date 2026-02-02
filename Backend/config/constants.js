@@ -23,7 +23,9 @@ export const ROOM_CONFIG = {
     ROOM_CODE_LENGTH: 6,
     ROOM_CODE_CHARS: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
     MIN_PLAYERS_TO_START: 2,
-    STARTING_COINS: 100  // Starting coins for each player when a new game starts
+    STARTING_COINS: 100,  // Starting coins for each player when a new game starts
+    STARTING_QUESTIONS_ATTEMPTED: 0,
+    STARTING_QUESTIONS_ANSWERED_CORRECTLY: 0,
 };
 
 export const ROOM_STATUS = {
@@ -61,7 +63,7 @@ export const GAME_LOOP_CONFIG = {
     GAME_LOOP_INTERVAL: 60000,      // Blitz Quiz every 60 seconds during hunt
     
     // Game Length
-    TOTAL_GAME_ROUNDS: 4,           // Number of rounds before game ends (1 round = Blitz + Hunt)
+    TOTAL_GAME_ROUNDS: 1,           // Number of rounds before game ends (1 round = Blitz + Hunt)
     
     // Scoring
     TAG_SCORE_STEAL: 15,            // Unicorn steals 15 points per tag

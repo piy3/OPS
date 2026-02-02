@@ -6,6 +6,7 @@
 import { SOCKET_EVENTS, GAME_PHASE, GAME_LOOP_CONFIG, COMBAT_CONFIG } from '../../config/constants.js';
 import { getBlitzQuestion, BLITZ_QUIZ_CONFIG } from '../../config/questions.js';
 import log from '../../utils/logger.js';
+import RoomManager from '../RoomManager.js';
 
 class GameLoopManager {
     constructor() {
@@ -237,6 +238,8 @@ class GameLoopManager {
             isCorrect: isCorrect
         });
 
+        // handle questions record for the player.
+        RoomManager.handlePlayerQuestionsAttempt(roomCode, playerId, isCorrect);
         // Send individual feedback
         io.to(playerId).emit(SOCKET_EVENTS.SERVER.BLITZ_ANSWER_RESULT, {
             isCorrect: isCorrect,

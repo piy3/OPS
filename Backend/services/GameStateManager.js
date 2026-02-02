@@ -24,6 +24,7 @@ import coinManager from './managers/CoinManager.js';
 import powerupManager from './managers/PowerupManager.js';
 import quizManager from './managers/QuizManager.js';
 import gameLoopManager from './managers/GameLoopManager.js';
+import RoomManager from './RoomManager.js';
 
 class GameStateManager {
     constructor() {
@@ -749,6 +750,8 @@ class GameStateManager {
             answerIndex,
             correct: isCorrect
         });
+
+        RoomManager.handlePlayerQuestionsAttempt(roomCode, playerId, isCorrect);
 
         // Send answer result to the player
         io.to(playerId).emit(SOCKET_EVENTS.SERVER.UNFREEZE_QUIZ_ANSWER_RESULT, {

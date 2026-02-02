@@ -4,9 +4,11 @@
  */
 
 import { ROOM_CONFIG, ROOM_STATUS, COMBAT_CONFIG, PLAYER_STATE, getNextAvailableCharacterId } from '../config/constants.js';
-
+import log from "../utils/logger.js"
 // Extract starting coins from config for easy reference
 const STARTING_COINS = ROOM_CONFIG.STARTING_COINS;
+const QUESTIONS_ATTEMPTED = ROOM_CONFIG.STARTING_QUESTIONS_ATTEMPTED;
+const QUESTIONS_CORRECTLY_ANSWERED = ROOM_CONFIG.STARTING_QUESTIONS_ANSWERED_CORRECTLY;
 import { generateRoomCode, generateDefaultPlayerName } from '../utils/roomUtils.js';
 
 class RoomManager {
@@ -32,6 +34,8 @@ class RoomManager {
                 isUnicorn: false, // Will be assigned when game starts
                 coins: STARTING_COINS, // Starting coins
                 health: COMBAT_CONFIG.STARTING_HEALTH, // Starting health
+                questions_correctly_answered: QUESTIONS_CORRECTLY_ANSWERED,
+                questions_attempted: QUESTIONS_ATTEMPTED,
                 state: PLAYER_STATE.ACTIVE, // Player state
                 isImmune: false, // Immunity powerup
                 inIFrames: false, // Invincibility frames
@@ -116,6 +120,8 @@ class RoomManager {
             isUnicorn: false,
             coins: STARTING_COINS, // Starting coins
             health: COMBAT_CONFIG.STARTING_HEALTH, // Starting health
+            questions_correctly_answered: QUESTIONS_CORRECTLY_ANSWERED,
+            questions_attempted: QUESTIONS_ATTEMPTED,
             state: PLAYER_STATE.ACTIVE, // Player state
             isImmune: false, // Immunity powerup
             inIFrames: false, // Invincibility frames
@@ -222,6 +228,8 @@ class RoomManager {
         // This ensures the central leaderboard starts fresh for each game
         room.players.forEach(player => {
             player.coins = STARTING_COINS;
+            player.questions_attempted = QUESTIONS_ATTEMPTED;
+            player.questions_correctly_answered = QUESTIONS_CORRECTLY_ANSWERED;
         });
         
         // Assign first player as unicorn when game starts
@@ -452,6 +460,24 @@ class RoomManager {
 
         room.status = status;
         return room;
+    }
+
+    handlePlayerQuestionsAttempt(roomCode, playerId, isCorrect){
+        const room = this.rooms.get(roomCode);
+        if(!room) {
+            // console.log("room not found in handlePlayerQuestionAttempt");
+            return null;
+        }
+        const player = room.players.find(p => p.id === playerId)
+        if(!player) {
+            // console.log(`player ${playerId} not found in handlePlayerQuestionAttempt for room ${roomCode}`);
+            log.warn(`player ${playerId} not found in handlePlayerQuestionAttempt for room ${roomCode}`); // checking if logger works
+            return null;
+        }
+        player.questions_attempted = (player.questions_attempted ?? 0) + 1;
+        if (isCorrect) player.questions_correctly_answered = (player.questions_correctly_answered ?? 0) + 1;
+        // log.info(`incremented question counts of player ${player.id} ${player.questions_correctly_answered} ${player.questions_attempted}`)
+        return;
     }
 }
 
