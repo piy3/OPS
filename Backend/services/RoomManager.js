@@ -535,10 +535,12 @@ class RoomManager {
             return false;
         }
 
-        // Clear socket mappings for all players in the room
-        room.players.forEach(player => {
-            this.socketToRoom.delete(player.id);
-        });
+        // Clear socket mappings if used (RoomManager does not maintain socketToRoom; guard for compatibility)
+        if (this.socketToRoom) {
+            room.players.forEach(player => {
+                this.socketToRoom.delete(player.id);
+            });
+        }
 
         // Delete the room
         this.rooms.delete(roomCode);

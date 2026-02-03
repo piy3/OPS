@@ -514,6 +514,9 @@ const Game: React.FC = () => {
         });
       }
       if (gameRef.current) {
+        if (isMultiplayerRef.current && gameRef.current.map?.portals) {
+          gameRef.current.map.portals = [];
+        }
         gameRef.current.isPlaying = true;
       }
       showStatus(`HUNT PHASE - Round ${data.roundInfo?.currentRound || 1}!`, '#ff4400', 2000);
