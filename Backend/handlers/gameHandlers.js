@@ -6,6 +6,8 @@ import { SOCKET_EVENTS, ROOM_STATUS, GAME_PHASE, PLAYER_STATE, GAME_LOOP_CONFIG 
 import roomManager from '../services/RoomManager.js';
 import gameStateManager from '../services/GameStateManager.js';
 import gameLoopManager from '../services/managers/GameLoopManager.js';
+import sinkholeManager from '../services/managers/SinkholeManager.js';
+import sinkTrapManager from '../services/managers/SinkTrapManager.js';
 import { log } from 'console';
 
 /**
@@ -304,6 +306,94 @@ export function registerGameHandlers(socket, io) {
 
         } catch (error) {
             log(`Error handling unfreeze quiz answer: ${error.message}`);
+        }
+    });
+
+    // ENTER SINKHOLE: Player enters a sinkhole to teleport
+    socket.on(SOCKET_EVENTS.CLIENT.ENTER_SINKHOLE, (data) => {
+        const roomCode = roomManager.getRoomCodeForSocket(socket.id);
+        if (!roomCode) return;
+        
+        const room = roomManager.getRoom(roomCode);
+        if (!room || room.status !== ROOM_STATUS.PLAYING) return;
+        
+        const player = room.players.find(p => p.id === socket.id);
+        if (!player) return;
+        
+        gameStateManager.enterSinkhole(roomCode, socket.id, player.name, data.sinkholeId, io);
+    });
+
+    // COLLECT SINK TRAP: Player collects a sink trap item
+    socket.on(SOCKET_EVENTS.CLIENT.COLLECT_SINK_TRAP, (data) => {
+        const roomCode = roomManager.getRoomCodeForSocket(socket.id);
+        if (!roomCode) return;
+        
+        const room = roomManager.getRoom(roomCode);
+        if (!room || room.status !== ROOM_STATUS.PLAYING) return;
+        
+        const player = room.players.find(p => p.id === socket.id);
+        if (!player) return;
+        
+        gameStateManager.collectSinkTrap(roomCode, socket.id, player.name, data.trapId, io);
+    });
+
+    // DEPLOY SINK TRAP: Player deploys a sink trap
+    socket.on(SOCKET_EVENTS.CLIENT.DEPLOY_SINK_TRAP, (data) => {
+        const roomCode = roomManager.getRoomCodeForSocket(socket.id);
+        if (!roomCode) return;
+        
+        const room = roomManager.getRoom(roomCode);
+        if (!room || room.status !== ROOM_STATUS.PLAYING) return;
+        
+        const player = room.players.find(p => p.id === socket.id);
+        if (!player) return;
+        
+        gameStateManager.deploySinkTrap(roomCode, socket.id, player.name, data.position, io);
+    });
+
+    // LAVA DEATH: Player fell in lava - freeze them and start unfreeze quiz
+    socket.on(SOCKET_EVENTS.CLIENT.LAVA_DEATH, () => {
+        try {
+            const roomCode = roomManager.getRoomCodeForSocket(socket.id);
+            if (!roomCode) {
+                return;
+            }
+
+            const room = roomManager.getRoom(roomCode);
+            if (!room || room.status !== ROOM_STATUS.PLAYING) {
+                return;
+            }
+
+            // Get the player
+            const player = room.players.find(p => p.id === socket.id);
+            if (!player) {
+                return;
+            }
+
+            // Don't freeze if already frozen or eliminated
+            if (player.state === PLAYER_STATE.FROZEN || player.state === 'eliminated') {
+                log(`⚠️ Lava death ignored: Player ${player.name} is already frozen/eliminated`);
+                return;
+            }
+
+            // Don't freeze if player already has an active unfreeze quiz
+            if (gameStateManager.hasUnfreezeQuiz(roomCode, socket.id)) {
+                log(`⚠️ Lava death ignored: Player ${player.name} already has active unfreeze quiz`);
+                return;
+            }
+
+            // Don't freeze unicorn - they are immune to lava
+            if (player.isUnicorn) {
+                return;
+            }
+
+            log(`🔥 Player ${player.name} fell in lava in room ${roomCode}`);
+
+            // Handle lava death as freeze + unfreeze quiz (same as being tagged)
+            gameStateManager.handleLavaDeath(roomCode, socket.id, player.name, io);
+
+        } catch (error) {
+            log(`Error handling lava death: ${error.message}`);
         }
     });
 }

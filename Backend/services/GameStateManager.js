@@ -24,6 +24,8 @@ import coinManager from './managers/CoinManager.js';
 import powerupManager from './managers/PowerupManager.js';
 import quizManager from './managers/QuizManager.js';
 import gameLoopManager from './managers/GameLoopManager.js';
+import sinkholeManager from './managers/SinkholeManager.js';
+import sinkTrapManager from './managers/SinkTrapManager.js';
 import RoomManager from './RoomManager.js';
 
 class GameStateManager {
@@ -75,6 +77,8 @@ class GameStateManager {
         powerupManager.cleanupRoom(roomCode);
         quizManager.clearQuizState(roomCode);
         gameLoopManager.cleanupRoom(roomCode);
+        sinkholeManager.cleanupRoom(roomCode);
+        sinkTrapManager.cleanupRoom(roomCode);
         // Clean up unfreeze quiz state
         this.unfreezeQuizzes.delete(roomCode);
     }
@@ -105,6 +109,9 @@ class GameStateManager {
             })),
             unicornId: room.unicornId,
             leaderboard: roomManager.getLeaderboard(roomCode),
+            sinkholes: sinkholeManager.getActiveSinkholes(roomCode),
+            sinkTraps: sinkTrapManager.getActiveCollectibles(roomCode),
+            deployedSinkTraps: sinkTrapManager.getDeployedTraps(roomCode),
             timestamp: Date.now()
         };
     }
@@ -219,6 +226,18 @@ class GameStateManager {
 
             // Check tag collision
             this._checkTagCollision(roomCode, playerId, oldPosition, validatedPosition, isUnicorn, io);
+
+            // Check if unicorn stepped on a sink trap
+            if (isUnicorn) {
+                const triggeredTrapId = sinkTrapManager.checkTrapTrigger(roomCode, { row: updatedPosition.row, col: updatedPosition.col });
+                if (triggeredTrapId) {
+                    const player = room.players.find(p => p.id === playerId);
+                    sinkTrapManager.triggerTrap(
+                        roomCode, triggeredTrapId, playerId, player?.name || 'Unicorn', io,
+                        (code, id, position) => positionManager.setPlayerPosition(code, id, position)
+                    );
+                }
+            }
         }
 
         return updatedPosition;
@@ -316,6 +335,44 @@ class GameStateManager {
         return powerupManager.getActivePowerups(roomCode);
     }
 
+    /**
+     * Get active sinkholes in a room
+     */
+    getActiveSinkholes(roomCode) {
+        return sinkholeManager.getActiveSinkholes(roomCode);
+    }
+
+    /**
+     * Enter a sinkhole to teleport to another sinkhole
+     */
+    enterSinkhole(roomCode, playerId, playerName, sinkholeId, io) {
+        return sinkholeManager.enterSinkhole(
+            roomCode, playerId, playerName, sinkholeId, io,
+            (code, id, position) => positionManager.setPlayerPosition(code, id, position)
+        );
+    }
+
+    /**
+     * Collect a sink trap item
+     */
+    collectSinkTrap(roomCode, playerId, playerName, trapId, io) {
+        return sinkTrapManager.collectTrap(roomCode, playerId, trapId, playerName, io);
+    }
+
+    /**
+     * Deploy a sink trap
+     */
+    deploySinkTrap(roomCode, playerId, playerName, position, io) {
+        return sinkTrapManager.deployTrap(roomCode, playerId, playerName, position, io);
+    }
+
+    /**
+     * Get player's sink trap inventory count
+     */
+    getSinkTrapInventory(roomCode, playerId) {
+        return sinkTrapManager.getPlayerInventory(roomCode, playerId);
+    }
+
     // ==================== INTERNAL CALLBACKS ====================
 
     /**
@@ -358,6 +415,8 @@ class GameStateManager {
             (code, socket) => {
                 coinManager.initializeCoins(code, socket);
                 powerupManager.startSpawning(code, socket, (c) => gameLoopManager.getGamePhase(c));
+                sinkholeManager.initializeSinkholes(code, socket);
+                sinkTrapManager.initializeSinkTraps(code, socket);
             },
             (code, socket) => this._startNewBlitz(code, socket)
         );
@@ -521,6 +580,7 @@ class GameStateManager {
 
     /**
      * Handle unicorn tagging a survivor
+     * Uses freeze + unfreeze quiz mode (player is frozen and must answer quiz to respawn)
      */
     _handleTag(roomCode, unicornId, survivorId, io) {
         const room = roomManager.getRoom(roomCode);
@@ -535,57 +595,42 @@ class GameStateManager {
         const survivorPlayer = room.players.find(p => p.id === survivorId);
         if (!unicornPlayer || !survivorPlayer) return;
 
-        // Validate hit
+        // Check if survivor can be hit (not already frozen, not immune, not in i-frames)
         const hitCheck = combatManager.canHitPlayer(survivorPlayer, survivorId);
-        if (!hitCheck.canHit) return;
+        if (!hitCheck.canHit) {
+            log.debug(`Cannot tag ${survivorPlayer.name}: ${hitCheck.reason}`);
+            return;
+        }
 
-        // Deal damage
-        roomManager.updatePlayerHealth(roomCode, survivorId, -COMBAT_CONFIG.TAG_DAMAGE);
-        roomManager.updatePlayerCoins(roomCode, unicornId, COMBAT_CONFIG.TAG_HEAL);
+        // FREEZE + UNFREEZE QUIZ MODE
+        // Award points to unicorn
+        roomManager.updatePlayerCoins(roomCode, unicornId, GAME_LOOP_CONFIG.TAG_SCORE_STEAL);
+        
+        // Handle freeze and start unfreeze quiz
+        this._handleZeroHealth(roomCode, survivorId, survivorPlayer.name, io);
 
-        const updatedSurvivor = roomManager.getPlayer(roomCode, survivorId);
         const updatedUnicorn = roomManager.getPlayer(roomCode, unicornId);
 
-        // Apply knockback
-        const victimPos = positionManager.getPlayerPosition(roomCode, survivorId);
-        const attackerPos = positionManager.getPlayerPosition(roomCode, unicornId);
-        const knockbackData = combatManager.applyKnockback(victimPos, attackerPos, survivorId);
-
-        // Grant i-frames
-        combatManager.grantIFrames(
-            roomCode, 
-            survivorId, 
-            io, 
-            (code, id, value) => roomManager.setPlayerIFrames(code, id, value)
-        );
-
-        // Broadcast hit event
-        io.to(roomCode).emit(SOCKET_EVENTS.SERVER.PLAYER_HIT, {
-            attackerId: unicornId,
-            attackerName: unicornPlayer.name,
-            victimId: survivorId,
-            victimName: survivorPlayer.name,
-            damage: COMBAT_CONFIG.TAG_DAMAGE,
-            newHealth: updatedSurvivor.health,
-            maxHealth: COMBAT_CONFIG.MAX_HEALTH,
-            knockback: knockbackData,
-            iframeDuration: COMBAT_CONFIG.IFRAME_DURATION
+        // Emit tagged event for visual feedback
+        io.to(roomCode).emit(SOCKET_EVENTS.SERVER.PLAYER_TAGGED, {
+            unicornId: unicornId,
+            unicornName: unicornPlayer.name,
+            caughtId: survivorId,
+            caughtName: survivorPlayer.name,
+            timestamp: Date.now()
         });
-
-        // Check for zero health
-        if (updatedSurvivor.health <= 0) {
-            this._handleZeroHealth(roomCode, survivorId, survivorPlayer.name, io);
-        }
 
         // Update leaderboard
         io.to(roomCode).emit(SOCKET_EVENTS.SERVER.SCORE_UPDATE, {
             unicornId: unicornId,
             caughtId: survivorId,
-            unicornCoins: updatedUnicorn.coins,
-            caughtCoins: updatedSurvivor.coins,
+            unicornCoins: updatedUnicorn?.coins || 0,
+            caughtCoins: survivorPlayer.coins || 0,
             room: roomManager.getRoom(roomCode),
             leaderboard: roomManager.getLeaderboard(roomCode)
         });
+
+        log.info(`🧊 Player ${survivorPlayer.name} was frozen by ${unicornPlayer.name} in room ${roomCode}`);
     }
 
     /**
@@ -605,6 +650,21 @@ class GameStateManager {
         
         // Start personal unfreeze quiz for this player
         this._startUnfreezeQuiz(roomCode, playerId, io);
+    }
+
+    /**
+     * Handle player falling in lava (public method called from game handlers)
+     * Freezes the player and starts a personal unfreeze quiz
+     * @param {string} roomCode - Room code
+     * @param {string} playerId - Player ID
+     * @param {string} playerName - Player name
+     * @param {Object} io - Socket.IO server
+     */
+    handleLavaDeath(roomCode, playerId, playerName, io) {
+        log.info(`🔥 Handling lava death for ${playerName} in room ${roomCode}`);
+        
+        // Use the same freeze + quiz logic as being tagged
+        this._handleZeroHealth(roomCode, playerId, playerName, io);
     }
 
     /**
@@ -673,6 +733,12 @@ class GameStateManager {
 
         const player = room.players.find(p => p.id === playerId);
         if (!player) return;
+
+        // Prevent starting multiple quizzes for the same player
+        if (this.hasUnfreezeQuiz(roomCode, playerId)) {
+            log.warn(`⚠️ Unfreeze quiz already exists for player ${player.name}, skipping duplicate start`);
+            return;
+        }
 
         // Get 2 random questions for the unfreeze quiz
         const questions = getRandomQuestions(UNFREEZE_QUIZ_CONFIG.QUESTIONS_COUNT);

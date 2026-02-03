@@ -397,12 +397,16 @@ class PositionManager {
             }
         }
         
-        // Fallback positions
+        // Fallback positions - all on valid road tiles (multiples of 4)
         const fallbackPositions = [
-            { row: 1, col: 8 }, { row: 1, col: 12 }, { row: 1, col: 20 }, { row: 1, col: 24 },
-            { row: 4, col: 1 }, { row: 4, col: 12 }, { row: 4, col: 19 }, { row: 4, col: 30 },
-            { row: 22, col: 8 }, { row: 22, col: 12 }, { row: 22, col: 20 }, { row: 22, col: 24 },
-            { row: 26, col: 8 }, { row: 26, col: 12 }, { row: 26, col: 20 }, { row: 26, col: 24 }
+            { row: 8, col: 8 }, { row: 8, col: 16 }, { row: 8, col: 32 }, { row: 8, col: 40 },
+            { row: 12, col: 4 }, { row: 12, col: 12 }, { row: 12, col: 36 }, { row: 12, col: 44 },
+            { row: 16, col: 8 }, { row: 16, col: 20 }, { row: 16, col: 28 }, { row: 16, col: 40 },
+            { row: 20, col: 4 }, { row: 20, col: 16 }, { row: 20, col: 32 }, { row: 20, col: 44 },
+            { row: 28, col: 8 }, { row: 28, col: 24 }, { row: 28, col: 40 },
+            { row: 32, col: 4 }, { row: 32, col: 20 }, { row: 32, col: 36 }, { row: 32, col: 44 },
+            { row: 36, col: 8 }, { row: 36, col: 16 }, { row: 36, col: 32 }, { row: 36, col: 40 },
+            { row: 40, col: 12 }, { row: 40, col: 24 }, { row: 40, col: 36 }
         ];
         
         for (const fallbackPos of fallbackPositions) {

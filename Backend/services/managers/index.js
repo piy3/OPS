@@ -9,3 +9,5 @@ export { default as coinManager } from './CoinManager.js';
 export { default as powerupManager } from './PowerupManager.js';
 export { default as quizManager } from './QuizManager.js';
 export { default as gameLoopManager } from './GameLoopManager.js';
+export { default as sinkholeManager } from './SinkholeManager.js';
+export { default as sinkTrapManager } from './SinkTrapManager.js';

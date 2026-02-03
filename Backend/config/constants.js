@@ -156,25 +156,19 @@ export const COIN_CONFIG = {
     INITIAL_SPAWN_COUNT: 10,        // Coins spawned at Hunt start
     COLLECTION_RADIUS: 0,           // Player must be within 1 cell to collect
     
-    // Predefined coin spawn slots (row, col) - scattered throughout the maze
+    // Predefined coin spawn slots (row, col) - all positions on roads (multiples of 4)
     SPAWN_SLOTS: [
-        { row: 1, col: 6 },
-        { row: 1, col: 12 },
-        { row: 1, col: 19 },
-        { row: 1, col: 25 },
-        { row: 4, col: 3 },
-        { row: 4, col: 15 },
-        { row: 4, col: 28 },
-        { row: 10, col: 1 },
-        { row: 10, col: 15 },
-        { row: 10, col: 30 },
-        { row: 13, col: 6 },
-        { row: 13, col: 25 },
-        { row: 22, col: 6 },
-        { row: 22, col: 15 },
-        { row: 22, col: 25 },
-        { row: 25, col: 3 },
-        { row: 25, col: 28 }
+        { row: 4, col: 8 }, { row: 4, col: 16 }, { row: 4, col: 32 }, { row: 4, col: 40 },
+        { row: 8, col: 4 }, { row: 8, col: 24 }, { row: 8, col: 44 },
+        { row: 12, col: 8 }, { row: 12, col: 20 }, { row: 12, col: 36 },
+        { row: 16, col: 4 }, { row: 16, col: 44 },
+        { row: 20, col: 12 }, { row: 20, col: 24 }, { row: 20, col: 36 },
+        { row: 24, col: 8 }, { row: 24, col: 40 },
+        { row: 28, col: 4 }, { row: 28, col: 16 }, { row: 28, col: 32 },
+        { row: 32, col: 12 }, { row: 32, col: 28 },
+        { row: 36, col: 8 }, { row: 36, col: 24 }, { row: 36, col: 40 },
+        { row: 40, col: 4 }, { row: 40, col: 20 }, { row: 40, col: 44 },
+        { row: 44, col: 12 }, { row: 44, col: 32 }
     ]
 };
 
@@ -202,17 +196,13 @@ export const POWERUP_CONFIG = {
         // INVISIBILITY: { id: 'invisible', name: 'Invisibility', duration: 8000, visual: 'ghost' }
     },
     
-    // Predefined powerup spawn slots (row, col) - strategic locations
+    // Predefined powerup spawn slots (row, col) - all on road intersections (multiples of 4)
     SPAWN_SLOTS: [
-        { row: 4, col: 10 },
-        { row: 4, col: 21 },
-        { row: 13, col: 15 },
-        { row: 22, col: 10 },
-        { row: 22, col: 21 },
-        { row: 10, col: 6 },
-        { row: 10, col: 25 },
-        { row: 16, col: 6 },
-        { row: 16, col: 25 }
+        { row: 8, col: 12 }, { row: 8, col: 36 },
+        { row: 16, col: 16 }, { row: 16, col: 32 },
+        { row: 24, col: 12 }, { row: 24, col: 36 },
+        { row: 32, col: 16 }, { row: 32, col: 32 },
+        { row: 40, col: 24 }
     ]
 };
 
@@ -237,7 +227,11 @@ export const SOCKET_EVENTS = {
         BLITZ_ANSWER: 'blitz_answer',           // Submit blitz quiz answer
         COLLECT_COIN: 'collect_coin',           // Request coin collection
         COLLECT_POWERUP: 'collect_powerup',     // Request powerup collection
-        SUBMIT_UNFREEZE_QUIZ_ANSWER: 'submit_unfreeze_quiz_answer'  // Submit unfreeze quiz answer
+        SUBMIT_UNFREEZE_QUIZ_ANSWER: 'submit_unfreeze_quiz_answer',  // Submit unfreeze quiz answer
+        ENTER_SINKHOLE: 'enter_sinkhole',       // Enter a sinkhole to teleport
+        COLLECT_SINK_TRAP: 'collect_sink_trap', // Collect a sink trap item
+        DEPLOY_SINK_TRAP: 'deploy_sink_trap',   // Deploy a sink trap
+        LAVA_DEATH: 'lava_death'                // Player fell in lava (freeze + quiz)
     },
     // Server -> Client
     SERVER: {
@@ -288,7 +282,16 @@ export const SOCKET_EVENTS = {
         UNFREEZE_QUIZ_COMPLETE: 'unfreeze_quiz_complete',     // Quiz passed, player unfrozen
         UNFREEZE_QUIZ_CANCELLED: 'unfreeze_quiz_cancelled',   // Quiz cancelled (blitz started)
         // Game End Events
-        GAME_END: 'game_end'                                  // Game has ended (all rounds completed)
+        GAME_END: 'game_end',                                 // Game has ended (all rounds completed)
+        // Sinkhole Events
+        SINKHOLE_SPAWNED: 'sinkhole_spawned',                 // Sinkhole portal spawned
+        PLAYER_TELEPORTED: 'player_teleported',               // Player teleported via sinkhole
+        // Sink Trap Events
+        SINK_TRAP_SPAWNED: 'sink_trap_spawned',               // Sink trap collectible spawned
+        SINK_TRAP_COLLECTED: 'sink_trap_collected',           // Player collected a sink trap
+        SINK_TRAP_DEPLOYED: 'sink_trap_deployed',             // Player deployed a sink trap
+        SINK_TRAP_TRIGGERED: 'sink_trap_triggered',           // Unicorn triggered a sink trap
+        PLAYER_ELIMINATED: 'player_eliminated'                // Player was eliminated
     }
 };
 
@@ -311,10 +314,10 @@ export const SOCKET_EVENTS = {
  * Maze Configuration
  */
 export const MAZE_CONFIG = {
-    MAZE_COLS: 32,                           // Total columns in the maze
-    MAZE_ROWS: 28,                           // Total rows in the maze
-    // Row indices (0-based) where tunnels exist (both col 0 and col 31 are open)
-    WRAP_AROUND_ROWS: [10, 14, 18]
+    MAZE_COLS: 50,                           // Total columns in the map
+    MAZE_ROWS: 50,                           // Total rows in the map
+    BLOCK_SIZE: 4,                           // Roads are at multiples of this
+    WRAP_AROUND_ROWS: []                     // Not used in city map
 };
 
 /**
@@ -339,16 +342,16 @@ export const GAME_CONFIG = {
     },
     // Fixed spawn positions for players (row, col)
     // Each player spawns at a different position - supports up to 9 players
-    // Positions are spread across the maze on valid walkable tiles
+    // All positions on valid road intersections (multiples of 4) for 50x50 city map
     SPAWN_POSITIONS: [
-        { row: 1, col: 1 },      // Top-left corner
-        { row: 1, col: 30 },     // Top-right corner
-        { row: 26, col: 1 },     // Bottom-left corner
-        { row: 26, col: 30 },    // Bottom-right corner
-        { row: 1, col: 15 },     // Top-center
-        { row: 22, col: 1 },     // Mid-left
-        { row: 22, col: 30 },    // Mid-right
-        { row: 4, col: 6 },      // Upper corridor left
-        { row: 4, col: 25 }      // Upper corridor right
+        { row: 4, col: 4 },      // Top-left intersection
+        { row: 4, col: 44 },     // Top-right intersection
+        { row: 44, col: 4 },     // Bottom-left intersection
+        { row: 44, col: 44 },    // Bottom-right intersection
+        { row: 4, col: 24 },     // Top-center
+        { row: 24, col: 4 },     // Mid-left
+        { row: 24, col: 44 },    // Mid-right
+        { row: 44, col: 24 },    // Bottom-center
+        { row: 24, col: 24 }     // Center intersection
     ]
 };
