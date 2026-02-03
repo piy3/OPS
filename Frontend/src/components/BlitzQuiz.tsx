@@ -36,11 +36,21 @@ const BlitzQuiz: React.FC<BlitzQuizProps> = ({ question, options, timeLeft, onAn
   return (
     <div className="absolute inset-0 bg-black/90 flex items-center justify-center z-50">
       <div className="bg-slate-800 border-2 border-purple-500 rounded-xl p-8 max-w-lg w-full mx-4 shadow-2xl shadow-purple-500/20">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-2xl font-bold text-purple-400">BLITZ QUIZ!</h2>
-          <div className="text-yellow-400 font-mono text-xl">
-            {Math.ceil(timeLeft)}s
+        {/* Header – objective: answer fast to become Unicorn */}
+        <div className="flex items-center justify-between mb-4 gap-4">
+          <div className="flex-1">
+            <h2 className="text-2xl md:text-3xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
+              Answer fast to become the Unicorn!
+            </h2>
+            <p className="mt-1 text-slate-400 text-sm">
+              Fastest correct answer becomes the Unicorn this round.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <span className="text-3xl" aria-hidden>🦄</span>
+            <div className="text-yellow-400 font-mono text-xl">
+              {Math.ceil(timeLeft)}s
+            </div>
           </div>
         </div>
 
@@ -92,7 +102,7 @@ const BlitzQuiz: React.FC<BlitzQuizProps> = ({ question, options, timeLeft, onAn
         {/* Instructions */}
         {!hasAnswered && (
           <p className="mt-6 text-center text-slate-400 text-sm">
-            Answer quickly! Fastest correct answer becomes the Unicorn.
+            Fastest correct answer becomes the Unicorn this round.
           </p>
         )}
       </div>

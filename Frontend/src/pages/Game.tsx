@@ -295,6 +295,8 @@ const Game: React.FC = () => {
   // Blitz quiz state
   const [blitzQuestion, setBlitzQuestion] = useState<{ question: string; options: string[] } | null>(null);
   const [blitzTimeLeft, setBlitzTimeLeft] = useState(0);
+  const isFirstBlitzRef = useRef(true);
+  const [blitzShowObjective, setBlitzShowObjective] = useState(false);
   
   // Role announcement state (shows before hunt phase)
   const [roleAnnouncement, setRoleAnnouncement] = useState<{
@@ -491,6 +493,7 @@ const Game: React.FC = () => {
     const unsubGameStarted = socketService.on(SOCKET_EVENTS.SERVER.GAME_STARTED, (data: any) => {
       setGameState('playing');
       setRoom(data.room);
+      isFirstBlitzRef.current = true; // Next blitz is first of this game → 3s objective intro
       
       // Set final mapConfig for the game (locked at game start)
       if (data.mapConfig) {
@@ -615,6 +618,14 @@ const Game: React.FC = () => {
       });
       setBlitzTimeLeft(data.timeLimit / 1000);
       showStatus('BLITZ QUIZ!', '#ffff00', 1500);
+
+      if (isFirstBlitzRef.current) {
+        setBlitzShowObjective(true);
+        isFirstBlitzRef.current = false;
+        setTimeout(() => setBlitzShowObjective(false), 3000);
+      } else {
+        setBlitzShowObjective(false);
+      }
     });
 
     // Blitz quiz result
@@ -1064,9 +1075,12 @@ const Game: React.FC = () => {
       if (data.phase === 'blitz_quiz' && data.blitzQuiz) {
         logger.quiz('Game state sync: Received blitz quiz data');
         
-        // Only set up blitz quiz if we don't already have one active
+        // Only set up blitz quiz if we don't already have one active (reconnect / late join)
         setBlitzQuestion(currentQuestion => {
           if (currentQuestion === null) {
+            // Actually restoring from sync: no 3s intro so quiz shows immediately
+            setBlitzShowObjective(false);
+            isFirstBlitzRef.current = false;
             logger.quiz('Setting up blitz quiz from state sync:', data.blitzQuiz.question.question);
             
             // Calculate remaining time from server data
@@ -3489,12 +3503,27 @@ const Game: React.FC = () => {
 
       {/* Blitz Quiz Overlay (Multiplayer) */}
       {gameState === 'blitz-quiz' && blitzQuestion && (
-        <BlitzQuiz
-          question={blitzQuestion.question}
-          options={blitzQuestion.options}
-          timeLeft={blitzTimeLeft}
-          onAnswer={(index) => socketService.submitBlitzAnswer(index)}
-        />
+        blitzShowObjective ? (
+          <div className="absolute inset-0 bg-black/90 flex items-center justify-center z-50">
+            <div className="bg-slate-800 border-2 border-purple-500 rounded-xl p-8 max-w-lg w-full mx-4 shadow-2xl shadow-purple-500/20 text-center">
+              <span className="text-5xl mb-4 block" aria-hidden>🦄</span>
+              <h2 className="text-2xl md:text-3xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent mb-2">
+                Answer fast to become the Unicorn!
+              </h2>
+              <p className="text-slate-400 text-sm mb-4">
+                Fastest correct answer becomes the Unicorn this round.
+              </p>
+              <p className="text-purple-400/80 text-sm animate-pulse">Get ready!</p>
+            </div>
+          </div>
+        ) : (
+          <BlitzQuiz
+            question={blitzQuestion.question}
+            options={blitzQuestion.options}
+            timeLeft={blitzTimeLeft}
+            onAnswer={(index) => socketService.submitBlitzAnswer(index)}
+          />
+        )
       )}
 
       {/* Role Announcement Overlay (shows before hunt phase) */}
