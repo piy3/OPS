@@ -7,8 +7,8 @@ import UnfreezeQuiz from '@/components/UnfreezeQuiz';
 import logger from '@/utils/logger';
 
 const TILE_SIZE = 64;
-const MAP_WIDTH = 50;
-const MAP_HEIGHT = 50;
+const MAP_WIDTH = 30;
+const MAP_HEIGHT = 30;
 const PERSPECTIVE_STRENGTH = 0.4;
 const BASE_PLAYER_SPEED = 300;
 const BASE_ENEMY_SPEED = 250;
@@ -2832,10 +2832,12 @@ const Game: React.FC = () => {
       // Entities - Draw trails
       const isPlayerWalking = game.player.velX !== 0 || game.player.velY !== 0;
 
-      // Player trail - changes color when immune
+      // Player trail - changes color when immune; unicorn uses same palette as remote unicorns
       ctx.lineWidth = game.player.width * 0.8;
       ctx.lineCap = 'round';
-      ctx.strokeStyle = game.immunityActive ? 'rgba(0, 255, 255, 0.5)' : 'rgba(0, 255, 255, 0.2)';
+      ctx.strokeStyle = isUnicornRef.current
+        ? 'rgba(255, 0, 255, 0.3)'
+        : game.immunityActive ? 'rgba(0, 255, 255, 0.5)' : 'rgba(0, 255, 255, 0.2)';
       ctx.beginPath();
       if (game.player.trail.length > 0) {
         ctx.moveTo(game.player.trail[0].x, game.player.trail[0].y);
@@ -2941,7 +2943,7 @@ const Game: React.FC = () => {
         true,
         isPlayerWalking,
         game.immunityActive,
-        isUnicorn // pass our unicorn status
+        isUnicornRef.current // pass our unicorn status
       );
       
       // Draw "YOU" label and unicorn indicator for local player in multiplayer
@@ -2949,12 +2951,12 @@ const Game: React.FC = () => {
         ctx.save();
         ctx.font = 'bold 12px Arial';
         ctx.textAlign = 'center';
-        ctx.fillStyle = isUnicorn ? '#ff00ff' : '#00ffff';
+        ctx.fillStyle = isUnicornRef.current ? '#ff00ff' : '#00ffff';
         ctx.strokeStyle = '#000000';
         ctx.lineWidth = 3;
         ctx.strokeText('YOU', game.player.x, game.player.y - 40);
         ctx.fillText('YOU', game.player.x, game.player.y - 40);
-        if (isUnicorn) {
+        if (isUnicornRef.current) {
           ctx.font = 'bold 16px Arial';
           ctx.fillText('🦄', game.player.x, game.player.y - 55);
         }
@@ -3164,7 +3166,7 @@ const Game: React.FC = () => {
       }
 
       // Local player on minimap
-      minimapCtx.fillStyle = isUnicorn ? '#ff00ff' : '#0ff';
+      minimapCtx.fillStyle = isUnicornRef.current ? '#ff00ff' : '#0ff';
       minimapCtx.fillRect(
         (game.player.x * sc) / TILE_SIZE - 2,
         (game.player.y * sc) / TILE_SIZE - 2,

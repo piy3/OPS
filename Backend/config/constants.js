@@ -161,7 +161,7 @@ export const COIN_CONFIG = {
     INITIAL_SPAWN_COUNT: 10,        // Coins spawned at Hunt start
     COLLECTION_RADIUS: 0,           // Player must be within 1 cell to collect
     
-    // Predefined coin spawn slots (row, col) - all positions on roads (multiples of 4)
+    // Predefined coin spawn slots (row, col) - all positions on roads (multiples ofF 4)
     SPAWN_SLOTS: [
         { row: 4, col: 8 }, { row: 4, col: 16 }, { row: 4, col: 32 }, { row: 4, col: 40 },
         { row: 8, col: 4 }, { row: 8, col: 24 }, { row: 8, col: 44 },
@@ -320,8 +320,8 @@ export const SOCKET_EVENTS = {
  * Maze Configuration
  */
 export const MAZE_CONFIG = {
-    MAZE_COLS: 50,                           // Total columns in the map
-    MAZE_ROWS: 50,                           // Total rows in the map
+    MAZE_COLS: 30,                           // Total columns in the map
+    MAZE_ROWS: 30,                           // Total rows in the map
     BLOCK_SIZE: 4,                           // Roads are at multiples of this
     WRAP_AROUND_ROWS: []                     // Not used in city map
 };
