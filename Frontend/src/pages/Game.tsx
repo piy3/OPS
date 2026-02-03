@@ -100,6 +100,7 @@ interface Tree {
 
 // New Coin interface
 interface Coin {
+  id?: string;
   x: number;
   y: number;
   collected: boolean;
@@ -514,8 +515,14 @@ const Game: React.FC = () => {
         });
       }
       if (gameRef.current) {
-        if (isMultiplayerRef.current && gameRef.current.map?.portals) {
-          gameRef.current.map.portals = [];
+        if (isMultiplayerRef.current) {
+          if (gameRef.current.map?.portals) {
+            gameRef.current.map.portals = [];
+          }
+          gameRef.current.coins = [];
+          gameRef.current.sinkCollectibles = [];
+          gameRef.current.deployedSinks = [];
+          // So only current hunt's server events (COIN_SPAWNED, SINK_TRAP_*, etc.) apply
         }
         gameRef.current.isPlaying = true;
       }
@@ -688,11 +695,11 @@ const Game: React.FC = () => {
       if (!gameRef.current) return;
       const game = gameRef.current;
       
-      // Handle both single coin and batch spawns
       const coins = data.coins || [data];
       coins.forEach((coinData: any) => {
         const pixel = toPixel(coinData.row, coinData.col);
         game.coins.push({
+          id: coinData.id ?? coinData.coinId,
           x: pixel.x,
           y: pixel.y,
           collected: false,
@@ -701,24 +708,35 @@ const Game: React.FC = () => {
       });
     });
 
-    // Coin collected
+    // Coin collected (server is authoritative: match by coinId + position, then id-only, then row/col)
     const unsubCoinCollected = socketService.on(SOCKET_EVENTS.SERVER.COIN_COLLECTED, (data: any) => {
       if (!gameRef.current) return;
       const game = gameRef.current;
       
-      // Remove the collected coin (server is authoritative)
-      // We mark by position since IDs might differ
-      const coinIndex = game.coins.findIndex(c => {
-        const grid = toGrid(c.x, c.y);
-        return !c.collected && grid.row === data.row && grid.col === data.col;
-      });
-      
+      let coinIndex = -1;
+      const hasPos = data.row != null && data.col != null;
+      if (data.coinId && hasPos) {
+        coinIndex = game.coins.findIndex(c => {
+          if (c.collected) return false;
+          const grid = toGrid(c.x, c.y);
+          return c.id === data.coinId && grid.row === data.row && grid.col === data.col;
+        });
+      }
+      if (coinIndex === -1 && data.coinId) {
+        coinIndex = game.coins.findIndex(c => !c.collected && c.id === data.coinId);
+      }
+      if (coinIndex === -1 && hasPos) {
+        coinIndex = game.coins.findIndex(c => {
+          const grid = toGrid(c.x, c.y);
+          return !c.collected && grid.row === data.row && grid.col === data.col;
+        });
+      }
       if (coinIndex !== -1) {
         game.coins[coinIndex].collected = true;
       }
       
       if (data.playerId === socketService.getSocketId()) {
-        setCoinsCollected(data.newScore || game.coinsCollected + 1);
+        setCoinsCollected(data.newScore ?? game.coinsCollected + 1);
       }
     });
 

@@ -116,9 +116,11 @@ class CoinManager {
             // Award score
             const updatedPlayer = updatePlayerCoins(roomCode, playerId, COIN_CONFIG.VALUE);
 
-            // Notify clients
+            // Notify clients (include row/col so clients can identify which coin was collected)
             io.to(roomCode).emit(SOCKET_EVENTS.SERVER.COIN_COLLECTED, {
                 coinId: coinId,
+                row: coin.row,
+                col: coin.col,
                 playerId: playerId,
                 playerName: playerName,
                 value: COIN_CONFIG.VALUE,
