@@ -3511,90 +3511,87 @@ const Game: React.FC = () => {
       {/* Game Over Screen */}
       {gameState === 'game-over' && (
         <div className="absolute inset-0 bg-black/90 flex items-center justify-center z-50">
-          <div className="bg-card p-8 rounded-xl border border-border max-w-md w-full mx-4 text-center max-h-[90vh] overflow-hidden flex flex-col">
-            <h2 className="text-3xl font-bold text-red-500 mb-4">GAME OVER</h2>
-            
-            <p className="text-xl text-foreground mb-2">{playerName}</p>
-            
-            <div className="my-6">
-              <div className="bg-background p-4 rounded-lg">
-                <p className="text-muted-foreground text-sm">
-                  {isMultiplayer ? 'Final Score' : 'Time Survived'}
-                </p>
-                <p className="text-3xl font-mono text-cyan-400">
-                  {isMultiplayer ? `${coinsCollected} coins` : formatTime(finalStats.time)}
-                </p>
-              </div>
-            </div>
+          <div className="bg-card p-8 rounded-xl border border-border max-w-md w-full mx-4 max-h-[90vh] overflow-hidden flex flex-col">
+            <h2 className="text-3xl font-bold text-red-500 mb-4 text-center">GAME OVER</h2>
 
-            {isMultiplayer && gameEndLeaderboard.length > 0 && (
-              <div className="mb-6 text-left flex-shrink-0">
-                <h3 className="text-lg font-semibold text-foreground mb-2">Final standings</h3>
-                <div className="bg-background rounded-lg border border-border overflow-y-auto max-h-[40vh]">
-                  <table className="w-full">
-                    <thead className="sticky top-0 bg-background border-b border-border">
-                      <tr className="text-muted-foreground text-sm">
-                        <th className="py-2 px-3 text-left">#</th>
-                        <th className="py-2 px-3 text-left">Name</th>
-                        <th className="py-2 px-3 text-right">Coins</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {gameEndLeaderboard.map((entry, i) => {
-                        const isYou = entry.id === socketService.getSocketId();
-                        return (
-                          <tr
-                            key={entry.id || i}
-                            className={`border-b border-border/50 last:border-0 ${isYou ? 'bg-cyan-500/20 text-cyan-400' : 'text-foreground'}`}
-                          >
-                            <td className="py-2 px-3 font-mono">{i + 1}</td>
-                            <td className="py-2 px-3">
-                              {entry.name}
-                              {isYou && <span className="ml-1 text-muted-foreground">(You)</span>}
-                            </td>
-                            <td className="py-2 px-3 text-right font-mono">{entry.coins}</td>
+            {isMultiplayer ? (
+              /* Multiplayer: only backend Final standings + Return to Lobby */
+              <>
+                {gameEndLeaderboard.length > 0 ? (
+                  <div className="mb-6 text-left flex-shrink min-h-0">
+                    <h3 className="text-lg font-semibold text-foreground mb-2">Final standings</h3>
+                    <div className="bg-background rounded-lg border border-border overflow-y-auto max-h-[50vh]">
+                      <table className="w-full">
+                        <thead className="sticky top-0 bg-background border-b border-border">
+                          <tr className="text-muted-foreground text-sm">
+                            <th className="py-2 px-3 text-left">#</th>
+                            <th className="py-2 px-3 text-left">Name</th>
+                            <th className="py-2 px-3 text-right">Coins</th>
                           </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-            
-            <div className="flex gap-3 flex-shrink-0">
-              {isMultiplayer ? (
-                // Multiplayer: Return to Lobby
+                        </thead>
+                        <tbody>
+                          {gameEndLeaderboard.map((entry, i) => {
+                            const isYou = entry.id === socketService.getSocketId();
+                            return (
+                              <tr
+                                key={entry.id || i}
+                                className={`border-b border-border/50 last:border-0 ${isYou ? 'bg-cyan-500/20 text-cyan-400' : 'text-foreground'}`}
+                              >
+                                <td className="py-2 px-3 font-mono">{i + 1}</td>
+                                <td className="py-2 px-3">
+                                  {entry.name}
+                                  {isYou && <span className="ml-1 text-muted-foreground">(You)</span>}
+                                </td>
+                                <td className="py-2 px-3 text-right font-mono">{entry.coins}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground text-center py-4 mb-2">No standings data.</p>
+                )}
                 <Link
                   to="/lobby"
-                  className="flex-1 py-3 bg-gradient-to-r from-cyan-500 to-blue-600 
+                  className="flex-shrink-0 w-full py-3 bg-gradient-to-r from-cyan-500 to-blue-600 
                              text-white font-bold rounded-lg hover:from-cyan-400 hover:to-blue-500
                              transition-all text-center"
                 >
                   Return to Lobby
                 </Link>
-              ) : (
-                // Single player: Play Again
-                <button
-                  onClick={handlePlayAgain}
-                  className="flex-1 py-3 bg-gradient-to-r from-cyan-500 to-blue-600 
-                             text-white font-bold rounded-lg hover:from-cyan-400 hover:to-blue-500
-                             transition-all"
-                >
-                  Play Again
-                </button>
-              )}
-              {!isMultiplayer && (
-                <button
-                  onClick={() => setShowLeaderboard(true)}
-                  className="px-4 py-3 bg-amber-500/20 border border-amber-400 
-                             text-amber-400 font-bold rounded-lg hover:bg-amber-500/30
-                             transition-all"
-                >
-                  <Trophy size={20} />
-                </button>
-              )}
-            </div>
+              </>
+            ) : (
+              /* Single player: unchanged – name, time, Play Again, Trophy */
+              <>
+                <p className="text-xl text-foreground mb-2 text-center">{playerName}</p>
+                <div className="my-6">
+                  <div className="bg-background p-4 rounded-lg">
+                    <p className="text-muted-foreground text-sm">Time Survived</p>
+                    <p className="text-3xl font-mono text-cyan-400">{formatTime(finalStats.time)}</p>
+                  </div>
+                </div>
+                <div className="flex gap-3 flex-shrink-0">
+                  <button
+                    onClick={handlePlayAgain}
+                    className="flex-1 py-3 bg-gradient-to-r from-cyan-500 to-blue-600 
+                               text-white font-bold rounded-lg hover:from-cyan-400 hover:to-blue-500
+                               transition-all"
+                  >
+                    Play Again
+                  </button>
+                  <button
+                    onClick={() => setShowLeaderboard(true)}
+                    className="px-4 py-3 bg-amber-500/20 border border-amber-400 
+                               text-amber-400 font-bold rounded-lg hover:bg-amber-500/30
+                               transition-all"
+                  >
+                    <Trophy size={20} />
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

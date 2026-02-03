@@ -63,7 +63,7 @@ export const GAME_LOOP_CONFIG = {
     GAME_LOOP_INTERVAL: 60000,      // Blitz Quiz every 60 seconds during hunt
     
     // Game Length
-    TOTAL_GAME_ROUNDS: 4,           // Number of rounds before game ends (1 round = Blitz + Hunt)
+    TOTAL_GAME_ROUNDS: 1,           // Number of rounds before game ends (1 round = Blitz + Hunt)
     
     // Scoring
     TAG_SCORE_STEAL: 15,            // Unicorn steals 15 points per tag
