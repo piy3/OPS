@@ -5,6 +5,7 @@ import socketService, { SOCKET_EVENTS, toGrid, toPixel, Room, Player as SocketPl
 import BlitzQuiz from '@/components/BlitzQuiz';
 import UnfreezeQuiz from '@/components/UnfreezeQuiz';
 import logger from '@/utils/logger';
+import { soundService } from '@/services/soundServices';
 
 const TILE_SIZE = 64;
 // Default map dimensions (used when no mapConfig is available, e.g., single player mode)
@@ -544,6 +545,8 @@ const Game: React.FC = () => {
       }, 2500);
       
       showStatus('Game Started!', '#00ff00', 2000);
+      console.log('[Music] GAME_STARTED -> stopMusic()');
+      soundService.stopMusic();
     });
 
     // Unicorn transferred (single or multiple)
@@ -574,6 +577,9 @@ const Game: React.FC = () => {
 
     // Hunt phase started
     const unsubHuntStart = socketService.on(SOCKET_EVENTS.SERVER.HUNT_START, (data: any) => {
+      console.log('[Music] HUNT_START -> playMusic("hunt"), duration:', data.duration);
+      soundService.setTrackVolume('hunt', 0.2);
+      soundService.playMusic('hunt');
       // Hide role announcement when hunt starts
       setRoleAnnouncement(null);
       setGameState('playing');
@@ -604,13 +610,24 @@ const Game: React.FC = () => {
       showStatus(`HUNT PHASE - Round ${data.roundInfo?.currentRound || 1}!`, '#ff4400', 2000);
     });
 
-    // Hunt phase ended
-    const unsubHuntEnd = socketService.on(SOCKET_EVENTS.SERVER.HUNT_END, () => {
+    // Hunt phase ended (or timer update - backend sends HUNT_END for both)
+    const unsubHuntEnd = socketService.on(SOCKET_EVENTS.SERVER.HUNT_END, (data: any) => {
+      // Backend incorrectly uses HUNT_END for timer updates every 5s
+      // Real hunt end has no remainingTime or remainingTime <= 0
+      if (data?.remainingTime > 0) {
+        // This is just a timer update, not actual hunt end - ignore for music
+        console.log('[Music] HUNT_END (timer update, remainingTime=' + data.remainingTime + ') -> ignoring');
+        return;
+      }
+      console.log('[Music] HUNT_END (actual end) -> stopMusic()');
+      soundService.stopMusic();
       showStatus('Hunt phase ended!', '#888', 1500);
     });
 
     // Blitz quiz started
     const unsubBlitzStart = socketService.on(SOCKET_EVENTS.SERVER.BLITZ_START, (data: any) => {
+      console.log('[Music] BLITZ_START -> playMusic("blitzQuiz")');
+      soundService.playMusic('blitzQuiz');
       setGameState('blitz-quiz');
       setBlitzQuestion({
         question: data.question.question,
@@ -676,6 +693,7 @@ const Game: React.FC = () => {
       if (playerId === socketService.getSocketId()) {
         // Our state changed
         if (state === 'frozen') {
+          soundService.playSfx('frozen');
           // We got frozen - set state immediately so we show loading/frozen UI
           // The UNFREEZE_QUIZ_START event should follow shortly with quiz questions
           setGameState('frozen');
@@ -720,6 +738,7 @@ const Game: React.FC = () => {
       const myId = socketService.getSocketId();
 
       if (unicornId === myId) {
+        soundService.playSfx('tag');
         // I am the unicorn who tagged
         const msg = `You tagged ${caughtName}! +${coinsGained ?? 15} coins!`;
         showStatus(msg, '#ff00ff', 2000);
@@ -835,6 +854,7 @@ const Game: React.FC = () => {
       }
       
       if (data.playerId === socketService.getSocketId()) {
+        soundService.playSfx('coin');
         setCoinsCollected(data.newScore ?? game.coinsCollected + 1);
         const msg = `+${data.value ?? 20} coins!`;
         showStatus(msg, '#ffd700', 1500);
@@ -845,6 +865,9 @@ const Game: React.FC = () => {
 
     // Game ended
     const unsubGameEnd = socketService.on(SOCKET_EVENTS.SERVER.GAME_END, (data: any) => {
+      console.log('[Music] GAME_END -> stopMusic()');
+      soundService.stopMusic();
+      soundService.playSfx('gameOver');
       setGameState('game-over');
       setFinalStats({ time: gameRef.current?.gameTime || 0 });
       if (Array.isArray(data?.leaderboard)) {
@@ -1173,16 +1196,20 @@ const Game: React.FC = () => {
     if (!isMultiplayer) return;
     
     const interval = setInterval(() => {
-      if (blitzTimeLeft > 0) {
-        setBlitzTimeLeft(prev => Math.max(0, prev - 1));
-      }
-      if (huntTimeLeft > 0) {
-        setHuntTimeLeft(prev => Math.max(0, prev - 1));
-      }
+      setBlitzTimeLeft(prev => (prev > 0 ? Math.max(0, prev - 1) : prev));
+      setHuntTimeLeft(prev => (prev > 0 ? Math.max(0, prev - 1) : prev));
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [isMultiplayer, blitzTimeLeft > 0, huntTimeLeft > 0]);
+  }, [isMultiplayer]);
+
+  // Switch to timer warning music when hunt has 10s left
+  useEffect(() => {
+    if (huntTimeLeft === 10 && gameState === 'playing') {
+      console.log('[Music] huntTimeLeft=10, gameState=playing -> playMusic("timer")');
+      soundService.playMusic('timer');
+    }
+  }, [huntTimeLeft, gameState]);
 
   // Load leaderboard from localStorage
   useEffect(() => {
