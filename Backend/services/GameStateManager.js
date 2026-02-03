@@ -92,10 +92,26 @@ class GameStateManager {
 
     /**
      * Get full game state for synchronization
+     * Includes player states (frozen/active) and unfreeze quiz data for reconnection recovery
      */
     getGameState(roomCode) {
         const room = roomManager.getRoom(roomCode);
         if (!room) return null;
+
+        // Get frozen players and their quiz data for reconnection recovery
+        const roomQuizzes = this.unfreezeQuizzes.get(roomCode);
+        const frozenPlayers = [];
+        
+        room.players.forEach(player => {
+            if (player.state === PLAYER_STATE.FROZEN) {
+                const quizState = roomQuizzes?.get(player.id);
+                frozenPlayers.push({
+                    playerId: player.id,
+                    hasActiveQuiz: !!quizState,
+                    // Don't include full quiz data here - client will request via REQUEST_UNFREEZE_QUIZ
+                });
+            }
+        });
 
         return {
             roomCode: roomCode,
@@ -105,6 +121,7 @@ class GameStateManager {
                 isUnicorn: player.isUnicorn,
                 coins: player.coins,
                 characterId: player.characterId, // Include character ID for avatar rendering
+                state: player.state || PLAYER_STATE.ACTIVE, // Include player state for frozen detection
                 position: positionManager.getPlayerPosition(roomCode, player.id)
             })),
             unicornId: room.unicornId,
@@ -112,6 +129,7 @@ class GameStateManager {
             sinkholes: sinkholeManager.getActiveSinkholes(roomCode),
             sinkTraps: sinkTrapManager.getActiveCollectibles(roomCode),
             deployedSinkTraps: sinkTrapManager.getDeployedTraps(roomCode),
+            frozenPlayers: frozenPlayers, // Include frozen players info for reconnection
             timestamp: Date.now()
         };
     }
@@ -494,8 +512,7 @@ class GameStateManager {
         
         log.info(`🏆 Room ${roomCode}: Game end event emitted`);
         
-        // 7. Clean up manager state (but keep room so leaderboard is accessible)
-        // Only clean up internal manager state, not the room itself
+        // 7. Clean up ALL manager state including spawners
         positionManager.cleanupRoom(roomCode);
         if (room?.players) {
             room.players.forEach(player => {
@@ -506,9 +523,61 @@ class GameStateManager {
         powerupManager.cleanupRoom(roomCode);
         quizManager.clearQuizState(roomCode);
         gameLoopManager.cleanupRoom(roomCode);
+        sinkholeManager.cleanupRoom(roomCode);
+        sinkTrapManager.cleanupRoom(roomCode);
         this.unfreezeQuizzes.delete(roomCode);
         
         log.info(`🏆 Room ${roomCode}: === GAME ENDED ===`);
+        
+        // 8. Schedule room deletion after a delay (give clients time to see results)
+        // After 30 seconds, the room will be deleted
+        setTimeout(() => {
+            this._deleteRoomAfterGameEnd(roomCode, io);
+        }, 30000);
+    }
+
+    /**
+     * Delete room after game has ended (called after delay)
+     * @param {string} roomCode - Room code
+     * @param {Object} io - Socket.IO server
+     */
+    _deleteRoomAfterGameEnd(roomCode, io) {
+        const room = roomManager.getRoom(roomCode);
+        if (!room) {
+            log.info(`🗑️ Room ${roomCode}: Already deleted`);
+            return;
+        }
+
+        // Only delete if game is finished (not restarted)
+        if (room.status !== ROOM_STATUS.FINISHED) {
+            log.info(`🗑️ Room ${roomCode}: Status changed from FINISHED, not deleting`);
+            return;
+        }
+
+        log.info(`🗑️ Room ${roomCode}: Deleting room and removing all players`);
+
+        // Notify all players that they're being kicked (room closing)
+        io.to(roomCode).emit(SOCKET_EVENTS.SERVER.ROOM_LEFT, {
+            roomCode: roomCode,
+            reason: 'game_ended',
+            message: 'Game has ended. Room is closing.'
+        });
+
+        // Make all sockets leave the room
+        const socketsInRoom = io.sockets.adapter.rooms.get(roomCode);
+        if (socketsInRoom) {
+            for (const socketId of socketsInRoom) {
+                const socket = io.sockets.sockets.get(socketId);
+                if (socket) {
+                    socket.leave(roomCode);
+                }
+            }
+        }
+
+        // Delete the room from RoomManager
+        roomManager.deleteRoom(roomCode);
+        
+        log.info(`🗑️ Room ${roomCode}: Room deleted successfully`);
     }
 
     /**
@@ -874,12 +943,29 @@ class GameStateManager {
                 });
 
                 // Start new quiz with new questions after a brief delay
+                // Use a more robust retry mechanism with fallback notification
                 setTimeout(() => {
                     // Check player is still in room and still frozen
                     const room = roomManager.getRoom(roomCode);
                     const player = room?.players.find(p => p.id === playerId);
-                    if (player && player.state === PLAYER_STATE.FROZEN) {
+                    
+                    if (!room || !player) {
+                        // Player left the room - no action needed
+                        log.info(`🧊 Player ${playerId} left room during quiz retry delay`);
+                        return;
+                    }
+                    
+                    if (player.state === PLAYER_STATE.FROZEN) {
+                        // Player still frozen - start new quiz
                         this._startUnfreezeQuiz(roomCode, playerId, io);
+                    } else {
+                        // Player no longer frozen (unfrozen via blitz cancel or other means)
+                        // Notify client so they don't wait forever
+                        log.info(`🧊 Player ${player.name} is no longer frozen during retry delay (state: ${player.state})`);
+                        io.to(playerId).emit(SOCKET_EVENTS.SERVER.UNFREEZE_QUIZ_CANCELLED, {
+                            reason: 'state_changed',
+                            message: 'You are no longer frozen!'
+                        });
                     }
                 }, 1500);
             }
@@ -947,6 +1033,61 @@ class GameStateManager {
             if (roomQuizzes.size === 0) {
                 this.unfreezeQuizzes.delete(roomCode);
             }
+        }
+    }
+
+    /**
+     * Request unfreeze quiz for a frozen player (for reconnection recovery)
+     * If the player is frozen and has an active quiz, resend the quiz data.
+     * If the player is frozen but has no quiz, start a new one.
+     * @param {string} roomCode - Room code
+     * @param {string} playerId - Player ID
+     * @param {Object} io - Socket.IO server
+     * @returns {boolean} True if quiz was sent/started
+     */
+    requestUnfreezeQuiz(roomCode, playerId, io) {
+        const room = roomManager.getRoom(roomCode);
+        if (!room) {
+            log.warn(`Request unfreeze quiz failed: Room ${roomCode} not found`);
+            return false;
+        }
+
+        const player = room.players.find(p => p.id === playerId);
+        if (!player) {
+            log.warn(`Request unfreeze quiz failed: Player ${playerId} not found`);
+            return false;
+        }
+
+        // Only process if player is actually frozen
+        if (player.state !== PLAYER_STATE.FROZEN) {
+            log.info(`Request unfreeze quiz: Player ${player.name} is not frozen (state: ${player.state})`);
+            return false;
+        }
+
+        // Check if player already has an active quiz
+        const roomQuizzes = this.unfreezeQuizzes.get(roomCode);
+        const existingQuiz = roomQuizzes?.get(playerId);
+
+        if (existingQuiz) {
+            // Resend existing quiz data
+            log.info(`🧊 Resending existing unfreeze quiz to ${player.name}`);
+            const questionsForClient = existingQuiz.questions.map(q => ({
+                id: q.id,
+                question: q.question,
+                options: q.options
+            }));
+
+            io.to(playerId).emit(SOCKET_EVENTS.SERVER.UNFREEZE_QUIZ_START, {
+                questions: questionsForClient,
+                totalQuestions: UNFREEZE_QUIZ_CONFIG.QUESTIONS_COUNT,
+                passThreshold: UNFREEZE_QUIZ_CONFIG.PASS_THRESHOLD
+            });
+            return true;
+        } else {
+            // No quiz exists - start a new one
+            log.info(`🧊 Starting new unfreeze quiz for ${player.name} (reconnection recovery)`);
+            this._startUnfreezeQuiz(roomCode, playerId, io);
+            return true;
         }
     }
 

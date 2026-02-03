@@ -396,4 +396,39 @@ export function registerGameHandlers(socket, io) {
             log(`Error handling lava death: ${error.message}`);
         }
     });
+
+    // REQUEST UNFREEZE QUIZ: Client requests quiz data (reconnection recovery)
+    // Used when client knows it's frozen but didn't receive UNFREEZE_QUIZ_START
+    socket.on(SOCKET_EVENTS.CLIENT.REQUEST_UNFREEZE_QUIZ, () => {
+        try {
+            const roomCode = roomManager.getRoomCodeForSocket(socket.id);
+            if (!roomCode) {
+                log(`⚠️ Request unfreeze quiz: Player not in room`);
+                return;
+            }
+
+            const room = roomManager.getRoom(roomCode);
+            if (!room || room.status !== ROOM_STATUS.PLAYING) {
+                log(`⚠️ Request unfreeze quiz: Room not playing`);
+                return;
+            }
+
+            const player = room.players.find(p => p.id === socket.id);
+            if (!player) {
+                log(`⚠️ Request unfreeze quiz: Player not found`);
+                return;
+            }
+
+            log(`🧊 Player ${player.name} requesting unfreeze quiz (recovery)`);
+
+            // Request quiz from game state manager - it will handle all cases:
+            // - If frozen with existing quiz: resend quiz data
+            // - If frozen without quiz: start new quiz
+            // - If not frozen: do nothing
+            gameStateManager.requestUnfreezeQuiz(roomCode, socket.id, io);
+
+        } catch (error) {
+            log(`Error handling request unfreeze quiz: ${error.message}`);
+        }
+    });
 }

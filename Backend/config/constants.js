@@ -231,7 +231,8 @@ export const SOCKET_EVENTS = {
         ENTER_SINKHOLE: 'enter_sinkhole',       // Enter a sinkhole to teleport
         COLLECT_SINK_TRAP: 'collect_sink_trap', // Collect a sink trap item
         DEPLOY_SINK_TRAP: 'deploy_sink_trap',   // Deploy a sink trap
-        LAVA_DEATH: 'lava_death'                // Player fell in lava (freeze + quiz)
+        LAVA_DEATH: 'lava_death',               // Player fell in lava (freeze + quiz)
+        REQUEST_UNFREEZE_QUIZ: 'request_unfreeze_quiz'  // Request quiz data if frozen but missing quiz
     },
     // Server -> Client
     SERVER: {

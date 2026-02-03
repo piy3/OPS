@@ -479,6 +479,30 @@ class RoomManager {
         // log.info(`incremented question counts of player ${player.id} ${player.questions_correctly_answered} ${player.questions_attempted}`)
         return;
     }
+
+    /**
+     * Delete a room completely
+     * Used when game ends and room should be removed
+     * @param {string} roomCode - Room code to delete
+     * @returns {boolean} True if room was deleted
+     */
+    deleteRoom(roomCode) {
+        const room = this.rooms.get(roomCode);
+        if (!room) {
+            return false;
+        }
+
+        // Clear socket mappings for all players in the room
+        room.players.forEach(player => {
+            this.socketToRoom.delete(player.id);
+        });
+
+        // Delete the room
+        this.rooms.delete(roomCode);
+        
+        log.info(`🗑️ Room ${roomCode} deleted from RoomManager`);
+        return true;
+    }
 }
 
 // Export singleton instance
