@@ -361,3 +361,4 @@ export const GAME_CONFIG = {
         { row: 24, col: 24 }     // Center intersection
     ]
 };
+''

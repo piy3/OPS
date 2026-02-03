@@ -282,6 +282,12 @@ const Game: React.FC = () => {
   const [blitzQuestion, setBlitzQuestion] = useState<{ question: string; options: string[] } | null>(null);
   const [blitzTimeLeft, setBlitzTimeLeft] = useState(0);
   
+  // Role announcement state (shows before hunt phase)
+  const [roleAnnouncement, setRoleAnnouncement] = useState<{
+    isUnicorn: boolean;
+    visible: boolean;
+  } | null>(null);
+  
   // Unfreeze quiz state (when player is frozen after being tagged)
   const [unfreezeQuizData, setUnfreezeQuizData] = useState<{
     questions: UnfreezeQuestion[];
@@ -454,9 +460,10 @@ const Game: React.FC = () => {
       setGameState('playing');
       setRoom(data.room);
       const ids = data.gameState?.unicornIds ?? (data.gameState?.unicornId ? [data.gameState.unicornId] : []);
+      const isPlayerUnicorn = ids.includes(socketService.getSocketId());
       setUnicornIds(ids);
       setUnicornId(ids[0] ?? data.gameState?.unicornId ?? null);
-      setIsUnicorn(ids.includes(socketService.getSocketId()));
+      setIsUnicorn(isPlayerUnicorn);
       const myId = socketService.getSocketId();
       const remotePlayers = remotePlayersRef.current;
       if (data.gameState?.players) {
@@ -484,6 +491,15 @@ const Game: React.FC = () => {
       if (gameRef.current) {
         gameRef.current.isPlaying = true;
       }
+      
+      // Show initial role announcement
+      setRoleAnnouncement({ isUnicorn: isPlayerUnicorn, visible: true });
+      
+      // Auto-hide after 2.5 seconds
+      setTimeout(() => {
+        setRoleAnnouncement(prev => prev ? { ...prev, visible: false } : null);
+      }, 2500);
+      
       showStatus('Game Started!', '#00ff00', 2000);
     });
 
@@ -515,6 +531,8 @@ const Game: React.FC = () => {
 
     // Hunt phase started
     const unsubHuntStart = socketService.on(SOCKET_EVENTS.SERVER.HUNT_START, (data: any) => {
+      // Hide role announcement when hunt starts
+      setRoleAnnouncement(null);
       setGameState('playing');
       setBlitzQuestion(null);
       setHuntTimeLeft(data.duration / 1000);
@@ -563,12 +581,21 @@ const Game: React.FC = () => {
     const unsubBlitzResult = socketService.on(SOCKET_EVENTS.SERVER.BLITZ_RESULT, (data: any) => {
       setBlitzQuestion(null);
       const ids = data.newUnicornIds ?? (data.newUnicornId ? [data.newUnicornId] : []);
+      const isPlayerUnicorn = ids.includes(socketService.getSocketId());
       setUnicornIds(ids);
       setUnicornId(ids[0] ?? data.newUnicornId ?? null);
-      setIsUnicorn(ids.includes(socketService.getSocketId()));
+      setIsUnicorn(isPlayerUnicorn);
       remotePlayersRef.current.forEach((player, id) => {
         player.isUnicorn = ids.includes(id);
       });
+      
+      // Show role announcement overlay before hunt starts
+      setRoleAnnouncement({ isUnicorn: isPlayerUnicorn, visible: true });
+      
+      // Auto-hide after 3 seconds as backup (in case HUNT_START is delayed)
+      setTimeout(() => {
+        setRoleAnnouncement(prev => prev ? { ...prev, visible: false } : null);
+      }, 3000);
     });
 
     // Player eliminated (fallback for any remaining instant kill scenarios)
@@ -3383,6 +3410,43 @@ const Game: React.FC = () => {
           timeLeft={blitzTimeLeft}
           onAnswer={(index) => socketService.submitBlitzAnswer(index)}
         />
+      )}
+
+      {/* Role Announcement Overlay (shows before hunt phase) */}
+      {roleAnnouncement?.visible && (
+        <div className="absolute inset-0 bg-black/95 flex items-center justify-center z-50">
+          <div className={`text-center p-8 rounded-2xl ${
+            roleAnnouncement.isUnicorn 
+              ? 'bg-gradient-to-br from-purple-900/80 to-pink-900/80 border-2 border-purple-400' 
+              : 'bg-gradient-to-br from-cyan-900/80 to-blue-900/80 border-2 border-cyan-400'
+          }`}>
+            {/* Large animated icon */}
+            <div className={`text-8xl mb-6 animate-bounce ${
+              roleAnnouncement.isUnicorn ? 'text-purple-300' : 'text-cyan-300'
+            }`}>
+              {roleAnnouncement.isUnicorn ? '🦄' : '🏃'}
+            </div>
+            
+            {/* Role title */}
+            <h1 className={`text-5xl font-bold mb-4 ${
+              roleAnnouncement.isUnicorn ? 'text-purple-300' : 'text-cyan-300'
+            }`}>
+              {roleAnnouncement.isUnicorn ? 'You are the UNICORN!' : 'You are a SURVIVOR!'}
+            </h1>
+            
+            {/* Role instruction */}
+            <p className="text-2xl text-white/90">
+              {roleAnnouncement.isUnicorn 
+                ? 'Catch Survivors for coins! 💰' 
+                : 'Evade Unicorns and collect coins! 💰'}
+            </p>
+            
+            {/* Pulsing "Get Ready" text */}
+            <p className="text-lg text-white/60 mt-6 animate-pulse">
+              Hunt begins soon...
+            </p>
+          </div>
+        </div>
       )}
 
       {/* Unfreeze Quiz Overlay (Multiplayer - when frozen after being tagged) */}
