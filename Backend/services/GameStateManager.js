@@ -698,6 +698,7 @@ class GameStateManager {
             unicornName: unicornPlayer.name,
             caughtId: survivorId,
             caughtName: survivorPlayer.name,
+            coinsGained: GAME_LOOP_CONFIG.TAG_SCORE_STEAL,
             timestamp: Date.now()
         });
 

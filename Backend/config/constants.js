@@ -19,7 +19,7 @@ export const getNextAvailableCharacterId = (players) => {
 };
 
 export const ROOM_CONFIG = {
-    DEFAULT_MAX_PLAYERS: 9,
+    DEFAULT_MAX_PLAYERS: 30,
     ROOM_CODE_LENGTH: 6,
     ROOM_CODE_CHARS: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
     MIN_PLAYERS_TO_START: 2,

@@ -11,8 +11,8 @@ const TILE_SIZE = 64;
 const DEFAULT_MAP_WIDTH = 30;
 const DEFAULT_MAP_HEIGHT = 30;
 const PERSPECTIVE_STRENGTH = 0.4;
-const BASE_PLAYER_SPEED = 300;
-const BASE_ENEMY_SPEED = 250;
+const BASE_PLAYER_SPEED = 450;
+const BASE_ENEMY_SPEED = 500;
 const IMMUNITY_DURATION = 10; // seconds
 const COLLECTIBLES_START_TIME = 30; // seconds before collectibles appear
 const COINS_FOR_IMMUNITY = 5; // coins needed for 1 stored immunity
@@ -233,6 +233,7 @@ const Game: React.FC = () => {
   const minimapRef = useRef<HTMLCanvasElement>(null);
   const [status, setStatus] = useState('');
   const [statusColor, setStatusColor] = useState('#fff');
+  const [rewardPopup, setRewardPopup] = useState<{ text: string; color: string } | null>(null);
   const [sinkInventory, setSinkInventory] = useState(0);
   const [coinsCollected, setCoinsCollected] = useState(0);
   const [immunityInventory, setImmunityInventory] = useState(0);
@@ -704,10 +705,17 @@ const Game: React.FC = () => {
 
     // Player tagged (visual feedback when someone gets tagged)
     const unsubPlayerTagged = socketService.on(SOCKET_EVENTS.SERVER.PLAYER_TAGGED, (data: any) => {
-      const { caughtId, caughtName, unicornName } = data;
-      
-      if (caughtId !== socketService.getSocketId()) {
-        // Someone else got tagged
+      const { unicornId, caughtId, caughtName, unicornName, coinsGained } = data;
+      const myId = socketService.getSocketId();
+
+      if (unicornId === myId) {
+        // I am the unicorn who tagged
+        const msg = `You tagged ${caughtName}! +${coinsGained ?? 15} coins!`;
+        showStatus(msg, '#ff00ff', 2000);
+        setRewardPopup({ text: msg, color: '#ff00ff' });
+        setTimeout(() => setRewardPopup(null), 2000);
+      } else if (caughtId !== myId) {
+        // Someone else got tagged (not me)
         showStatus(`${caughtName} was caught by ${unicornName}!`, '#ff4400', 2000);
       }
     });
@@ -817,6 +825,10 @@ const Game: React.FC = () => {
       
       if (data.playerId === socketService.getSocketId()) {
         setCoinsCollected(data.newScore ?? game.coinsCollected + 1);
+        const msg = `+${data.value ?? 20} coins!`;
+        showStatus(msg, '#ffd700', 1500);
+        setRewardPopup({ text: msg, color: '#ffd700' });
+        setTimeout(() => setRewardPopup(null), 1500);
       }
     });
 
@@ -3456,6 +3468,23 @@ const Game: React.FC = () => {
             opacity: screenFlash.opacity 
           }}
         />
+      )}
+
+      {/* Floating reward pop-up (coin / tag) - top of screen so it doesn't block view */}
+      {rewardPopup && (
+        <div className="absolute inset-x-0 top-8 flex justify-center pointer-events-none z-30">
+          <div
+            className="px-6 py-4 rounded-xl font-bold text-xl shadow-lg animate-in zoom-in-95 duration-200"
+            style={{
+              color: rewardPopup.color,
+              backgroundColor: 'rgba(0,0,0,0.75)',
+              border: `2px solid ${rewardPopup.color}`,
+              textShadow: `0 0 12px ${rewardPopup.color}`,
+            }}
+          >
+            {rewardPopup.text}
+          </div>
+        </div>
       )}
 
       {/* Blitz Quiz Overlay (Multiplayer) */}
