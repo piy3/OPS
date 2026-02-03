@@ -440,6 +440,30 @@ const Game: React.FC = () => {
         setUnicornId(data.gameState.unicornId);
         setIsUnicorn(data.gameState.unicornId === socketService.getSocketId());
       }
+      // Populate remote players from game state so names are shown (position updates don't include name)
+      const myId = socketService.getSocketId();
+      const remotePlayers = remotePlayersRef.current;
+      if (data.gameState?.players) {
+        data.gameState.players.forEach((p: any) => {
+          if (p.id === myId) return;
+          const pos = p.position;
+          const pixel = pos?.x != null ? { x: pos.x, y: pos.y } : (pos ? toPixel(pos.row, pos.col) : { x: 0, y: 0 });
+          remotePlayers.set(p.id, {
+            id: p.id,
+            name: p.name || 'Player',
+            x: pixel.x,
+            y: pixel.y,
+            targetX: pixel.x,
+            targetY: pixel.y,
+            dirX: 0,
+            dirY: 1,
+            isUnicorn: p.id === data.gameState.unicornId,
+            isEliminated: false,
+            isFrozen: p.state === 'frozen',
+            lastUpdate: Date.now()
+          });
+        });
+      }
       // Start the game loop
       if (gameRef.current) {
         gameRef.current.isPlaying = true;
@@ -844,13 +868,48 @@ const Game: React.FC = () => {
 
     // Game state sync (for reconnection recovery and initial blitz quiz sync)
     // Handles:
-    // 1. Blitz quiz sync when client misses BLITZ_START due to navigation timing
-    // 2. Frozen player recovery with unfreeze quiz data
+    // 1. Populate/update remote players with names (we navigate from Lobby so we miss GAME_STARTED)
+    // 2. Blitz quiz sync when client misses BLITZ_START due to navigation timing
+    // 3. Frozen player recovery with unfreeze quiz data
     const unsubGameStateSync = socketService.on(SOCKET_EVENTS.SERVER.GAME_STATE_SYNC, (data: any) => {
       if (!data.gameState) return;
       
       const myId = socketService.getSocketId();
       const myPlayer = data.gameState.players?.find((p: any) => p.id === myId);
+      const remotePlayers = remotePlayersRef.current;
+
+      // Populate or update remote players from game state (ensures names are set when we mounted after GAME_STARTED)
+      if (data.gameState.players) {
+        data.gameState.players.forEach((p: any) => {
+          if (p.id === myId) return;
+          const pos = p.position;
+          const pixel = pos?.x != null ? { x: pos.x, y: pos.y } : (pos ? toPixel(pos.row, pos.col) : { x: 0, y: 0 });
+          const existing = remotePlayers.get(p.id);
+          if (existing) {
+            existing.name = p.name || existing.name || 'Player';
+            existing.x = pixel.x;
+            existing.y = pixel.y;
+            existing.targetX = pixel.x;
+            existing.targetY = pixel.y;
+            existing.isFrozen = p.state === 'frozen';
+          } else {
+            remotePlayers.set(p.id, {
+              id: p.id,
+              name: p.name || 'Player',
+              x: pixel.x,
+              y: pixel.y,
+              targetX: pixel.x,
+              targetY: pixel.y,
+              dirX: 0,
+              dirY: 1,
+              isUnicorn: p.id === data.gameState.unicornId,
+              isEliminated: false,
+              isFrozen: p.state === 'frozen',
+              lastUpdate: Date.now()
+            });
+          }
+        });
+      }
       
       // Handle blitz quiz sync - this fixes the race condition where
       // the client navigates to /game and misses BLITZ_START
