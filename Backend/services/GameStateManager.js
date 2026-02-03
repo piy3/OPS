@@ -124,7 +124,8 @@ class GameStateManager {
                 state: player.state || PLAYER_STATE.ACTIVE, // Include player state for frozen detection
                 position: positionManager.getPlayerPosition(roomCode, player.id)
             })),
-            unicornId: room.unicornId,
+            unicornIds: room.unicornIds ?? (room.unicornId ? [room.unicornId] : []),
+            unicornId: room.unicornIds?.[0] ?? room.unicornId ?? null,
             leaderboard: roomManager.getLeaderboard(roomCode),
             sinkholes: sinkholeManager.getActiveSinkholes(roomCode),
             sinkTraps: sinkTrapManager.getActiveCollectibles(roomCode),
@@ -245,15 +246,21 @@ class GameStateManager {
             // Check tag collision
             this._checkTagCollision(roomCode, playerId, oldPosition, validatedPosition, isUnicorn, io);
 
-            // Check if unicorn stepped on a sink trap
-            if (isUnicorn) {
-                const triggeredTrapId = sinkTrapManager.checkTrapTrigger(roomCode, { row: updatedPosition.row, col: updatedPosition.col });
+            // Check if any unicorn stepped on a sink trap (moving player's position + all other unicorns' positions)
+            const unicornIds = room.unicornIds ?? (room.unicornId ? [room.unicornId] : []);
+            for (const uid of unicornIds) {
+                const pos = uid === playerId
+                    ? { row: updatedPosition.row, col: updatedPosition.col }
+                    : positionManager.getPlayerPosition(roomCode, uid);
+                if (!pos) continue;
+                const triggeredTrapId = sinkTrapManager.checkTrapTrigger(roomCode, { row: pos.row, col: pos.col });
                 if (triggeredTrapId) {
-                    const player = room.players.find(p => p.id === playerId);
+                    const uPlayer = room.players.find(p => p.id === uid);
                     sinkTrapManager.triggerTrap(
-                        roomCode, triggeredTrapId, playerId, player?.name || 'Unicorn', io,
+                        roomCode, triggeredTrapId, uid, uPlayer?.name || 'Unicorn', io,
                         (code, id, position) => positionManager.setPlayerPosition(code, id, position)
                     );
+                    break;
                 }
             }
         }
@@ -296,33 +303,27 @@ class GameStateManager {
     }
 
     /**
-     * Check if player leaving is the unicorn and handle
+     * Called when a unicorn left during active game (handler calls after removePlayerFromRoom).
+     * Syncs clients via UNICORN_TRANSFERRED or triggers new blitz if zero unicorns remain.
      */
     checkAndHandleUnicornLeave(roomCode, playerId, io) {
         const room = roomManager.getRoom(roomCode);
         if (!room) return false;
 
-        if (room.unicornId === playerId) {
-            gameLoopManager.handleUnicornDisconnect(
-                roomCode, 
-                playerId, 
-                io,
-                (code, newId) => roomManager.transferUnicorn(code, newId),
-                (code, socket) => {
-                    // Clean up map interactions and restart blitz
-                    coinManager.cleanupRoom(code);
-                    powerupManager.cleanupRoom(code);
-                    setTimeout(() => {
-                        this._startNewBlitz(code, socket);
-                    }, 2000);
-                }
-            );
-            return true;
-        }
-
-        // Check if reserve
-        gameLoopManager.handleReserveDisconnect(roomCode, playerId, io);
-        return false;
+        gameLoopManager.handleUnicornDisconnect(
+            roomCode,
+            playerId,
+            io,
+            (code) => roomManager.getRoom(code),
+            (code, socket) => {
+                coinManager.cleanupRoom(code);
+                powerupManager.cleanupRoom(code);
+                setTimeout(() => {
+                    this._startNewBlitz(code, socket);
+                }, 2000);
+            }
+        );
+        return true;
     }
 
     /**
@@ -404,7 +405,7 @@ class GameStateManager {
             roomCode,
             room,
             io,
-            (code, newId) => roomManager.transferUnicorn(code, newId),
+            (code, newUnicornIds) => roomManager.setUnicorns(code, newUnicornIds),
             (code, id, amount) => roomManager.updatePlayerCoins(code, id, amount),
             this._onStartHunt
         );
@@ -587,12 +588,24 @@ class GameStateManager {
         const { roomCode, caughtPlayerWins, caughtId, unicornId, scorePercentage, isTimeout } = results;
         
         if (caughtPlayerWins) {
-            // Caught player wins
             roomManager.updatePlayerCoins(roomCode, caughtId, 20);
             roomManager.updatePlayerCoins(roomCode, unicornId, -20);
-            roomManager.transferUnicorn(roomCode, caughtId);
+            const room = roomManager.getRoom(roomCode);
+            const currentIds = room?.unicornIds ?? (room?.unicornId ? [room.unicornId] : []);
+            const newSet = [...currentIds.filter(id => id !== unicornId), caughtId];
+            roomManager.setUnicorns(roomCode, newSet);
+            // Emit so frontend updates unicorn set
+            const io = results.io;
+            if (io) {
+                const updatedRoom = roomManager.getRoom(roomCode);
+                io.to(roomCode).emit(SOCKET_EVENTS.SERVER.UNICORN_TRANSFERRED, {
+                    newUnicornIds: updatedRoom?.unicornIds ?? newSet,
+                    newUnicornId: (updatedRoom?.unicornIds ?? newSet)[0] ?? null,
+                    reason: 'tag_quiz_caught_wins',
+                    room: updatedRoom
+                });
+            }
         } else {
-            // Unicorn wins
             roomManager.updatePlayerCoins(roomCode, unicornId, 20);
             roomManager.updatePlayerCoins(roomCode, caughtId, -20);
         }
@@ -601,46 +614,41 @@ class GameStateManager {
     // ==================== INTERNAL COLLISION HANDLING ====================
 
     /**
-     * Check for tag collision between players
+     * Check for tag collision between players (multiple unicorns: any unicorn can tag any survivor)
      */
     _checkTagCollision(roomCode, playerId, oldPosition, newPosition, isUnicorn, io) {
         const room = roomManager.getRoom(roomCode);
         if (!room) return;
 
-        const unicornPlayer = room.players.find(p => p.isUnicorn);
-        if (!unicornPlayer) return;
+        const unicornIds = room.unicornIds ?? (room.unicornId ? [room.unicornId] : []);
+        if (unicornIds.length === 0) return;
 
         const oldPos = oldPosition || newPosition;
         const pathCells = positionManager.getCellsInPath(oldPos, newPosition);
 
         if (!isUnicorn) {
-            // Survivor checking if crossed unicorn
-            const unicornPos = positionManager.getPlayerPosition(roomCode, unicornPlayer.id);
-            if (!unicornPos) return;
-
-            const crossedUnicorn = pathCells.some(cell => 
-                cell.row === unicornPos.row && cell.col === unicornPos.col
-            ) || (newPosition.row === unicornPos.row && newPosition.col === unicornPos.col);
-            
-            if (crossedUnicorn) {
-                this._handleTag(roomCode, unicornPlayer.id, playerId, io);
+            for (const uid of unicornIds) {
+                const unicornPos = positionManager.getPlayerPosition(roomCode, uid);
+                if (!unicornPos) continue;
+                const crossed = pathCells.some(cell =>
+                    cell.row === unicornPos.row && cell.col === unicornPos.col
+                ) || (newPosition.row === unicornPos.row && newPosition.col === unicornPos.col);
+                if (crossed) {
+                    this._handleTag(roomCode, uid, playerId, io);
+                    return;
+                }
             }
         } else {
-            // Unicorn checking if crossed any survivor
             const caughtPlayer = room.players.find(p => {
                 if (p.id === playerId || p.isUnicorn) return false;
-                
                 const playerPos = positionManager.getPlayerPosition(roomCode, p.id);
                 if (!playerPos) return false;
-                
-                const crossedPlayer = pathCells.some(cell => 
+                const crossedPlayer = pathCells.some(cell =>
                     cell.row === playerPos.row && cell.col === playerPos.col
                 );
-                
-                return crossedPlayer || 
+                return crossedPlayer ||
                     (playerPos.row === newPosition.row && playerPos.col === newPosition.col);
             });
-            
             if (caughtPlayer) {
                 this._handleTag(roomCode, playerId, caughtPlayer.id, io);
             }
@@ -653,7 +661,8 @@ class GameStateManager {
      */
     _handleTag(roomCode, unicornId, survivorId, io) {
         const room = roomManager.getRoom(roomCode);
-        if (!room || room.unicornId !== unicornId) return;
+        const unicornIds = room?.unicornIds ?? (room?.unicornId ? [room.unicornId] : []);
+        if (!room || !unicornIds.includes(unicornId)) return;
 
         // Rate limit collision
         if (!combatManager.shouldProcessCollision(unicornId, survivorId)) {

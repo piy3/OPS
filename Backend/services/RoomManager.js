@@ -3,7 +3,7 @@
  * Handles all room-related business logic
  */
 
-import { ROOM_CONFIG, ROOM_STATUS, COMBAT_CONFIG, PLAYER_STATE, getNextAvailableCharacterId } from '../config/constants.js';
+import { ROOM_CONFIG, ROOM_STATUS, COMBAT_CONFIG, PLAYER_STATE, GAME_LOOP_CONFIG, getNextAvailableCharacterId } from '../config/constants.js';
 import log from "../utils/logger.js"
 // Extract starting coins from config for easy reference
 const STARTING_COINS = ROOM_CONFIG.STARTING_COINS;
@@ -44,7 +44,8 @@ class RoomManager {
             status: ROOM_STATUS.WAITING,
             createdAt: Date.now(),
             maxPlayers: playerData?.maxPlayers || ROOM_CONFIG.DEFAULT_MAX_PLAYERS,
-            unicornId: null // Track current unicorn
+            unicornIds: [],           // Multiple unicorns per round
+            unicornId: null           // Backward compat: unicornIds[0] ?? null
         };
 
         this.rooms.set(roomCode, room);
@@ -151,7 +152,7 @@ class RoomManager {
 
         let roomDeleted = false;
         let newHostId = null;
-        let newUnicornId = null;
+        let newUnicornIds = null;
 
         // If host left and there are other players, assign new host
         if (wasHost && room.players.length > 0) {
@@ -160,13 +161,32 @@ class RoomManager {
             newHostId = room.players[0].id;
         }
 
-        // If unicorn left and there are other players, assign new unicorn
-        if (wasUnicorn && room.players.length > 0) {
-            // Randomly select a new unicorn from remaining players
-            const randomIndex = Math.floor(Math.random() * room.players.length);
-            room.players[randomIndex].isUnicorn = true;
-            room.unicornId = room.players[randomIndex].id;
-            newUnicornId = room.players[randomIndex].id;
+        // If unicorn left: remove from unicornIds; optionally refill if zero remain
+        if (wasUnicorn) {
+            room.unicornIds = (room.unicornIds || []).filter(id => id !== socketId);
+            room.unicornId = room.unicornIds[0] ?? null;
+            room.players.forEach(p => { p.isUnicorn = room.unicornIds.includes(p.id); });
+            if (room.players.length > 0 && room.unicornIds.length === 0) {
+                // Refill to 30% (min 1) from remaining players
+                const count = Math.max(
+                    GAME_LOOP_CONFIG.MIN_UNICORNS,
+                    Math.min(
+                        (GAME_LOOP_CONFIG.MAX_UNICORNS ?? Infinity),
+                        Math.ceil(room.players.length * (GAME_LOOP_CONFIG.UNICORN_PERCENTAGE ?? 0.3))
+                    )
+                );
+                const cap = Math.min(count, Math.max(1, room.players.length - 1));
+                const shuffled = [...room.players].sort(() => Math.random() - 0.5);
+                newUnicornIds = shuffled.slice(0, cap).map(p => p.id);
+                newUnicornIds.forEach(id => {
+                    const p = room.players.find(pl => pl.id === id);
+                    if (p) p.isUnicorn = true;
+                });
+                room.unicornIds = newUnicornIds;
+                room.unicornId = room.unicornIds[0] ?? null;
+            } else {
+                newUnicornIds = room.unicornIds.length > 0 ? [...room.unicornIds] : null;
+            }
         }
 
         // If room is empty, delete it
@@ -180,7 +200,7 @@ class RoomManager {
             wasUnicorn,
             roomDeleted,
             newHostId,
-            newUnicornId,
+            newUnicornIds,
             room: roomDeleted ? null : room
         };
     }
@@ -225,17 +245,26 @@ class RoomManager {
         room.status = ROOM_STATUS.PLAYING;
         
         // Reset all player coins to starting amount for the new game
-        // This ensures the central leaderboard starts fresh for each game
         room.players.forEach(player => {
             player.coins = STARTING_COINS;
             player.questions_attempted = QUESTIONS_ATTEMPTED;
             player.questions_correctly_answered = QUESTIONS_CORRECTLY_ANSWERED;
         });
         
-        // Assign first player as unicorn when game starts
-        if (room.players.length > 0 && !room.unicornId) {
-            room.players[0].isUnicorn = true;
-            room.unicornId = room.players[0].id;
+        // Assign 30% of players (min 1) as unicorns when game starts
+        const pct = GAME_LOOP_CONFIG.UNICORN_PERCENTAGE ?? 0.3;
+        const minU = GAME_LOOP_CONFIG.MIN_UNICORNS ?? 1;
+        const maxU = GAME_LOOP_CONFIG.MAX_UNICORNS ?? Infinity;
+        let count = Math.max(minU, Math.min(maxU, Math.ceil(room.players.length * pct)));
+        count = Math.min(count, Math.max(1, room.players.length - 1)); // at least one survivor
+        if (room.players.length > 0 && (room.unicornIds?.length ?? 0) === 0) {
+            const shuffled = [...room.players].sort(() => Math.random() - 0.5);
+            room.unicornIds = shuffled.slice(0, count).map(p => p.id);
+            room.unicornIds.forEach(id => {
+                const p = room.players.find(pl => pl.id === id);
+                if (p) p.isUnicorn = true;
+            });
+            room.unicornId = room.unicornIds[0] ?? null;
         }
         
         return room;
@@ -259,40 +288,54 @@ class RoomManager {
     }
 
     /**
-     * Transfer unicorn status to another player
+     * Set unicorn set (multiple unicorns per round).
+     * @param {string} roomCode - Room code
+     * @param {string[]} newUnicornIds - Socket IDs of unicorns
+     * @returns {Object|null} Updated room or null
+     */
+    setUnicorns(roomCode, newUnicornIds) {
+        const room = this.rooms.get(roomCode);
+        if (!room) return null;
+
+        room.players.forEach(p => { p.isUnicorn = false; });
+        (newUnicornIds || []).forEach(id => {
+            const p = room.players.find(pl => pl.id === id);
+            if (p) p.isUnicorn = true;
+        });
+        room.unicornIds = [...(newUnicornIds || [])];
+        room.unicornId = room.unicornIds[0] ?? null;
+        return room;
+    }
+
+    /**
+     * Transfer unicorn status to a single player (backward compat; prefer setUnicorns)
      * @param {string} roomCode - Room code
      * @param {string} newUnicornId - Socket ID of new unicorn
      * @returns {Object|null} Updated room or null
      */
     transferUnicorn(roomCode, newUnicornId) {
-        const room = this.rooms.get(roomCode);
-        if (!room) return null;
-
-        // Remove unicorn status from current unicorn
-        const currentUnicorn = room.players.find(p => p.isUnicorn);
-        if (currentUnicorn) {
-            currentUnicorn.isUnicorn = false;
-        }
-
-        // Assign unicorn status to new player
-        const newUnicorn = room.players.find(p => p.id === newUnicornId);
-        if (newUnicorn) {
-            newUnicorn.isUnicorn = true;
-            room.unicornId = newUnicornId;
-        }
-
-        return room;
+        return this.setUnicorns(roomCode, newUnicornId ? [newUnicornId] : []);
     }
 
     /**
-     * Get current unicorn in room
+     * Get all unicorn players in room
      * @param {string} roomCode - Room code
-     * @returns {Object|null} Unicorn player object or null
+     * @returns {Array} Array of unicorn player objects
+     */
+    getUnicorns(roomCode) {
+        const room = this.rooms.get(roomCode);
+        if (!room) return [];
+        return room.players.filter(p => p.isUnicorn);
+    }
+
+    /**
+     * Get current unicorn in room (first of set; backward compat)
+     * @param {string} roomCode - Room code
+     * @returns {Object|null} First unicorn player or null
      */
     getUnicorn(roomCode) {
         const room = this.rooms.get(roomCode);
         if (!room) return null;
-
         return room.players.find(p => p.isUnicorn) || null;
     }
 

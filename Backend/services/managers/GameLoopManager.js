@@ -261,20 +261,26 @@ class GameLoopManager {
     }
 
     /**
-     * End Blitz Quiz and determine roles
+     * End Blitz Quiz and determine roles (multiple unicorns: 30% of players, min 1)
      * @param {string} roomCode - Room code
      * @param {Object} room - Room data
      * @param {Object} io - Socket.IO server
-     * @param {Function} transferUnicorn - Callback to transfer unicorn
+     * @param {Function} setUnicorns - Callback (roomCode, newUnicornIds[])
      * @param {Function} updatePlayerCoins - Callback to update coins
      * @param {Function} onStartHunt - Callback to start hunt phase
      */
-    endBlitzQuiz(roomCode, room, io, transferUnicorn, updatePlayerCoins, onStartHunt) {
+    endBlitzQuiz(roomCode, room, io, setUnicorns, updatePlayerCoins, onStartHunt) {
         const blitz = this.blitzQuizzes.get(roomCode);
         
         if (!blitz || blitz.completed) return;
 
         blitz.completed = true;
+
+        const pct = GAME_LOOP_CONFIG.UNICORN_PERCENTAGE ?? 0.3;
+        const minU = GAME_LOOP_CONFIG.MIN_UNICORNS ?? 1;
+        const maxU = GAME_LOOP_CONFIG.MAX_UNICORNS ?? Infinity;
+        let unicornCount = Math.max(minU, Math.min(maxU, Math.ceil(room.players.length * pct)));
+        unicornCount = Math.min(unicornCount, Math.max(1, room.players.length - 1)); // at least one survivor
 
         // Get correct answers sorted by response time
         const correctAnswers = [];
@@ -290,41 +296,33 @@ class GameLoopManager {
         });
         correctAnswers.sort((a, b) => a.responseTime - b.responseTime);
 
-        // Determine new Unicorn
-        let newUnicornId = null;
-        let newUnicornName = null;
-        let reserveId = null;
-        let reserveName = null;
-
+        let newUnicornIds = [];
         if (correctAnswers.length > 0) {
-            newUnicornId = correctAnswers[0].playerId;
-            newUnicornName = correctAnswers[0].playerName;
-            
-            if (GAME_LOOP_CONFIG.RESERVE_UNICORN_ENABLED && 
-                correctAnswers.length > 1 && 
-                room.players.length >= BLITZ_QUIZ_CONFIG.MIN_PLAYERS_FOR_RESERVE) {
-                reserveId = correctAnswers[1].playerId;
-                reserveName = correctAnswers[1].playerName;
-                this.reserveUnicorns.set(roomCode, {
-                    playerId: reserveId,
-                    playerName: reserveName
-                });
+            const fromCorrect = correctAnswers.slice(0, unicornCount).map(a => a.playerId);
+            const chosenSet = new Set(fromCorrect);
+            if (fromCorrect.length >= unicornCount) {
+                newUnicornIds = fromCorrect;
+            } else {
+                const remaining = room.players.filter(p => !chosenSet.has(p.id));
+                const shuffled = remaining.sort(() => Math.random() - 0.5);
+                for (const p of shuffled) {
+                    if (newUnicornIds.length + fromCorrect.length >= unicornCount) break;
+                    newUnicornIds.push(p.id);
+                }
+                newUnicornIds = [...fromCorrect, ...newUnicornIds].slice(0, unicornCount);
             }
         } else {
-            // No correct answers - random unicorn
-            const randomIndex = Math.floor(Math.random() * room.players.length);
-            newUnicornId = room.players[randomIndex].id;
-            newUnicornName = room.players[randomIndex].name;
+            const shuffled = [...room.players].sort(() => Math.random() - 0.5);
+            newUnicornIds = shuffled.slice(0, unicornCount).map(p => p.id);
         }
 
-        // Transfer unicorn
+        setUnicorns(roomCode, newUnicornIds);
+        newUnicornIds.forEach(id => updatePlayerCoins(roomCode, id, GAME_LOOP_CONFIG.BLITZ_WINNER_BONUS));
+
         const oldUnicornId = room.unicornId;
-        if (newUnicornId && newUnicornId !== oldUnicornId) {
-            transferUnicorn(roomCode, newUnicornId);
-            updatePlayerCoins(roomCode, newUnicornId, GAME_LOOP_CONFIG.BLITZ_WINNER_BONUS);
-        }
+        const updatedRoom = RoomManager.getRoom(roomCode);
+        const finalUnicornIds = updatedRoom?.unicornIds ?? newUnicornIds;
 
-        // Build results
         const results = {
             question: blitz.question.question,
             correctAnswer: blitz.question.options[blitz.question.correctAnswer],
@@ -334,13 +332,14 @@ class GameLoopManager {
                 playerId: a.playerId,
                 playerName: a.playerName,
                 responseTime: a.responseTime,
-                isUnicorn: a.playerId === newUnicornId,
-                isReserve: a.playerId === reserveId
+                isUnicorn: finalUnicornIds.includes(a.playerId),
+                isReserve: false
             })),
-            newUnicornId: newUnicornId,
-            newUnicornName: newUnicornName,
-            reserveUnicornId: reserveId,
-            reserveUnicornName: reserveName,
+            newUnicornIds: finalUnicornIds,
+            newUnicornId: finalUnicornIds[0] ?? null,
+            newUnicornName: updatedRoom?.players?.find(p => p.id === finalUnicornIds[0])?.name ?? null,
+            reserveUnicornId: null,
+            reserveUnicornName: null,
             oldUnicornId: oldUnicornId,
             totalPlayers: room.players.length,
             correctCount: correctAnswers.length
@@ -348,19 +347,14 @@ class GameLoopManager {
 
         io.to(roomCode).emit(SOCKET_EVENTS.SERVER.BLITZ_RESULT, results);
 
-        // Emit unicorn transfer if changed
-        if (newUnicornId !== oldUnicornId) {
-            io.to(roomCode).emit(SOCKET_EVENTS.SERVER.UNICORN_TRANSFERRED, {
-                newUnicornId: newUnicornId,
-                oldUnicornId: oldUnicornId,
-                room: room
-            });
-        }
+        io.to(roomCode).emit(SOCKET_EVENTS.SERVER.UNICORN_TRANSFERRED, {
+            newUnicornIds: finalUnicornIds,
+            newUnicornId: finalUnicornIds[0] ?? null,
+            room: updatedRoom ?? room
+        });
 
-        // Clean up
         this.blitzQuizzes.delete(roomCode);
 
-        // Start hunt after delay
         setTimeout(() => {
             onStartHunt(roomCode, io);
         }, GAME_LOOP_CONFIG.ROUND_END_DURATION);
@@ -383,10 +377,9 @@ class GameLoopManager {
         const now = Date.now();
         const huntEndTime = now + GAME_LOOP_CONFIG.HUNT_DURATION;
 
-        const unicornPlayer = room.players.find(p => p.id === room.unicornId);
-        const reserve = this.reserveUnicorns.get(roomCode);
+        const unicornIds = room.unicornIds ?? (room.unicornId ? [room.unicornId] : []);
+        const unicornNames = unicornIds.map(id => room.players.find(p => p.id === id)?.name).filter(Boolean);
 
-        // Build player health data
         const playersHealth = room.players.map(p => ({
             playerId: p.id,
             health: p.health,
@@ -394,19 +387,20 @@ class GameLoopManager {
             state: p.state
         }));
 
-        // Include round info in hunt start event
         const roundInfo = this.getRoomRounds(roomCode);
         
         io.to(roomCode).emit(SOCKET_EVENTS.SERVER.HUNT_START, {
             duration: GAME_LOOP_CONFIG.HUNT_DURATION,
             endTime: huntEndTime,
-            unicornId: room.unicornId,
-            unicornName: unicornPlayer?.name || 'Unknown',
-            reserveUnicornId: reserve?.playerId || null,
-            reserveUnicornName: reserve?.playerName || null,
+            unicornIds,
+            unicornNames,
+            unicornId: room.unicornId ?? unicornIds[0] ?? null,
+            unicornName: unicornNames[0] ?? 'Unknown',
+            reserveUnicornId: null,
+            reserveUnicornName: null,
             timestamp: now,
-            playersHealth: playersHealth,
-            roundInfo: roundInfo // { currentRound, totalRounds, roundsRemaining } or null
+            playersHealth,
+            roundInfo
         });
 
         // Initialize coins and powerups
@@ -452,50 +446,40 @@ class GameLoopManager {
     }
 
     /**
-     * Handle unicorn disconnect during Hunt
+     * Handle unicorn disconnect during Hunt (one of multiple unicorns left)
+     * RoomManager.removePlayerFromRoom already removed the id from room.unicornIds.
+     * If no unicorns remain, trigger new blitz; otherwise emit UNICORN_TRANSFERRED with current set.
      * @param {string} roomCode - Room code
      * @param {string} disconnectedId - Disconnected unicorn ID
      * @param {Object} io - Socket.IO server
-     * @param {Function} setUnicorn - Callback to set new unicorn
-     * @param {Function} onNoReserve - Callback when no reserve available
-     * @returns {boolean} True if reserve was activated
+     * @param {Function} getRoom - Callback to get current room (RoomManager.getRoom)
+     * @param {Function} onNoReserve - Callback when zero unicorns remain (start new blitz)
+     * @returns {boolean} True if handled (either refilled or new blitz triggered)
      */
-    handleUnicornDisconnect(roomCode, disconnectedId, io, setUnicorn, onNoReserve) {
+    handleUnicornDisconnect(roomCode, disconnectedId, io, getRoom, onNoReserve) {
         if (this.getGamePhase(roomCode) !== GAME_PHASE.HUNT) {
             return false;
         }
 
-        const reserve = this.reserveUnicorns.get(roomCode);
+        const room = getRoom(roomCode);
+        const unicornIds = room?.unicornIds ?? [];
 
-        if (reserve && reserve.playerId) {
-            // Promote reserve
-            setUnicorn(roomCode, reserve.playerId);
-            this.reserveUnicorns.delete(roomCode);
-            
+        if (unicornIds.length > 0) {
             io.to(roomCode).emit(SOCKET_EVENTS.SERVER.UNICORN_TRANSFERRED, {
-                newUnicornId: reserve.playerId,
-                newUnicornName: reserve.playerName,
+                newUnicornIds: unicornIds,
+                newUnicornId: unicornIds[0],
                 reason: 'unicorn_disconnected',
-                previousUnicornId: disconnectedId
+                previousUnicornId: disconnectedId,
+                room
             });
-
-            io.to(roomCode).emit(SOCKET_EVENTS.SERVER.RESERVE_ACTIVATED, {
-                newUnicornId: reserve.playerId,
-                newUnicornName: reserve.playerName,
-                reason: 'unicorn_disconnected'
-            });
-
             return true;
         }
 
-        // No reserve - trigger new blitz
         this.clearGameLoopTimers(roomCode);
-        
         io.to(roomCode).emit(SOCKET_EVENTS.SERVER.HUNT_END, {
             reason: 'unicorn_disconnected',
-            message: 'Unicorn disconnected! New Blitz Quiz starting...'
+            message: 'All unicorns left! New Blitz Quiz starting...'
         });
-
         onNoReserve(roomCode, io);
         return false;
     }

@@ -246,7 +246,8 @@ const Game: React.FC = () => {
   const roomCodeRef = useRef<string | null>(null); // Store room code for seeded map generation
   const [room, setRoom] = useState<Room | null>(null);
   const [isUnicorn, setIsUnicorn] = useState(false);
-  const [unicornId, setUnicornId] = useState<string | null>(null);
+  const [unicornIds, setUnicornIds] = useState<string[]>([]);
+  const [unicornId, setUnicornId] = useState<string | null>(null); // backward compat / first unicorn
   const [connectedPlayers, setConnectedPlayers] = useState<SocketPlayer[]>([]);
   const remotePlayersRef = useRef<Map<string, RemotePlayer>>(new Map());
   
@@ -356,10 +357,11 @@ const Game: React.FC = () => {
         if (gameRef.current) {
           gameRef.current.isPlaying = true;
         }
-        if (locationState.gameState.unicornId) {
-          setUnicornId(locationState.gameState.unicornId);
-          setIsUnicorn(locationState.gameState.unicornId === socketService.getSocketId());
-        }
+        const gs = locationState.gameState;
+        const ids = gs.unicornIds ?? (gs.unicornId ? [gs.unicornId] : []);
+        setUnicornIds(ids);
+        setUnicornId(ids[0] ?? gs.unicornId ?? null);
+        setIsUnicorn(ids.includes(socketService.getSocketId()));
       } else {
         setGameState('waiting-for-start');
       }
@@ -409,7 +411,7 @@ const Game: React.FC = () => {
           targetY: position.y,
           dirX: position.dirX || 0,
           dirY: position.dirY || 1,
-          isUnicorn: playerId === unicornId,
+          isUnicorn: unicornIds.includes(playerId),
           isEliminated: false,
           isFrozen: false,
           lastUpdate: Date.now()
@@ -436,11 +438,10 @@ const Game: React.FC = () => {
     const unsubGameStarted = socketService.on(SOCKET_EVENTS.SERVER.GAME_STARTED, (data: any) => {
       setGameState('playing');
       setRoom(data.room);
-      if (data.gameState?.unicornId) {
-        setUnicornId(data.gameState.unicornId);
-        setIsUnicorn(data.gameState.unicornId === socketService.getSocketId());
-      }
-      // Populate remote players from game state so names are shown (position updates don't include name)
+      const ids = data.gameState?.unicornIds ?? (data.gameState?.unicornId ? [data.gameState.unicornId] : []);
+      setUnicornIds(ids);
+      setUnicornId(ids[0] ?? data.gameState?.unicornId ?? null);
+      setIsUnicorn(ids.includes(socketService.getSocketId()));
       const myId = socketService.getSocketId();
       const remotePlayers = remotePlayersRef.current;
       if (data.gameState?.players) {
@@ -457,7 +458,7 @@ const Game: React.FC = () => {
             targetY: pixel.y,
             dirX: 0,
             dirY: 1,
-            isUnicorn: p.id === data.gameState.unicornId,
+            isUnicorn: ids.includes(p.id),
             isEliminated: false,
             isFrozen: p.state === 'frozen',
             lastUpdate: Date.now()
@@ -471,24 +472,29 @@ const Game: React.FC = () => {
       showStatus('Game Started!', '#00ff00', 2000);
     });
 
-    // Unicorn transferred
+    // Unicorn transferred (single or multiple)
     const unsubUnicorn = socketService.on(SOCKET_EVENTS.SERVER.UNICORN_TRANSFERRED, (data: any) => {
-      const newUnicornId = data.newUnicornId;
-      setUnicornId(newUnicornId);
-      setIsUnicorn(newUnicornId === socketService.getSocketId());
-      
-      // Update all remote players' unicorn status
+      const ids = data.newUnicornIds ?? (data.newUnicornId ? [data.newUnicornId] : []);
+      setUnicornIds(ids);
+      setUnicornId(ids[0] ?? data.newUnicornId ?? null);
+      setIsUnicorn(ids.includes(socketService.getSocketId()));
       remotePlayersRef.current.forEach((player, id) => {
-        player.isUnicorn = id === newUnicornId;
+        player.isUnicorn = ids.includes(id);
       });
-      
-      if (newUnicornId === socketService.getSocketId()) {
-        showStatus('YOU ARE THE UNICORN!', '#ff00ff', 3000);
+      const socketId = socketService.getSocketId();
+      if (ids.includes(socketId)) {
+        showStatus(ids.length > 1 ? 'You are a Unicorn!' : 'YOU ARE THE UNICORN!', '#ff00ff', 3000);
         setScreenFlash({ color: '#ff00ff', opacity: 0.4 });
         setTimeout(() => setScreenFlash(null), 300);
       } else {
-        const unicornPlayer = data.room?.players?.find((p: any) => p.id === newUnicornId);
-        showStatus(`${unicornPlayer?.name || 'Someone'} is now the Unicorn!`, '#ff00ff', 2000);
+        const names = (data.room?.players ?? [])
+          .filter((p: any) => ids.includes(p.id))
+          .map((p: any) => p.name)
+          .filter(Boolean);
+        const text = names.length > 1
+          ? `New Unicorns: ${names.join(', ')}`
+          : `${names[0] || 'Someone'} is now the Unicorn!`;
+        showStatus(text, '#ff00ff', 2000);
       }
     });
 
@@ -499,7 +505,14 @@ const Game: React.FC = () => {
       setHuntTimeLeft(data.duration / 1000);
       setCurrentRound(data.roundInfo?.currentRound || 1);
       setTotalRounds(data.roundInfo?.totalRounds || 4);
-      // Ensure game loop is running
+      if (data.unicornIds?.length !== undefined) {
+        setUnicornIds(data.unicornIds);
+        setUnicornId(data.unicornIds[0] ?? data.unicornId ?? null);
+        setIsUnicorn(data.unicornIds.includes(socketService.getSocketId()));
+        remotePlayersRef.current.forEach((player, id) => {
+          player.isUnicorn = data.unicornIds.includes(id);
+        });
+      }
       if (gameRef.current) {
         gameRef.current.isPlaying = true;
       }
@@ -525,10 +538,13 @@ const Game: React.FC = () => {
     // Blitz quiz result
     const unsubBlitzResult = socketService.on(SOCKET_EVENTS.SERVER.BLITZ_RESULT, (data: any) => {
       setBlitzQuestion(null);
-      if (data.newUnicornId) {
-        setUnicornId(data.newUnicornId);
-        setIsUnicorn(data.newUnicornId === socketService.getSocketId());
-      }
+      const ids = data.newUnicornIds ?? (data.newUnicornId ? [data.newUnicornId] : []);
+      setUnicornIds(ids);
+      setUnicornId(ids[0] ?? data.newUnicornId ?? null);
+      setIsUnicorn(ids.includes(socketService.getSocketId()));
+      remotePlayersRef.current.forEach((player, id) => {
+        player.isUnicorn = ids.includes(id);
+      });
     });
 
     // Player eliminated (fallback for any remaining instant kill scenarios)
@@ -877,6 +893,12 @@ const Game: React.FC = () => {
       const myId = socketService.getSocketId();
       const myPlayer = data.gameState.players?.find((p: any) => p.id === myId);
       const remotePlayers = remotePlayersRef.current;
+      const unicornIdsSync = data.gameState.unicornIds ?? (data.gameState.unicornId ? [data.gameState.unicornId] : []);
+
+      // Sync local unicorn state (reconnection)
+      setUnicornIds(unicornIdsSync);
+      setUnicornId(unicornIdsSync[0] ?? data.gameState.unicornId ?? null);
+      setIsUnicorn(unicornIdsSync.includes(myId));
 
       // Populate or update remote players from game state (ensures names are set when we mounted after GAME_STARTED)
       if (data.gameState.players) {
@@ -892,6 +914,7 @@ const Game: React.FC = () => {
             existing.targetX = pixel.x;
             existing.targetY = pixel.y;
             existing.isFrozen = p.state === 'frozen';
+            existing.isUnicorn = unicornIdsSync.includes(p.id);
           } else {
             remotePlayers.set(p.id, {
               id: p.id,
@@ -902,7 +925,7 @@ const Game: React.FC = () => {
               targetY: pixel.y,
               dirX: 0,
               dirY: 1,
-              isUnicorn: p.id === data.gameState.unicornId,
+              isUnicorn: unicornIdsSync.includes(p.id),
               isEliminated: false,
               isFrozen: p.state === 'frozen',
               lastUpdate: Date.now()
@@ -996,7 +1019,7 @@ const Game: React.FC = () => {
       unsubSinkTrapTriggered();
       unsubGameStateSync();
     };
-  }, [isMultiplayer, unicornId, gameState, navigate]);
+  }, [isMultiplayer, unicornIds, gameState, navigate]);
 
   // Show status helper (defined early for use in socket handlers)
   const showStatus = useCallback((text: string, color: string = '#fff', duration: number = 2000) => {

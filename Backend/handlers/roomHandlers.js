@@ -89,15 +89,7 @@ export function registerRoomHandlers(socket, io) {
                 return;
             }
 
-            const room = roomManager.getRoom(roomCode);
-            const wasUnicornDuringGame = room && room.unicornId === socket.id && room.status === 'playing';
-
-            // Handle unicorn disconnect during active game (promotes reserve or triggers new quiz)
-            if (wasUnicornDuringGame) {
-                gameStateManager.checkAndHandleUnicornLeave(roomCode, socket.id, io);
-            }
-
-            // Clean up player position from game state
+            // Clean up player position from game state first
             gameStateManager.removePlayerPosition(roomCode, socket.id);
 
             const result = roomManager.removePlayerFromRoom(roomCode, socket.id);
@@ -105,6 +97,8 @@ export function registerRoomHandlers(socket, io) {
                 socket.emit(SOCKET_EVENTS.SERVER.LEAVE_ERROR, { message: 'Failed to leave room' });
                 return;
             }
+
+            const wasUnicornDuringGame = result.wasUnicorn && result.room?.status === 'playing';
 
             socket.leave(roomCode);
             log(`Player ${socket.id} left room: ${roomCode}`);
@@ -114,6 +108,11 @@ export function registerRoomHandlers(socket, io) {
                 gameStateManager.cleanupRoom(roomCode);
                 log(`Room ${roomCode} deleted (empty)`);
             } else {
+                // If unicorn left during active game: sync clients or trigger new blitz
+                if (wasUnicornDuringGame) {
+                    gameStateManager.checkAndHandleUnicornLeave(roomCode, socket.id, io);
+                }
+
                 // If host left and there are other players, notify new host
                 if (result.wasHost && result.newHostId) {
                     io.to(result.newHostId).emit(SOCKET_EVENTS.SERVER.HOST_TRANSFERRED, {
@@ -121,14 +120,17 @@ export function registerRoomHandlers(socket, io) {
                     });
                 }
 
-                // If unicorn left during WAITING phase (not during active game),
-                // use simple transfer logic
-                if (result.wasUnicorn && result.newUnicornId && !wasUnicornDuringGame) {
+                // If unicorn left during WAITING phase: emit updated unicorn set
+                if (result.wasUnicorn && !wasUnicornDuringGame) {
+                    const ids = result.newUnicornIds ?? result.room?.unicornIds ?? [];
                     io.to(roomCode).emit(SOCKET_EVENTS.SERVER.UNICORN_TRANSFERRED, {
-                        newUnicornId: result.newUnicornId,
+                        newUnicornIds: ids,
+                        newUnicornId: ids[0] ?? null,
                         room: result.room
                     });
-                    log(`Unicorn transferred to ${result.newUnicornId} in room ${roomCode}`);
+                    if (ids.length > 0) {
+                        log(`Unicorns updated in room ${roomCode}: ${ids.join(', ')}`);
+                    }
                 }
 
                 // Notify remaining players

@@ -26,21 +26,14 @@ export function registerConnectionHandlers(socket, io) {
         }
 
         try {
-            const room = roomManager.getRoom(roomCode);
-            const wasUnicornDuringGame = room && room.unicornId === socket.id && room.status === 'playing';
-
-            // Handle unicorn disconnect during active game (promotes reserve or triggers new quiz)
-            if (wasUnicornDuringGame) {
-                gameStateManager.checkAndHandleUnicornLeave(roomCode, socket.id, io);
-            }
-
-            // Clean up player position from game state
             gameStateManager.removePlayerPosition(roomCode, socket.id);
 
             const result = roomManager.removePlayerFromRoom(roomCode, socket.id);
             if (!result) {
                 return;
             }
+
+            const wasUnicornDuringGame = result.wasUnicorn && result.room?.status === 'playing';
 
             // If room is empty, clean up game state
             if (result.roomDeleted) {
@@ -49,24 +42,27 @@ export function registerConnectionHandlers(socket, io) {
                 return;
             }
 
-            // If host disconnected and there are other players, notify new host
+            if (wasUnicornDuringGame) {
+                gameStateManager.checkAndHandleUnicornLeave(roomCode, socket.id, io);
+            }
+
             if (result.wasHost && result.newHostId) {
                 io.to(result.newHostId).emit(SOCKET_EVENTS.SERVER.HOST_TRANSFERRED, {
                     room: result.room
                 });
             }
 
-            // If unicorn disconnected during WAITING phase (not during active game),
-            // use simple transfer logic
-            if (result.wasUnicorn && result.newUnicornId && !wasUnicornDuringGame) {
-                io.to(roomCode).emit(SOCKET_EVENTS.SERVER.UNICORN_TRANSFERRED, {
-                    newUnicornId: result.newUnicornId,
-                    room: result.room
-                });
-                log(`Unicorn transferred to ${result.newUnicornId} in room ${roomCode}`);
+            if (result.wasUnicorn && !wasUnicornDuringGame) {
+                const ids = result.newUnicornIds ?? result.room?.unicornIds ?? (result.newUnicornId ? [result.newUnicornId] : []);
+                if (ids.length > 0 || result.room?.unicornIds) {
+                    io.to(roomCode).emit(SOCKET_EVENTS.SERVER.UNICORN_TRANSFERRED, {
+                        newUnicornIds: result.newUnicornIds ?? result.room?.unicornIds ?? [],
+                        newUnicornId: (result.newUnicornIds ?? result.room?.unicornIds)?.[0] ?? result.newUnicornId ?? null,
+                        room: result.room
+                    });
+                }
             }
 
-            // Notify remaining players about player leaving
             io.to(roomCode).emit(SOCKET_EVENTS.SERVER.PLAYER_LEFT, {
                 playerId: socket.id,
                 room: result.room

@@ -70,8 +70,13 @@ export const GAME_LOOP_CONFIG = {
     COIN_VALUE: 5,                  // Each coin worth 5 points
     BLITZ_WINNER_BONUS: 10,         // Bonus for winning Blitz Quiz
     
-    // Reserve Unicorn
-    RESERVE_UNICORN_ENABLED: true,  // Enable second-fastest as reserve
+    // Multiple Unicorns (30% of players, min 1)
+    UNICORN_PERCENTAGE: 0.3,
+    MIN_UNICORNS: 1,
+    MAX_UNICORNS: null,             // null = no cap; set to N to ensure at least one survivor
+    
+    // Reserve Unicorn (legacy: used only when refilling after unicorn disconnect if desired)
+    RESERVE_UNICORN_ENABLED: false, // Disabled for multi-unicorn; refill from room when needed
     RESERVE_ACTIVATION_DELAY: 5000  // Delay before reserve can become unicorn
 };
 

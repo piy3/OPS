@@ -123,6 +123,7 @@ export interface Room {
   maxPlayers: number;
   status: 'waiting' | 'playing' | 'finished';
   hostId: string;
+  unicornIds?: string[];
   unicornId?: string;
 }
 
@@ -160,6 +161,7 @@ export interface GameState {
   sinkholes: Sinkhole[];
   sinkTraps: SinkTrap[];
   deployedSinkTraps: SinkTrap[];
+  unicornIds?: string[];
   unicornId?: string;
   currentRound: number;
   totalRounds: number;

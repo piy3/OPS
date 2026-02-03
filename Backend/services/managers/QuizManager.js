@@ -212,7 +212,8 @@ class QuizManager {
             caughtId: quiz.caughtId,
             unicornId: quiz.unicornId,
             scorePercentage,
-            isTimeout
+            isTimeout,
+            io
         });
 
         // Clean up
