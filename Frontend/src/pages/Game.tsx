@@ -117,6 +117,7 @@ interface ImmunityPickup {
 }
 
 interface SinkCollectible {
+  id?: string;
   x: number;
   y: number;
   collected: boolean;
@@ -260,6 +261,11 @@ const Game: React.FC = () => {
   const [connectedPlayers, setConnectedPlayers] = useState<SocketPlayer[]>([]);
   const remotePlayersRef = useRef<Map<string, RemotePlayer>>(new Map());
   
+  const isUnicornRef = useRef(false);
+  useEffect(() => {
+    isUnicornRef.current = isUnicorn;
+  }, [isUnicorn]);
+
   // Keep refs in sync with state
   useEffect(() => {
     isMultiplayerRef.current = isMultiplayer;
@@ -828,12 +834,13 @@ const Game: React.FC = () => {
       }
     });
 
-    // Sink trap spawned
+    // Sink trap spawned (store id for collection)
     const unsubSinkTrapSpawned = socketService.on(SOCKET_EVENTS.SERVER.SINK_TRAP_SPAWNED, (data: any) => {
       if (!gameRef.current) return;
       const game = gameRef.current;
       const pixel = toPixel(data.row, data.col);
       game.sinkCollectibles.push({
+        id: data.id ?? undefined,
         x: pixel.x,
         y: pixel.y,
         collected: false,
@@ -841,24 +848,19 @@ const Game: React.FC = () => {
       });
     });
 
-    // Sink trap collected
+    // Sink trap collected (server sends trapId, playerId, playerName, newInventoryCount)
     const unsubSinkTrapCollected = socketService.on(SOCKET_EVENTS.SERVER.SINK_TRAP_COLLECTED, (data: any) => {
       if (!gameRef.current) return;
       const game = gameRef.current;
       
-      // Remove the collected trap from the map
-      const pixel = toPixel(data.row, data.col);
-      const trapIndex = game.sinkCollectibles.findIndex(s => 
-        !s.collected && Math.hypot(s.x - pixel.x, s.y - pixel.y) < 32
-      );
+      const trapIndex = game.sinkCollectibles.findIndex(s => !s.collected && s.id === data.trapId);
       if (trapIndex !== -1) {
         game.sinkCollectibles[trapIndex].collected = true;
       }
       
-      // Update our inventory if we collected it
       if (data.playerId === socketService.getSocketId()) {
-        game.playerSinkInventory = data.newInventoryCount;
-        setSinkInventory(data.newInventoryCount);
+        game.playerSinkInventory = data.newInventoryCount ?? game.playerSinkInventory + 1;
+        setSinkInventory(data.newInventoryCount ?? game.playerSinkInventory);
         showStatus('SINK TRAP COLLECTED!', '#ff6600', 1500);
       }
     });
@@ -2481,7 +2483,6 @@ const Game: React.FC = () => {
         game.immunityPickups = game.immunityPickups.filter(p => !p.collected);
 
         // Sink collectible collection (single player only)
-        // In multiplayer, this will be handled by sink trap events from server
         game.sinkCollectibles.forEach(sink => {
           if (sink.collected) return;
           const d = Math.hypot(game.player.x - sink.x, game.player.y - sink.y);
@@ -2497,6 +2498,19 @@ const Game: React.FC = () => {
           }
         });
         game.sinkCollectibles = game.sinkCollectibles.filter(s => !s.collected);
+      }
+
+      // Multiplayer: survivors only – collect sink trap by trapId (optimistic collect to avoid double-send)
+      if (isMultiplayerRef.current && !isUnicornRef.current && game.playerSinkInventory < 3) {
+        for (const sink of game.sinkCollectibles) {
+          if (sink.collected || !sink.id) continue;
+          const d = Math.hypot(game.player.x - sink.x, game.player.y - sink.y);
+          if (d < 30) {
+            socketService.collectSinkTrap(sink.id!);
+            sink.collected = true;
+            break;
+          }
+        }
       }
 
       // Portal logic

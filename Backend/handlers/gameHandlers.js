@@ -330,7 +330,7 @@ export function registerGameHandlers(socket, io) {
         gameStateManager.enterSinkhole(roomCode, socket.id, player.name, data.sinkholeId, io);
     });
 
-    // COLLECT SINK TRAP: Player collects a sink trap item
+    // COLLECT SINK TRAP: Only survivors can collect
     socket.on(SOCKET_EVENTS.CLIENT.COLLECT_SINK_TRAP, (data) => {
         const roomCode = roomManager.getRoomCodeForSocket(socket.id);
         if (!roomCode) return;
@@ -341,10 +341,12 @@ export function registerGameHandlers(socket, io) {
         const player = room.players.find(p => p.id === socket.id);
         if (!player) return;
         
+        if (player.isUnicorn) return;
+        
         gameStateManager.collectSinkTrap(roomCode, socket.id, player.name, data.trapId, io);
     });
 
-    // DEPLOY SINK TRAP: Player deploys a sink trap
+    // DEPLOY SINK TRAP: Only survivors can deploy
     socket.on(SOCKET_EVENTS.CLIENT.DEPLOY_SINK_TRAP, (data) => {
         const roomCode = roomManager.getRoomCodeForSocket(socket.id);
         if (!roomCode) return;
@@ -355,7 +357,11 @@ export function registerGameHandlers(socket, io) {
         const player = room.players.find(p => p.id === socket.id);
         if (!player) return;
         
-        gameStateManager.deploySinkTrap(roomCode, socket.id, player.name, data.position, io);
+        if (player.isUnicorn) return;
+        
+        const position = data.position ?? (data.row != null && data.col != null ? { row: data.row, col: data.col } : null);
+        if (!position) return;
+        gameStateManager.deploySinkTrap(roomCode, socket.id, player.name, position, io);
     });
 
     // LAVA DEATH: Player fell in lava - freeze them and start unfreeze quiz

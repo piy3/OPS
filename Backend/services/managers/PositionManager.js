@@ -69,16 +69,26 @@ class PositionManager {
                 }
             }
 
-            // Fallback if all predefined positions are used
+            // Fallback if all predefined positions are used: pick next valid road intersection (row,col multiples of 4)
             if (!spawnPos) {
-                const fallbackIndex = usedSpawnPositions.size % spawnPositions.length;
-                const basePos = spawnPositions[fallbackIndex];
-                const offset = Math.floor(usedSpawnPositions.size / spawnPositions.length) * 2;
-                spawnPos = {
-                    row: Math.min(26, basePos.row + offset),
-                    col: Math.min(30, basePos.col + (offset % 2 === 0 ? 1 : -1))
-                };
-                usedSpawnPositions.add(`${spawnPos.row},${spawnPos.col}`);
+                const MIN_COORD = 4;
+                const MAX_COORD = 44;
+                for (let r = MIN_COORD; r <= MAX_COORD; r += 4) {
+                    for (let c = MIN_COORD; c <= MAX_COORD; c += 4) {
+                        const posKey = `${r},${c}`;
+                        if (!usedSpawnPositions.has(posKey)) {
+                            spawnPos = { row: r, col: c };
+                            usedSpawnPositions.add(posKey);
+                            break;
+                        }
+                    }
+                    if (spawnPos) break;
+                }
+                if (!spawnPos) {
+                    // Extremely unlikely: reuse first predefined spawn
+                    spawnPos = spawnPositions[0];
+                    usedSpawnPositions.add(`${spawnPos.row},${spawnPos.col}`);
+                }
             }
 
             // Initialize player position
