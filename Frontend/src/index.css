@@ -1,0 +1,143 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+
+@layer base {
+  :root {
+    --background: 222 47% 11%;
+    --foreground: 210 40% 98%;
+
+    --card: 217 33% 17%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 217 33% 17%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 199 89% 48%;
+    --primary-foreground: 222 47% 11%;
+
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 38 92% 50%;
+    --accent-foreground: 222 47% 11%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 217 33% 25%;
+    --input: 217 33% 25%;
+    --ring: 199 89% 48%;
+
+    --radius: 0.5rem;
+
+    /* Custom animator colors */
+    --animator-stage: 217 33% 20%;
+    --animator-panel: 222 47% 11%;
+    --animator-control: 217 33% 15%;
+    --animator-glow: 199 89% 48%;
+  }
+
+  .dark {
+    --background: 222 47% 11%;
+    --foreground: 210 40% 98%;
+
+    --card: 217 33% 17%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 217 33% 17%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 199 89% 48%;
+    --primary-foreground: 222 47% 11%;
+
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 38 92% 50%;
+    --accent-foreground: 222 47% 11%;
+
+    --destructive: 0 62% 30%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 217 33% 25%;
+    --input: 217 33% 25%;
+    --ring: 199 89% 48%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Inter', sans-serif;
+  }
+
+  .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+@layer components {
+  .animator-stage {
+    @apply bg-card relative flex items-center justify-center;
+  }
+
+  .control-panel {
+    @apply bg-background border-l border-border p-6 flex flex-col gap-6 overflow-y-auto;
+  }
+
+  .control-label {
+    @apply text-xs font-semibold uppercase tracking-wider text-muted-foreground;
+  }
+
+  .slider-track {
+    @apply w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer;
+  }
+
+  .slider-track::-webkit-slider-thumb {
+    @apply appearance-none w-4 h-4 rounded-full bg-primary cursor-pointer;
+  }
+
+  .animation-btn {
+    @apply p-2 rounded-md text-sm font-medium transition-all bg-muted hover:bg-muted/80 text-muted-foreground;
+  }
+
+  .animation-btn-active {
+    @apply bg-primary text-primary-foreground shadow-lg;
+    box-shadow: 0 0 20px hsl(var(--primary) / 0.4);
+  }
+
+  .control-btn {
+    @apply flex items-center justify-center gap-2 bg-card hover:bg-card/80 text-foreground py-2 rounded-md transition-colors;
+  }
+
+  .skeleton-overlay {
+    @apply absolute top-4 left-4 bg-background/80 p-3 rounded-lg backdrop-blur-sm border border-border z-20 pointer-events-none shadow-lg;
+  }
+
+  .stage-badge {
+    @apply absolute top-4 right-4 text-muted-foreground text-sm font-mono;
+  }
+
+  .character-stage {
+    @apply relative shadow-2xl rounded-full bg-card p-8 border-4 border-border;
+  }
+}
+
+@layer utilities {
+  .accent-primary {
+    accent-color: hsl(var(--primary));
+  }
+}
