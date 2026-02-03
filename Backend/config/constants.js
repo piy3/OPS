@@ -71,7 +71,7 @@ export const GAME_LOOP_CONFIG = {
     BLITZ_WINNER_BONUS: 10,         // Bonus for winning Blitz Quiz
     
     // Multiple Unicorns (30% of players, min 1)
-    UNICORN_PERCENTAGE: 0.3,
+    UNICORN_PERCENTAGE: 0.5,
     MIN_UNICORNS: 1,
     MAX_UNICORNS: null,             // null = no cap; set to N to ensure at least one survivor
     
