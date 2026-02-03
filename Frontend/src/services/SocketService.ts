@@ -5,8 +5,15 @@
 
 import { io, Socket } from 'socket.io-client';
 
-// Server configuration
-const SERVER_URL = 'http://localhost:3000';
+// Socket configuration from environment variables
+// In Vite, use import.meta.env (not process.env)
+const ENV = import.meta.env.VITE_ENV || 'dev';
+const SERVER_URL = ENV === 'prod' 
+  ? import.meta.env.VITE_PROD_URL 
+  : import.meta.env.VITE_DEV_URL;
+
+console.log('Environment:', ENV);
+console.log('Socket URL:', SERVER_URL);
 
 // Tile size for coordinate conversion (must match frontend Game.tsx)
 const TILE_SIZE = 64;
