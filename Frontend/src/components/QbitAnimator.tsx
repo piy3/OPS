@@ -1112,7 +1112,8 @@ const QbitAnimator = () => {
         </div>
       </div>
 
-      {/* --- Controls Panel --- */}
+      {/* Rig Controls panel hidden so it doesn't cover the multiplayer button (code kept, not removed) */}
+      {false && (
       <div className="w-full md:w-80 control-panel z-10 shadow-xl">
         <div className="flex items-center gap-2 mb-2">
            <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
@@ -1385,6 +1386,7 @@ const QbitAnimator = () => {
            </div>
         </div>
       </div>
+      )}
 
       {/* Game Entry Point */}
       <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-background via-background/95 to-transparent">
