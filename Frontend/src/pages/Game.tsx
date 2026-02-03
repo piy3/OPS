@@ -135,6 +135,13 @@ interface LeaderboardEntry {
   date: string;
 }
 
+// Multiplayer game-end leaderboard (from server GAME_END)
+interface GameEndLeaderboardEntry {
+  id: string;
+  name: string;
+  coins: number;
+}
+
 // Remote player for multiplayer
 interface RemotePlayer {
   id: string;
@@ -240,7 +247,8 @@ const Game: React.FC = () => {
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [finalStats, setFinalStats] = useState({ time: 0 });
-  
+  const [gameEndLeaderboard, setGameEndLeaderboard] = useState<GameEndLeaderboardEntry[]>([]);
+
   // Multiplayer state
   const [isMultiplayer, setIsMultiplayer] = useState(false);
   const isMultiplayerRef = useRef(false); // Ref to avoid stale closure in game loop
@@ -744,6 +752,17 @@ const Game: React.FC = () => {
     const unsubGameEnd = socketService.on(SOCKET_EVENTS.SERVER.GAME_END, (data: any) => {
       setGameState('game-over');
       setFinalStats({ time: gameRef.current?.gameTime || 0 });
+      if (Array.isArray(data?.leaderboard)) {
+        setGameEndLeaderboard(
+          data.leaderboard.map((p: { id?: string; name?: string; coins?: number }) => ({
+            id: p?.id ?? '',
+            name: typeof p?.name === 'string' ? p.name : 'Player',
+            coins: typeof p?.coins === 'number' ? p.coins : 0,
+          }))
+        );
+      } else {
+        setGameEndLeaderboard([]);
+      }
       showStatus('GAME OVER!', '#ff0000', 3000);
     });
 
@@ -3492,7 +3511,7 @@ const Game: React.FC = () => {
       {/* Game Over Screen */}
       {gameState === 'game-over' && (
         <div className="absolute inset-0 bg-black/90 flex items-center justify-center z-50">
-          <div className="bg-card p-8 rounded-xl border border-border max-w-md w-full mx-4 text-center">
+          <div className="bg-card p-8 rounded-xl border border-border max-w-md w-full mx-4 text-center max-h-[90vh] overflow-hidden flex flex-col">
             <h2 className="text-3xl font-bold text-red-500 mb-4">GAME OVER</h2>
             
             <p className="text-xl text-foreground mb-2">{playerName}</p>
@@ -3507,8 +3526,43 @@ const Game: React.FC = () => {
                 </p>
               </div>
             </div>
+
+            {isMultiplayer && gameEndLeaderboard.length > 0 && (
+              <div className="mb-6 text-left flex-shrink-0">
+                <h3 className="text-lg font-semibold text-foreground mb-2">Final standings</h3>
+                <div className="bg-background rounded-lg border border-border overflow-y-auto max-h-[40vh]">
+                  <table className="w-full">
+                    <thead className="sticky top-0 bg-background border-b border-border">
+                      <tr className="text-muted-foreground text-sm">
+                        <th className="py-2 px-3 text-left">#</th>
+                        <th className="py-2 px-3 text-left">Name</th>
+                        <th className="py-2 px-3 text-right">Coins</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {gameEndLeaderboard.map((entry, i) => {
+                        const isYou = entry.id === socketService.getSocketId();
+                        return (
+                          <tr
+                            key={entry.id || i}
+                            className={`border-b border-border/50 last:border-0 ${isYou ? 'bg-cyan-500/20 text-cyan-400' : 'text-foreground'}`}
+                          >
+                            <td className="py-2 px-3 font-mono">{i + 1}</td>
+                            <td className="py-2 px-3">
+                              {entry.name}
+                              {isYou && <span className="ml-1 text-muted-foreground">(You)</span>}
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono">{entry.coins}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
             
-            <div className="flex gap-3">
+            <div className="flex gap-3 flex-shrink-0">
               {isMultiplayer ? (
                 // Multiplayer: Return to Lobby
                 <Link
