@@ -187,6 +187,7 @@ export function registerGameHandlers(socket, io) {
     });
 
     // GET GAME STATE: Request current game state (for late joiners or reconnection)
+    // Also handles blitz quiz sync when clients miss BLITZ_START due to navigation timing
     socket.on(SOCKET_EVENTS.CLIENT.GET_GAME_STATE, () => {
         try {
             const roomCode = roomManager.getRoomCodeForSocket(socket.id);
@@ -205,10 +206,16 @@ export function registerGameHandlers(socket, io) {
             const roundInfo = gameLoopManager.getRoomRounds(roomCode);
             const currentPhase = gameStateManager.getGamePhase(roomCode);
             
+            // Include active blitz quiz data if in blitz_quiz phase
+            // This handles the race condition where client navigates to /game
+            // after GAME_STARTED but misses BLITZ_START
+            const blitzQuiz = gameLoopManager.getActiveBlitzQuiz(roomCode);
+            
             socket.emit(SOCKET_EVENTS.SERVER.GAME_STATE_SYNC, { 
                 gameState: gameState,
                 roundInfo: roundInfo,
-                phase: currentPhase
+                phase: currentPhase,
+                blitzQuiz: blitzQuiz // Will be null if not in blitz phase
             });
         } catch (error) {
             log(`Error getting game state: ${error.message}`);

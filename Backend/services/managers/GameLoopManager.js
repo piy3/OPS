@@ -501,6 +501,46 @@ class GameLoopManager {
     }
 
     /**
+     * Get active blitz quiz data for a room (for state sync/reconnection)
+     * Returns the current blitz question and time remaining if in blitz phase
+     * @param {string} roomCode - Room code
+     * @returns {Object|null} Blitz quiz data or null if not in blitz phase
+     */
+    getActiveBlitzQuiz(roomCode) {
+        // Only return data if we're actually in blitz quiz phase
+        if (this.getGamePhase(roomCode) !== GAME_PHASE.BLITZ_QUIZ) {
+            return null;
+        }
+
+        const blitz = this.blitzQuizzes.get(roomCode);
+        if (!blitz || blitz.completed) {
+            return null;
+        }
+
+        const now = Date.now();
+        const elapsed = now - blitz.startTime;
+        const timeRemaining = Math.max(0, blitz.timeLimit - elapsed);
+
+        // Don't return if quiz has effectively expired
+        if (timeRemaining <= 0) {
+            return null;
+        }
+
+        return {
+            question: {
+                id: blitz.question.id,
+                question: blitz.question.question,
+                options: blitz.question.options
+            },
+            timeLimit: blitz.timeLimit,
+            timeRemaining: timeRemaining,
+            playerCount: blitz.playerCount,
+            startTime: blitz.startTime,
+            timestamp: now
+        };
+    }
+
+    /**
      * Handle reserve disconnect
      * @param {string} roomCode - Room code
      * @param {string} playerId - Player ID

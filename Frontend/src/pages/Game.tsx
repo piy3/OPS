@@ -842,14 +842,42 @@ const Game: React.FC = () => {
       }
     });
 
-    // Game state sync (for reconnection recovery)
-    // Detects if we're frozen after reconnecting and requests quiz data if needed
+    // Game state sync (for reconnection recovery and initial blitz quiz sync)
+    // Handles:
+    // 1. Blitz quiz sync when client misses BLITZ_START due to navigation timing
+    // 2. Frozen player recovery with unfreeze quiz data
     const unsubGameStateSync = socketService.on(SOCKET_EVENTS.SERVER.GAME_STATE_SYNC, (data: any) => {
       if (!data.gameState) return;
       
       const myId = socketService.getSocketId();
       const myPlayer = data.gameState.players?.find((p: any) => p.id === myId);
       
+      // Handle blitz quiz sync - this fixes the race condition where
+      // the client navigates to /game and misses BLITZ_START
+      if (data.phase === 'blitz_quiz' && data.blitzQuiz) {
+        logger.quiz('Game state sync: Received blitz quiz data');
+        
+        // Only set up blitz quiz if we don't already have one active
+        setBlitzQuestion(currentQuestion => {
+          if (currentQuestion === null) {
+            logger.quiz('Setting up blitz quiz from state sync:', data.blitzQuiz.question.question);
+            
+            // Calculate remaining time from server data
+            const timeRemaining = data.blitzQuiz.timeRemaining || data.blitzQuiz.timeLimit;
+            setBlitzTimeLeft(Math.ceil(timeRemaining / 1000));
+            setGameState('blitz-quiz');
+            showStatus('BLITZ QUIZ!', '#ffff00', 1500);
+            
+            return {
+              question: data.blitzQuiz.question.question,
+              options: data.blitzQuiz.question.options
+            };
+          }
+          return currentQuestion;
+        });
+      }
+      
+      // Handle frozen player recovery
       if (myPlayer && myPlayer.state === 'frozen') {
         logger.quiz('Game state sync: Player is frozen, checking quiz state');
         
@@ -870,6 +898,15 @@ const Game: React.FC = () => {
         });
       }
     });
+
+    // Request current game state after all listeners are registered
+    // This handles the race condition where:
+    // 1. Backend sends GAME_STARTED, then immediately BLITZ_START
+    // 2. Frontend navigates from Lobby to Game on GAME_STARTED
+    // 3. Game.tsx mounts and registers listeners, but BLITZ_START was already sent
+    // By requesting game state here, we catch any active blitz quiz we missed
+    logger.game('Requesting game state after socket listeners registered');
+    socketService.getGameState();
 
     return () => {
       unsubPosition();
