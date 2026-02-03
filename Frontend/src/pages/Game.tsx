@@ -4,6 +4,7 @@ import { ArrowLeft, RefreshCw, Trophy, X, Shield, Users } from 'lucide-react';
 import socketService, { SOCKET_EVENTS, toGrid, toPixel, Room, Player as SocketPlayer, GameState as SocketGameState, Coin as SocketCoin } from '@/services/SocketService';
 import BlitzQuiz from '@/components/BlitzQuiz';
 import UnfreezeQuiz from '@/components/UnfreezeQuiz';
+import logger from '@/utils/logger';
 
 const TILE_SIZE = 64;
 const MAP_WIDTH = 50;
@@ -368,6 +369,17 @@ const Game: React.FC = () => {
     }
   }, [locationState]);
 
+  // Leave room when component unmounts (user navigates away from game)
+  useEffect(() => {
+    return () => {
+      // Only leave room if we're in multiplayer mode
+      if (isMultiplayer && socketService.isConnected()) {
+        logger.game('Leaving room on game component unmount');
+        socketService.leaveRoom();
+      }
+    };
+  }, [isMultiplayer]);
+
   // Multiplayer socket event handlers
   useEffect(() => {
     if (!isMultiplayer) return;
@@ -522,10 +534,25 @@ const Game: React.FC = () => {
       if (playerId === socketService.getSocketId()) {
         // Our state changed
         if (state === 'frozen') {
-          // We got frozen - the unfreeze quiz will start separately
+          // We got frozen - set state immediately so we show loading/frozen UI
+          // The UNFREEZE_QUIZ_START event should follow shortly with quiz questions
+          setGameState('frozen');
           showStatus('YOU\'VE BEEN FROZEN!', '#00ffff', 2000);
           setScreenFlash({ color: '#00ffff', opacity: 0.5 });
           setTimeout(() => setScreenFlash(null), 300);
+          
+          // Fallback: If we don't receive quiz data within 3 seconds, request it
+          // This handles cases where UNFREEZE_QUIZ_START was lost/delayed
+          setTimeout(() => {
+            // Only request if we're still frozen and don't have quiz data
+            setUnfreezeQuizData(currentQuizData => {
+              if (currentQuizData === null) {
+                logger.quiz('No quiz data received after freeze - requesting from server');
+                socketService.requestUnfreezeQuiz();
+              }
+              return currentQuizData;
+            });
+          }, 3000);
         } else if (state === 'active') {
           // We're active again (unfrozen)
           if (gameState === 'frozen') {
@@ -657,6 +684,18 @@ const Game: React.FC = () => {
       setGameState('game-over');
       setFinalStats({ time: gameRef.current?.gameTime || 0 });
       showStatus('GAME OVER!', '#ff0000', 3000);
+    });
+
+    // Room closed (kicked from room after game ended)
+    const unsubRoomLeft = socketService.on(SOCKET_EVENTS.SERVER.ROOM_LEFT, (data: any) => {
+      if (data?.reason === 'game_ended') {
+        logger.game('Room closed after game ended, navigating to home');
+        showStatus('Room closed. Returning to menu...', '#ffff00', 2000);
+        // Give user time to see the message
+        setTimeout(() => {
+          navigate('/');
+        }, 2000);
+      }
     });
 
     // Sinkhole spawned
@@ -803,6 +842,35 @@ const Game: React.FC = () => {
       }
     });
 
+    // Game state sync (for reconnection recovery)
+    // Detects if we're frozen after reconnecting and requests quiz data if needed
+    const unsubGameStateSync = socketService.on(SOCKET_EVENTS.SERVER.GAME_STATE_SYNC, (data: any) => {
+      if (!data.gameState) return;
+      
+      const myId = socketService.getSocketId();
+      const myPlayer = data.gameState.players?.find((p: any) => p.id === myId);
+      
+      if (myPlayer && myPlayer.state === 'frozen') {
+        logger.quiz('Game state sync: Player is frozen, checking quiz state');
+        
+        // We're frozen according to server state
+        setGameState('frozen');
+        
+        // Check if we already have quiz data
+        setUnfreezeQuizData(currentQuizData => {
+          if (currentQuizData === null) {
+            // No quiz data - request it from server
+            logger.quiz('Reconnection recovery: Requesting unfreeze quiz from server');
+            // Small delay to let other sync events process first
+            setTimeout(() => {
+              socketService.requestUnfreezeQuiz();
+            }, 500);
+          }
+          return currentQuizData;
+        });
+      }
+    });
+
     return () => {
       unsubPosition();
       unsubPlayerJoined();
@@ -823,14 +891,16 @@ const Game: React.FC = () => {
       unsubCoinSpawned();
       unsubCoinCollected();
       unsubGameEnd();
+      unsubRoomLeft();
       unsubSinkholeSpawned();
       unsubPlayerTeleported();
       unsubSinkTrapSpawned();
       unsubSinkTrapCollected();
       unsubSinkTrapDeployed();
       unsubSinkTrapTriggered();
+      unsubGameStateSync();
     };
-  }, [isMultiplayer, unicornId, gameState]);
+  }, [isMultiplayer, unicornId, gameState, navigate]);
 
   // Show status helper (defined early for use in socket handlers)
   const showStatus = useCallback((text: string, color: string = '#fff', duration: number = 2000) => {
@@ -3146,6 +3216,24 @@ const Game: React.FC = () => {
           questions={unfreezeQuizData.questions}
           passThreshold={unfreezeQuizData.passThreshold}
         />
+      )}
+
+      {/* Frozen - Loading Quiz Overlay (waiting for quiz data from server) */}
+      {gameState === 'frozen' && !unfreezeQuizData && (
+        <div className="absolute inset-0 bg-black/90 flex items-center justify-center z-50">
+          <div className="bg-slate-800 border-2 border-cyan-500 rounded-xl p-8 max-w-lg w-full mx-4 shadow-2xl shadow-cyan-500/20">
+            <h2 className="text-2xl font-bold text-cyan-400 text-center mb-6 animate-pulse">
+              YOU'VE BEEN FROZEN!
+            </h2>
+            <p className="text-white text-center text-lg mb-4">Loading quiz questions...</p>
+            <div className="flex justify-center">
+              <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-cyan-400"></div>
+            </div>
+            <p className="text-cyan-300 text-center text-sm mt-4">
+              Answer correctly to unfreeze!
+            </p>
+          </div>
+        </div>
       )}
 
       {/* Spectating Overlay (Multiplayer - after elimination) */}

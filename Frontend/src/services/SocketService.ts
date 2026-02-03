@@ -4,6 +4,7 @@
  */
 
 import { io, Socket } from 'socket.io-client';
+import logger from '@/utils/logger';
 
 // Socket configuration from environment variables
 // In Vite, use import.meta.env (not process.env)
@@ -12,8 +13,8 @@ const SERVER_URL = ENV === 'prod'
   ? import.meta.env.VITE_PROD_URL 
   : import.meta.env.VITE_DEV_URL;
 
-console.log('Environment:', ENV);
-console.log('Socket URL:', SERVER_URL);
+logger.socket('Environment:', ENV);
+logger.socket('Socket URL:', SERVER_URL);
 
 // Tile size for coordinate conversion (must match frontend Game.tsx)
 const TILE_SIZE = 64;
@@ -39,6 +40,7 @@ export const SOCKET_EVENTS = {
     COLLECT_SINK_TRAP: 'collect_sink_trap',
     DEPLOY_SINK_TRAP: 'deploy_sink_trap',
     LAVA_DEATH: 'lava_death',
+    REQUEST_UNFREEZE_QUIZ: 'request_unfreeze_quiz',  // Request quiz data if frozen but missing quiz
   },
   // Server -> Client
   SERVER: {
@@ -184,7 +186,7 @@ class SocketService {
   connect(): Socket {
     // If socket exists and is connected, return it
     if (this.socket?.connected) {
-      console.log('Already connected to server:', this.socket.id);
+      logger.socket('Already connected to server:', this.socket.id);
       return this.socket;
     }
 
@@ -195,7 +197,7 @@ class SocketService {
       this.socket = null;
     }
 
-    console.log('Connecting to server:', SERVER_URL);
+    logger.socket('Connecting to server:', SERVER_URL);
 
     this.socket = io(SERVER_URL, {
       transports: ['polling', 'websocket'],  // Start with polling, upgrade to websocket
@@ -208,22 +210,22 @@ class SocketService {
     });
 
     this.socket.on('connect', () => {
-      console.log('✅ Connected to server:', this.socket?.id);
+      logger.socket('✅ Connected to server:', this.socket?.id);
       this.connectionListeners.forEach(cb => cb(true));
     });
 
     this.socket.on('disconnect', (reason) => {
-      console.log('❌ Disconnected from server:', reason);
+      logger.socket('❌ Disconnected from server:', reason);
       this.connectionListeners.forEach(cb => cb(false));
     });
 
     this.socket.on('connect_error', (error) => {
-      console.error('❌ Connection error:', error.message);
+      logger.error('❌ Connection error:', error.message);
       this.connectionListeners.forEach(cb => cb(false));
     });
 
     this.socket.on('error', (error) => {
-      console.error('❌ Socket error:', error);
+      logger.error('❌ Socket error:', error);
     });
 
     // Re-register all listeners
@@ -272,7 +274,7 @@ class SocketService {
     if (this.socket?.connected) {
       this.socket.emit(event, data);
     } else {
-      console.warn('Socket not connected, cannot emit:', event);
+      logger.warn('Socket not connected, cannot emit:', event);
     }
   }
 
@@ -392,6 +394,14 @@ class SocketService {
    */
   reportLavaDeath() {
     this.emit(SOCKET_EVENTS.CLIENT.LAVA_DEATH, {});
+  }
+
+  /**
+   * Request unfreeze quiz data from server (for reconnection recovery)
+   * Used when client knows it's frozen but didn't receive quiz data
+   */
+  requestUnfreezeQuiz() {
+    this.emit(SOCKET_EVENTS.CLIENT.REQUEST_UNFREEZE_QUIZ, {});
   }
 }
 

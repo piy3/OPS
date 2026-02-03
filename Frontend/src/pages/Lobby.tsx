@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import socketService, { SOCKET_EVENTS, Room, Player } from '@/services/SocketService';
+import logger from '@/utils/logger';
 
 const Lobby = () => {
   const navigate = useNavigate();
@@ -67,7 +68,7 @@ const Lobby = () => {
 
     // Room created successfully
     const unsubRoomCreated = socketService.on(SOCKET_EVENTS.SERVER.ROOM_CREATED, (data: { roomCode: string; room: Room }) => {
-      console.log('Room created:', data);
+      logger.game('Room created:', data);
       setRoom(data.room);
       setIsCreating(false);
       setError(null);
@@ -75,7 +76,7 @@ const Lobby = () => {
 
     // Room joined successfully
     const unsubRoomJoined = socketService.on(SOCKET_EVENTS.SERVER.ROOM_JOINED, (data: { roomCode: string; room: Room }) => {
-      console.log('Room joined:', data);
+      logger.game('Room joined:', data);
       setRoom(data.room);
       setIsJoining(false);
       setError(null);
@@ -83,13 +84,13 @@ const Lobby = () => {
 
     // Another player joined
     const unsubPlayerJoined = socketService.on(SOCKET_EVENTS.SERVER.PLAYER_JOINED, (data: { player: Player; room: Room }) => {
-      console.log('Player joined:', data.player.name);
+      logger.player('Player joined:', data.player.name);
       setRoom(data.room);
     });
 
     // Player left
     const unsubPlayerLeft = socketService.on(SOCKET_EVENTS.SERVER.PLAYER_LEFT, (data: { playerId: string; room: Room }) => {
-      console.log('Player left:', data.playerId);
+      logger.player('Player left:', data.playerId);
       setRoom(data.room);
     });
 
@@ -110,7 +111,7 @@ const Lobby = () => {
 
     // Game started - navigate to game
     const unsubGameStarted = socketService.on(SOCKET_EVENTS.SERVER.GAME_STARTED, (data: any) => {
-      console.log('Game started:', data);
+      logger.game('Game started:', data);
       navigate('/game', { state: { room: data.room, gameState: data.gameState } });
     });
 

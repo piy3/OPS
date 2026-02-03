@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Play, Pause, RefreshCw, Move, Layers, Circle, Square, Save, Trash2, Camera, Download, Video, Gamepad2, ChevronRight } from 'lucide-react';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile, toBlobURL } from '@ffmpeg/util';
+import logger from '@/utils/logger';
 
 // Color Palette based on the Qbit character
 const COLORS = {
@@ -293,7 +294,7 @@ const QbitAnimator = () => {
       await ffmpeg.deleteFile('output.mp4');
       
     } catch (error) {
-      console.error('Video encoding failed:', error);
+      logger.error('Video encoding failed:', error);
       alert('Video encoding failed. Please try again.');
     }
     

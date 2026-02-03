@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import socketService from '@/services/SocketService';
+import socketService, { SOCKET_EVENTS } from '@/services/SocketService';
 
 interface UnfreezeQuestion {
   id: number;
@@ -47,7 +47,7 @@ const UnfreezeQuiz: React.FC<UnfreezeQuizProps> = ({ questions, passThreshold, o
 
   // Listen for answer results from server
   useEffect(() => {
-    const unsubAnswerResult = socketService.on('unfreeze_quiz_answer_result', (data: any) => {
+    const unsubAnswerResult = socketService.on(SOCKET_EVENTS.SERVER.UNFREEZE_QUIZ_ANSWER_RESULT, (data: any) => {
       const result: AnswerResult = {
         questionIndex: data.questionIndex,
         isCorrect: data.isCorrect,
@@ -68,7 +68,7 @@ const UnfreezeQuiz: React.FC<UnfreezeQuizProps> = ({ questions, passThreshold, o
       }, 1000);
     });
 
-    const unsubComplete = socketService.on('unfreeze_quiz_complete', (data: any) => {
+    const unsubComplete = socketService.on(SOCKET_EVENTS.SERVER.UNFREEZE_QUIZ_COMPLETE, (data: any) => {
       if (!data.passed && data.retry) {
         // Failed, waiting for new questions
         setWaitingForNewQuestions(true);
