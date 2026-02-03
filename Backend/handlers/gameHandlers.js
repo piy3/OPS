@@ -57,10 +57,12 @@ export function registerGameHandlers(socket, io) {
             };
             
             // Notify all players in the room with initial game state
+            // Include mapConfig so all clients use the same map dimensions
             io.to(roomCode).emit(SOCKET_EVENTS.SERVER.GAME_STARTED, { 
                 room: room,
                 gameState: gameState,
-                roundInfo: roundInfo
+                roundInfo: roundInfo,
+                mapConfig: room.mapConfig
             });
             
             // Immediately broadcast initial spawn positions to all players
@@ -215,7 +217,8 @@ export function registerGameHandlers(socket, io) {
                 gameState: gameState,
                 roundInfo: roundInfo,
                 phase: currentPhase,
-                blitzQuiz: blitzQuiz // Will be null if not in blitz phase
+                blitzQuiz: blitzQuiz, // Will be null if not in blitz phase
+                mapConfig: room.mapConfig // Include mapConfig for reconnection
             });
         } catch (error) {
             log(`Error getting game state: ${error.message}`);

@@ -19,6 +19,9 @@ class PowerupManager {
         
         // Track powerup pickup locks: `roomCode:powerupId` -> playerId
         this.powerupLocks = new Map();
+        
+        // Store mapConfig per room for spawn filtering
+        this.roomMapConfigs = new Map();
     }
 
     /**
@@ -26,9 +29,11 @@ class PowerupManager {
      * @param {string} roomCode - Room code
      * @param {Object} io - Socket.IO server
      * @param {Function} getGamePhase - Callback to get current game phase
+     * @param {Object} mapConfig - Room's map configuration (optional)
      */
-    startSpawning(roomCode, io, getGamePhase) {
+    startSpawning(roomCode, io, getGamePhase, mapConfig = null) {
         this.roomPowerups.set(roomCode, new Map());
+        this.roomMapConfigs.set(roomCode, mapConfig);
         this.schedulePowerupSpawn(roomCode, io, getGamePhase);
     }
 
@@ -77,6 +82,11 @@ class PowerupManager {
             return;
         }
 
+        // Get stored mapConfig for this room
+        const mapConfig = this.roomMapConfigs.get(roomCode);
+        const mapWidth = mapConfig?.width ?? 30;
+        const mapHeight = mapConfig?.height ?? 30;
+
         // Find available slot
         const usedPositions = new Set();
         powerupMap.forEach(p => {
@@ -85,7 +95,12 @@ class PowerupManager {
             }
         });
 
-        const availableSlots = POWERUP_CONFIG.SPAWN_SLOTS.filter(
+        // Filter slots to be within map bounds, then exclude used positions
+        const validSlots = (mapConfig?.powerupSpawnSlots ?? POWERUP_CONFIG.SPAWN_SLOTS).filter(
+            slot => slot.row < mapHeight - 1 && slot.col < mapWidth - 1
+        );
+        
+        const availableSlots = validSlots.filter(
             slot => !usedPositions.has(`${slot.row},${slot.col}`)
         );
 
@@ -310,6 +325,7 @@ class PowerupManager {
 
         // Clear powerup map
         this.roomPowerups.delete(roomCode);
+        this.roomMapConfigs.delete(roomCode);
 
         // Clear locks
         for (const lockKey of this.powerupLocks.keys()) {

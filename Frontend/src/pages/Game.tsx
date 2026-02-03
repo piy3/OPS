@@ -1,14 +1,15 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ArrowLeft, RefreshCw, Trophy, X, Shield, Users } from 'lucide-react';
-import socketService, { SOCKET_EVENTS, toGrid, toPixel, Room, Player as SocketPlayer, GameState as SocketGameState, Coin as SocketCoin } from '@/services/SocketService';
+import socketService, { SOCKET_EVENTS, toGrid, toPixel, Room, Player as SocketPlayer, GameState as SocketGameState, Coin as SocketCoin, MapConfig } from '@/services/SocketService';
 import BlitzQuiz from '@/components/BlitzQuiz';
 import UnfreezeQuiz from '@/components/UnfreezeQuiz';
 import logger from '@/utils/logger';
 
 const TILE_SIZE = 64;
-const MAP_WIDTH = 30;
-const MAP_HEIGHT = 30;
+// Default map dimensions (used when no mapConfig is available, e.g., single player mode)
+const DEFAULT_MAP_WIDTH = 30;
+const DEFAULT_MAP_HEIGHT = 30;
 const PERSPECTIVE_STRENGTH = 0.4;
 const BASE_PLAYER_SPEED = 300;
 const BASE_ENEMY_SPEED = 250;
@@ -214,9 +215,9 @@ class SeededRandom {
 }
 
 // Quadrant helper: 0=top-left, 1=top-right, 2=bottom-left, 3=bottom-right
-const getQuadrant = (x: number, y: number): number => {
-  const midX = (MAP_WIDTH * TILE_SIZE) / 2;
-  const midY = (MAP_HEIGHT * TILE_SIZE) / 2;
+const getQuadrant = (x: number, y: number, mapWidth: number, mapHeight: number): number => {
+  const midX = (mapWidth * TILE_SIZE) / 2;
+  const midY = (mapHeight * TILE_SIZE) / 2;
   if (x < midX && y < midY) return 0;
   if (x >= midX && y < midY) return 1;
   if (x < midX && y >= midY) return 2;
@@ -255,6 +256,14 @@ const Game: React.FC = () => {
   const isMultiplayerRef = useRef(false); // Ref to avoid stale closure in game loop
   const roomCodeRef = useRef<string | null>(null); // Store room code for seeded map generation
   const [room, setRoom] = useState<Room | null>(null);
+  
+  // Map configuration from backend (scales with player count)
+  const [mapConfig, setMapConfig] = useState<MapConfig | null>(null);
+  const mapConfigRef = useRef<MapConfig | null>(null);
+  // Derived map dimensions - use backend config or defaults for single player
+  const MAP_WIDTH = mapConfig?.width ?? DEFAULT_MAP_WIDTH;
+  const MAP_HEIGHT = mapConfig?.height ?? DEFAULT_MAP_HEIGHT;
+  
   const [isUnicorn, setIsUnicorn] = useState(false);
   const [unicornIds, setUnicornIds] = useState<string[]>([]);
   const [unicornId, setUnicornId] = useState<string | null>(null); // backward compat / first unicorn
@@ -274,6 +283,10 @@ const Game: React.FC = () => {
   useEffect(() => {
     roomCodeRef.current = room?.code || null;
   }, [room]);
+  
+  useEffect(() => {
+    mapConfigRef.current = mapConfig;
+  }, [mapConfig]);
   const [huntTimeLeft, setHuntTimeLeft] = useState(0);
   const [currentRound, setCurrentRound] = useState(1);
   const [totalRounds, setTotalRounds] = useState(4);
@@ -366,6 +379,11 @@ const Game: React.FC = () => {
       setPlayerName(localStorage.getItem('playerName') || 'Player');
       playerNameRef.current = localStorage.getItem('playerName') || 'Player';
       
+      // Set map config from room (scales with player count)
+      if (locationState.room.mapConfig) {
+        setMapConfig(locationState.room.mapConfig);
+      }
+      
       // Clear enemies that might have been spawned during init
       // In multiplayer, the unicorn player is the threat, not AI enemies
       if (gameRef.current) {
@@ -455,10 +473,31 @@ const Game: React.FC = () => {
       showStatus('A player left', '#ff8800', 2000);
     });
 
+    // Room update (includes mapConfig changes when player count changes in lobby)
+    const unsubRoomUpdate = socketService.on(SOCKET_EVENTS.SERVER.ROOM_UPDATE, (data: any) => {
+      if (data.room) {
+        setRoom(data.room);
+        setConnectedPlayers(data.room.players);
+        // Update mapConfig if it changed (only in waiting state)
+        if (data.room.mapConfig && data.mapConfigChanged) {
+          setMapConfig(data.room.mapConfig);
+          logger.game(`Map config updated: ${data.room.mapConfig.width}x${data.room.mapConfig.height}`);
+        }
+      }
+    });
+
     // Game started
     const unsubGameStarted = socketService.on(SOCKET_EVENTS.SERVER.GAME_STARTED, (data: any) => {
       setGameState('playing');
       setRoom(data.room);
+      
+      // Set final mapConfig for the game (locked at game start)
+      if (data.mapConfig) {
+        setMapConfig(data.mapConfig);
+      } else if (data.room?.mapConfig) {
+        setMapConfig(data.room.mapConfig);
+      }
+      
       const ids = data.gameState?.unicornIds ?? (data.gameState?.unicornId ? [data.gameState.unicornId] : []);
       const isPlayerUnicorn = ids.includes(socketService.getSocketId());
       setUnicornIds(ids);
@@ -959,6 +998,11 @@ const Game: React.FC = () => {
     const unsubGameStateSync = socketService.on(SOCKET_EVENTS.SERVER.GAME_STATE_SYNC, (data: any) => {
       if (!data.gameState) return;
       
+      // Sync mapConfig on reconnection
+      if (data.mapConfig) {
+        setMapConfig(data.mapConfig);
+      }
+      
       const myId = socketService.getSocketId();
       const myPlayer = data.gameState.players?.find((p: any) => p.id === myId);
       const remotePlayers = remotePlayersRef.current;
@@ -1063,6 +1107,7 @@ const Game: React.FC = () => {
       unsubPosition();
       unsubPlayerJoined();
       unsubPlayerLeft();
+      unsubRoomUpdate();
       unsubGameStarted();
       unsubUnicorn();
       unsubHuntStart();
@@ -1648,6 +1693,17 @@ const Game: React.FC = () => {
       roomCodeRef.current = locationState.room.code;
       isMultiplayerRef.current = true;
     }
+    
+    // Set mapConfig from locationState if available
+    // This ensures generateCity uses the correct dimensions from the server
+    if (locationState?.room?.mapConfig) {
+      mapConfigRef.current = locationState.room.mapConfig;
+    }
+    
+    // Get current map dimensions (from ref or defaults)
+    // These are used throughout the game loop and must be captured once at init
+    const MAP_W = mapConfigRef.current?.width ?? DEFAULT_MAP_WIDTH;
+    const MAP_H = mapConfigRef.current?.height ?? DEFAULT_MAP_HEIGHT;
 
     const resize = () => {
       canvas.width = window.innerWidth;
@@ -1678,8 +1734,8 @@ const Game: React.FC = () => {
       sinkCollectibles: [] as SinkCollectible[],
       deployedSinks: [] as DeployedSink[],
       map: {
-        width: MAP_WIDTH * TILE_SIZE,
-        height: MAP_HEIGHT * TILE_SIZE,
+        width: MAP_W * TILE_SIZE,
+        height: MAP_H * TILE_SIZE,
         tiles: [] as number[][],
         buildings: [] as Building[],
         trees: [] as Tree[],
@@ -1723,17 +1779,17 @@ const Game: React.FC = () => {
         ? new SeededRandom(roomCodeRef.current)
         : { random: () => Math.random() }; // Fallback to Math.random for single player
 
-      for (let y = 0; y < MAP_HEIGHT; y++) {
+      for (let y = 0; y < MAP_H; y++) {
         const row: number[] = [];
-        for (let x = 0; x < MAP_WIDTH; x++) {
+        for (let x = 0; x < MAP_W; x++) {
           row.push(1);
         }
         game.map.tiles.push(row);
       }
 
       const blockSize = 4;
-      for (let y = 0; y < MAP_HEIGHT; y++) {
-        for (let x = 0; x < MAP_WIDTH; x++) {
+      for (let y = 0; y < MAP_H; y++) {
+        for (let x = 0; x < MAP_W; x++) {
           const isRoadRow = y % blockSize === 0;
           const isRoadCol = x % blockSize === 0;
 
@@ -1744,7 +1800,7 @@ const Game: React.FC = () => {
             if (rand < 0.05) {
               for (let ly = y - 1; ly <= y + 1; ly++) {
                 for (let lx = x - 1; lx <= x + 1; lx++) {
-                  if (ly >= 0 && ly < MAP_HEIGHT && lx >= 0 && lx < MAP_WIDTH) {
+                  if (ly >= 0 && ly < MAP_H && lx >= 0 && lx < MAP_W) {
                     if (game.map.tiles[ly][lx] !== 0) {
                       game.map.tiles[ly][lx] = 3;
                     }
@@ -1758,9 +1814,9 @@ const Game: React.FC = () => {
         }
       }
 
-      for (let y = 0; y < MAP_HEIGHT; y++) {
-        for (let x = 0; x < MAP_WIDTH; x++) {
-          if (x === 0 || x === MAP_WIDTH - 1 || y === 0 || y === MAP_HEIGHT - 1) {
+      for (let y = 0; y < MAP_H; y++) {
+        for (let x = 0; x < MAP_W; x++) {
+          if (x === 0 || x === MAP_W - 1 || y === 0 || y === MAP_H - 1) {
             game.map.tiles[y][x] = 4;
             continue;
           }
@@ -1814,8 +1870,8 @@ const Game: React.FC = () => {
 
       let portalsCreated = 0;
       while (portalsCreated < 4) {
-        const px = Math.floor(rng.random() * (MAP_WIDTH - 2)) + 1;
-        const py = Math.floor(rng.random() * (MAP_HEIGHT - 2)) + 1;
+        const px = Math.floor(rng.random() * (MAP_W - 2)) + 1;
+        const py = Math.floor(rng.random() * (MAP_H - 2)) + 1;
         if (game.map.tiles[py][px] === 0) {
           game.map.portals.push({
             x: px * TILE_SIZE + TILE_SIZE / 2,
@@ -1830,7 +1886,7 @@ const Game: React.FC = () => {
 
     const initBoats = () => {
       game.boats = [];
-      const perimeter = (MAP_WIDTH * 2 + MAP_HEIGHT * 2) * TILE_SIZE;
+      const perimeter = (MAP_W * 2 + MAP_H * 2) * TILE_SIZE;
       const boatCount = 10;
       const spacing = perimeter / boatCount;
 
@@ -1852,8 +1908,8 @@ const Game: React.FC = () => {
     const findSafeSpawn = (entity: { x: number; y: number }) => {
       let spawnFound = false;
       while (!spawnFound) {
-        const x = Math.floor(Math.random() * (MAP_WIDTH - 2)) + 1;
-        const y = Math.floor(Math.random() * (MAP_HEIGHT - 2)) + 1;
+        const x = Math.floor(Math.random() * (MAP_W - 2)) + 1;
+        const y = Math.floor(Math.random() * (MAP_H - 2)) + 1;
         if (game.map.tiles[y][x] === 0) {
           entity.x = x * TILE_SIZE + TILE_SIZE / 2;
           entity.y = y * TILE_SIZE + TILE_SIZE / 2;
@@ -1869,8 +1925,8 @@ const Game: React.FC = () => {
 
       while (!valid && attempts < 100) {
         attempts++;
-        const rx = Math.floor(Math.random() * (MAP_WIDTH - 2)) + 1;
-        const ry = Math.floor(Math.random() * (MAP_HEIGHT - 2)) + 1;
+        const rx = Math.floor(Math.random() * (MAP_W - 2)) + 1;
+        const ry = Math.floor(Math.random() * (MAP_H - 2)) + 1;
 
         if (game.map.tiles[ry][rx] === 0) {
           const candidateX = rx * TILE_SIZE + TILE_SIZE / 2;
@@ -1910,8 +1966,8 @@ const Game: React.FC = () => {
 
       while (!valid && attempts < 200) {
         attempts++;
-        const rx = Math.floor(Math.random() * (MAP_WIDTH - 2)) + 1;
-        const ry = Math.floor(Math.random() * (MAP_HEIGHT - 2)) + 1;
+        const rx = Math.floor(Math.random() * (MAP_W - 2)) + 1;
+        const ry = Math.floor(Math.random() * (MAP_H - 2)) + 1;
 
         if (game.map.tiles[ry][rx] === 0) {
           const candidateX = rx * TILE_SIZE + TILE_SIZE / 2;
@@ -1935,8 +1991,8 @@ const Game: React.FC = () => {
       let attempts = 0;
       while (attempts < 100) {
         attempts++;
-        const rx = Math.floor(Math.random() * (MAP_WIDTH - 2)) + 1;
-        const ry = Math.floor(Math.random() * (MAP_HEIGHT - 2)) + 1;
+        const rx = Math.floor(Math.random() * (MAP_W - 2)) + 1;
+        const ry = Math.floor(Math.random() * (MAP_H - 2)) + 1;
         
         if (game.map.tiles[ry]?.[rx] === 0) {
           const cx = rx * TILE_SIZE + TILE_SIZE / 2;
@@ -1957,13 +2013,13 @@ const Game: React.FC = () => {
 
     // Spawn immunity pickup in a specific quadrant
     const spawnImmunityPickupInQuadrant = (quadrant: number) => {
-      const midX = MAP_WIDTH / 2;
-      const midY = MAP_HEIGHT / 2;
+      const midX = MAP_W / 2;
+      const midY = MAP_H / 2;
       
       let minX = 1, maxX = midX - 1, minY = 1, maxY = midY - 1;
-      if (quadrant === 1) { minX = midX; maxX = MAP_WIDTH - 2; }
-      if (quadrant === 2) { minY = midY; maxY = MAP_HEIGHT - 2; }
-      if (quadrant === 3) { minX = midX; maxX = MAP_WIDTH - 2; minY = midY; maxY = MAP_HEIGHT - 2; }
+      if (quadrant === 1) { minX = midX; maxX = MAP_W - 2; }
+      if (quadrant === 2) { minY = midY; maxY = MAP_H - 2; }
+      if (quadrant === 3) { minX = midX; maxX = MAP_W - 2; minY = midY; maxY = MAP_H - 2; }
       
       let attempts = 0;
       while (attempts < 100) {
@@ -1994,8 +2050,8 @@ const Game: React.FC = () => {
       let attempts = 0;
       while (attempts < 100) {
         attempts++;
-        const rx = Math.floor(Math.random() * (MAP_WIDTH - 2)) + 1;
-        const ry = Math.floor(Math.random() * (MAP_HEIGHT - 2)) + 1;
+        const rx = Math.floor(Math.random() * (MAP_W - 2)) + 1;
+        const ry = Math.floor(Math.random() * (MAP_H - 2)) + 1;
         
         if (game.map.tiles[ry]?.[rx] === 0) {
           const cx = rx * TILE_SIZE + TILE_SIZE / 2;
@@ -2071,7 +2127,7 @@ const Game: React.FC = () => {
 
       for (let gy = gridY - 1; gy <= gridY + 1; gy++) {
         for (let gx = gridX - 1; gx <= gridX + 1; gx++) {
-          if (gy >= 0 && gy < MAP_HEIGHT && gx >= 0 && gx < MAP_WIDTH) {
+          if (gy >= 0 && gy < MAP_H && gx >= 0 && gx < MAP_W) {
             const tile = game.map.tiles[gy][gx];
             let solid = tile === 1 || tile === 3;
             if (tile === 4 && !isPlayer) solid = true;
@@ -2106,7 +2162,7 @@ const Game: React.FC = () => {
       if (getBoatUnderPlayer()) return false;
       const gridX = Math.floor(game.player.x / TILE_SIZE);
       const gridY = Math.floor(game.player.y / TILE_SIZE);
-      if (gridY >= 0 && gridY < MAP_HEIGHT && gridX >= 0 && gridX < MAP_WIDTH) {
+      if (gridY >= 0 && gridY < MAP_H && gridX >= 0 && gridX < MAP_W) {
         if (game.map.tiles[gridY][gridX] === 4) return true;
       }
       return false;
@@ -2132,14 +2188,14 @@ const Game: React.FC = () => {
 
     const updateBoats = (dt: number) => {
       const speed = 150;
-      const totalDist = (MAP_WIDTH - 1 + MAP_HEIGHT - 1) * 2 * TILE_SIZE;
+      const totalDist = (MAP_W - 1 + MAP_H - 1) * 2 * TILE_SIZE;
 
       game.boats.forEach((b) => {
         b.dist = (b.dist + speed * dt) % totalDist;
 
-        const topLen = (MAP_WIDTH - 1) * TILE_SIZE;
-        const rightLen = (MAP_HEIGHT - 1) * TILE_SIZE;
-        const bottomLen = (MAP_WIDTH - 1) * TILE_SIZE;
+        const topLen = (MAP_W - 1) * TILE_SIZE;
+        const rightLen = (MAP_H - 1) * TILE_SIZE;
+        const bottomLen = (MAP_W - 1) * TILE_SIZE;
 
         let currentDist = b.dist;
         let nx = 0, ny = 0;
@@ -2151,20 +2207,20 @@ const Game: React.FC = () => {
           b.velY = 0;
         } else if (currentDist < topLen + rightLen) {
           currentDist -= topLen;
-          nx = (MAP_WIDTH - 1) * TILE_SIZE;
+          nx = (MAP_W - 1) * TILE_SIZE;
           ny = currentDist;
           b.velX = 0;
           b.velY = speed;
         } else if (currentDist < topLen + rightLen + bottomLen) {
           currentDist -= topLen + rightLen;
-          nx = (MAP_WIDTH - 1) * TILE_SIZE - currentDist;
-          ny = (MAP_HEIGHT - 1) * TILE_SIZE;
+          nx = (MAP_W - 1) * TILE_SIZE - currentDist;
+          ny = (MAP_H - 1) * TILE_SIZE;
           b.velX = -speed;
           b.velY = 0;
         } else {
           currentDist -= topLen + rightLen + bottomLen;
           nx = 0;
-          ny = (MAP_HEIGHT - 1) * TILE_SIZE - currentDist;
+          ny = (MAP_H - 1) * TILE_SIZE - currentDist;
           b.velX = 0;
           b.velY = -speed;
         }
@@ -2701,7 +2757,7 @@ const Game: React.FC = () => {
       // Ground
       for (let y = startRow; y < endRow; y++) {
         for (let x = startCol; x < endCol; x++) {
-          if (y >= 0 && y < MAP_HEIGHT && x >= 0 && x < MAP_WIDTH) {
+          if (y >= 0 && y < MAP_H && x >= 0 && x < MAP_W) {
             const type = game.map.tiles[y][x];
             const dx = x * TILE_SIZE, dy = y * TILE_SIZE;
 
@@ -2734,8 +2790,8 @@ const Game: React.FC = () => {
               ctx.fillStyle = C_LAVA_HOT;
               let offset = 0;
               if (y === 0) offset = dx;
-              else if (x === MAP_WIDTH - 1) offset = dy;
-              else if (y === MAP_HEIGHT - 1) offset = -dx;
+              else if (x === MAP_W - 1) offset = dy;
+              else if (y === MAP_H - 1) offset = -dx;
               else if (x === 0) offset = -dy;
               const pulse = (Math.sin(game.gameTime * 2 + offset * 0.05) + 1) / 2;
               ctx.globalAlpha = 0.5 * pulse;
@@ -3102,8 +3158,8 @@ const Game: React.FC = () => {
       minimapCtx.fillRect(0, 0, 150, 150);
       const sc = 150 / game.map.width;
 
-      for (let y = 0; y < MAP_HEIGHT; y++) {
-        for (let x = 0; x < MAP_WIDTH; x++) {
+      for (let y = 0; y < MAP_H; y++) {
+        for (let x = 0; x < MAP_W; x++) {
           const t = game.map.tiles[y][x];
           if (t === 0) minimapCtx.fillStyle = '#444';
           else if (t === 2) minimapCtx.fillStyle = '#242';

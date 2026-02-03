@@ -35,11 +35,16 @@ class PositionManager {
      * Assign spawn positions to players
      * @param {string} roomCode - Room code
      * @param {Array} players - Array of player objects
+     * @param {Object} mapConfig - Optional map configuration with spawnPositions
      */
-    assignSpawnPositions(roomCode, players) {
+    assignSpawnPositions(roomCode, players, mapConfig = null) {
         this.initializeRoom(roomCode);
         
-        const spawnPositions = GAME_CONFIG.SPAWN_POSITIONS;
+        // Use mapConfig spawn positions if available, otherwise fall back to default
+        const spawnPositions = mapConfig?.spawnPositions || GAME_CONFIG.SPAWN_POSITIONS;
+        const mapSize = mapConfig?.width || 30;
+        const maxCoord = mapSize - 6; // Leave border room
+        
         const roomPositions = this.playerPositions.get(roomCode);
 
         // Track which spawn positions are already used
@@ -72,9 +77,8 @@ class PositionManager {
             // Fallback if all predefined positions are used: pick next valid road intersection (row,col multiples of 4)
             if (!spawnPos) {
                 const MIN_COORD = 4;
-                const MAX_COORD = 44;
-                for (let r = MIN_COORD; r <= MAX_COORD; r += 4) {
-                    for (let c = MIN_COORD; c <= MAX_COORD; c += 4) {
+                for (let r = MIN_COORD; r <= maxCoord; r += 4) {
+                    for (let c = MIN_COORD; c <= maxCoord; c += 4) {
                         const posKey = `${r},${c}`;
                         if (!usedSpawnPositions.has(posKey)) {
                             spawnPos = { row: r, col: c };
@@ -383,10 +387,14 @@ class PositionManager {
      * @param {string} roomCode - Room code
      * @param {string} excludePlayerId - Player ID to exclude
      * @param {Array} players - Array of players in room
+     * @param {Object} mapConfig - Optional map configuration with spawnPositions
      * @returns {Object} Free spawn position { row, col }
      */
-    findFreeSpawnPosition(roomCode, excludePlayerId = null, players = []) {
-        const spawnPositions = GAME_CONFIG.SPAWN_POSITIONS;
+    findFreeSpawnPosition(roomCode, excludePlayerId = null, players = [], mapConfig = null) {
+        // Use mapConfig spawn positions if available, otherwise fall back to default
+        const spawnPositions = mapConfig?.spawnPositions || GAME_CONFIG.SPAWN_POSITIONS;
+        const mapSize = mapConfig?.width || 30;
+        const maxCoord = mapSize - 6;
         
         // Collect occupied positions
         const occupiedPositions = new Set();
@@ -407,22 +415,14 @@ class PositionManager {
             }
         }
         
-        // Fallback positions - all on valid road tiles (multiples of 4)
-        const fallbackPositions = [
-            { row: 8, col: 8 }, { row: 8, col: 16 }, { row: 8, col: 32 }, { row: 8, col: 40 },
-            { row: 12, col: 4 }, { row: 12, col: 12 }, { row: 12, col: 36 }, { row: 12, col: 44 },
-            { row: 16, col: 8 }, { row: 16, col: 20 }, { row: 16, col: 28 }, { row: 16, col: 40 },
-            { row: 20, col: 4 }, { row: 20, col: 16 }, { row: 20, col: 32 }, { row: 20, col: 44 },
-            { row: 28, col: 8 }, { row: 28, col: 24 }, { row: 28, col: 40 },
-            { row: 32, col: 4 }, { row: 32, col: 20 }, { row: 32, col: 36 }, { row: 32, col: 44 },
-            { row: 36, col: 8 }, { row: 36, col: 16 }, { row: 36, col: 32 }, { row: 36, col: 40 },
-            { row: 40, col: 12 }, { row: 40, col: 24 }, { row: 40, col: 36 }
-        ];
-        
-        for (const fallbackPos of fallbackPositions) {
-            const posKey = `${fallbackPos.row},${fallbackPos.col}`;
-            if (!occupiedPositions.has(posKey)) {
-                return fallbackPos;
+        // Fallback: generate positions dynamically based on map size
+        // Use road intersections (multiples of 4) within the map bounds
+        for (let r = 8; r <= maxCoord; r += 4) {
+            for (let c = 8; c <= maxCoord; c += 4) {
+                const posKey = `${r},${c}`;
+                if (!occupiedPositions.has(posKey)) {
+                    return { row: r, col: c };
+                }
             }
         }
         

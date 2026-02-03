@@ -13,18 +13,32 @@ class CoinManager {
         
         // Track coin pickup locks: `roomCode:coinId` -> playerId (race condition prevention)
         this.coinLocks = new Map();
+        
+        // Store mapConfig per room for respawn filtering
+        this.roomMapConfigs = new Map();
     }
 
     /**
      * Initialize coins for a room at Hunt start
      * @param {string} roomCode - Room code
      * @param {Object} io - Socket.IO server
+     * @param {Object} mapConfig - Room's map configuration (optional)
      */
-    initializeCoins(roomCode, io) {
+    initializeCoins(roomCode, io, mapConfig = null) {
         const coinMap = new Map();
         
+        // Filter spawn slots to only include positions within map bounds
+        const mapWidth = mapConfig?.width ?? 30;
+        const mapHeight = mapConfig?.height ?? 30;
+        const validSlots = COIN_CONFIG.SPAWN_SLOTS.filter(
+            slot => slot.row < mapHeight - 1 && slot.col < mapWidth - 1
+        );
+        
+        // Use mapConfig's coinSpawnSlots if available, otherwise use filtered valid slots
+        const spawnSlots = mapConfig?.coinSpawnSlots ?? validSlots;
+        
         // Shuffle spawn slots and pick initial coins
-        const shuffledSlots = [...COIN_CONFIG.SPAWN_SLOTS].sort(() => Math.random() - 0.5);
+        const shuffledSlots = [...spawnSlots].sort(() => Math.random() - 0.5);
         const initialCoins = shuffledSlots.slice(0, COIN_CONFIG.INITIAL_SPAWN_COUNT);
         
         initialCoins.forEach((slot, index) => {
@@ -39,6 +53,7 @@ class CoinManager {
         });
 
         this.roomCoins.set(roomCode, coinMap);
+        this.roomMapConfigs.set(roomCode, mapConfig);
 
         // Notify clients
         const coinsData = Array.from(coinMap.values()).map(coin => ({
@@ -152,6 +167,11 @@ class CoinManager {
         const coin = coinMap.get(coinId);
         if (!coin) return;
 
+        // Get stored mapConfig for this room
+        const mapConfig = this.roomMapConfigs.get(roomCode);
+        const mapWidth = mapConfig?.width ?? 30;
+        const mapHeight = mapConfig?.height ?? 30;
+
         // Find unused position
         const usedPositions = new Set();
         coinMap.forEach(c => {
@@ -160,7 +180,12 @@ class CoinManager {
             }
         });
 
-        const availableSlots = COIN_CONFIG.SPAWN_SLOTS.filter(
+        // Filter slots to be within map bounds
+        const validSlots = (mapConfig?.coinSpawnSlots ?? COIN_CONFIG.SPAWN_SLOTS).filter(
+            slot => slot.row < mapHeight - 1 && slot.col < mapWidth - 1
+        );
+        
+        const availableSlots = validSlots.filter(
             slot => !usedPositions.has(`${slot.row},${slot.col}`)
         );
 
@@ -212,6 +237,7 @@ class CoinManager {
             });
         }
         this.roomCoins.delete(roomCode);
+        this.roomMapConfigs.delete(roomCode);
         
         // Clear locks for this room
         for (const lockKey of this.coinLocks.keys()) {

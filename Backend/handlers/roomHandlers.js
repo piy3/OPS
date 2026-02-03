@@ -48,19 +48,21 @@ export function registerRoomHandlers(socket, io) {
                 return;
             }
 
-            // Add player to room
-            const player = roomManager.addPlayerToRoom(roomCode, socket.id, playerName);
-            if (!player) {
+            // Add player to room (returns player + mapConfig change info)
+            const result = roomManager.addPlayerToRoom(roomCode, socket.id, playerName);
+            if (!result || !result.player) {
                 socket.emit(SOCKET_EVENTS.SERVER.JOIN_ERROR, { message: 'Failed to join room' });
                 return;
             }
+            
+            const { player, mapConfigChanged } = result;
 
             socket.join(roomCode);
             const room = roomManager.getRoom(roomCode);
 
             log(`Player ${socket.id} joined room: ${roomCode}`);
 
-            // Notify the joining player
+            // Notify the joining player (includes current mapConfig in room)
             socket.emit(SOCKET_EVENTS.SERVER.ROOM_JOINED, {
                 roomCode: roomCode,
                 room: room
@@ -72,8 +74,12 @@ export function registerRoomHandlers(socket, io) {
                 room: room
             });
 
-            // Broadcast updated room state to all players
-            io.to(roomCode).emit(SOCKET_EVENTS.SERVER.ROOM_UPDATE, { room: room });
+            // Broadcast updated room state to all players (includes mapConfig)
+            // If map config changed, this will propagate the new config to all clients
+            io.to(roomCode).emit(SOCKET_EVENTS.SERVER.ROOM_UPDATE, { 
+                room: room,
+                mapConfigChanged: mapConfigChanged 
+            });
         } catch (error) {
             log(`Error joining room: ${error.message}`);
             socket.emit(SOCKET_EVENTS.SERVER.JOIN_ERROR, { message: 'Failed to join room' });
@@ -138,7 +144,10 @@ export function registerRoomHandlers(socket, io) {
                     playerId: socket.id,
                     room: result.room
                 });
-                io.to(roomCode).emit(SOCKET_EVENTS.SERVER.ROOM_UPDATE, { room: result.room });
+                io.to(roomCode).emit(SOCKET_EVENTS.SERVER.ROOM_UPDATE, { 
+                    room: result.room,
+                    mapConfigChanged: result.mapConfigChanged
+                });
             }
 
             socket.emit(SOCKET_EVENTS.SERVER.ROOM_LEFT, { roomCode: roomCode });

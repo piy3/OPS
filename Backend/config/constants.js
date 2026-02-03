@@ -320,9 +320,10 @@ export const SOCKET_EVENTS = {
  * Maze Configuration
  */
 export const MAZE_CONFIG = {
-    MAZE_COLS: 30,                           // Total columns in the map
-    MAZE_ROWS: 30,                           // Total rows in the map
+    MAZE_COLS: 30,                           // Default columns (used when no mapConfig)
+    MAZE_ROWS: 30,                           // Default rows (used when no mapConfig)
     BLOCK_SIZE: 4,                           // Roads are at multiples of this
+    TILE_SIZE: 64,                           // Pixel size of each tile
     WRAP_AROUND_ROWS: []                     // Not used in city map
 };
 
@@ -332,6 +333,79 @@ export const MAZE_CONFIG = {
  * @returns {boolean} True if the row has wrap-around
  */
 export const hasWrapAround = (row) => MAZE_CONFIG.WRAP_AROUND_ROWS.includes(row);
+
+/**
+ * Generate map configuration based on player count
+ * Map size scales with player count:
+ * - Less than 10 players: 30x30
+ * - 10-20 players: 40x40
+ * - 20+ players: 50x50
+ * 
+ * @param {number} playerCount - Number of players in the room
+ * @returns {Object} Map configuration object
+ */
+export function getMapConfigForPlayerCount(playerCount) {
+    let size;
+    if (playerCount < 10) size = 30;
+    else if (playerCount <= 20) size = 40;
+    else size = 50;
+    
+    const blockSize = MAZE_CONFIG.BLOCK_SIZE;
+    const tileSize = MAZE_CONFIG.TILE_SIZE;
+    const maxCoord = size - 6; // Leave border room (e.g., 24 for 30x30)
+    
+    // Generate spawn positions dynamically (road intersections: multiples of 4)
+    const spawnPositions = [];
+    
+    // Corners
+    spawnPositions.push({ row: 4, col: 4 });
+    spawnPositions.push({ row: 4, col: maxCoord });
+    spawnPositions.push({ row: maxCoord, col: 4 });
+    spawnPositions.push({ row: maxCoord, col: maxCoord });
+    
+    // Edges - midpoints
+    const mid = Math.floor(size / 2) - (Math.floor(size / 2) % blockSize);
+    spawnPositions.push({ row: 4, col: mid });
+    spawnPositions.push({ row: maxCoord, col: mid });
+    spawnPositions.push({ row: mid, col: 4 });
+    spawnPositions.push({ row: mid, col: maxCoord });
+    
+    // Center
+    spawnPositions.push({ row: mid, col: mid });
+    
+    // Add more positions for larger maps (grid of intersections)
+    if (size >= 40) {
+        for (let r = 8; r < maxCoord; r += 8) {
+            for (let c = 8; c < maxCoord; c += 8) {
+                if (!spawnPositions.some(p => p.row === r && p.col === c)) {
+                    spawnPositions.push({ row: r, col: c });
+                }
+            }
+        }
+    }
+    
+    // Generate coin spawn slots (all road positions that are intersections)
+    const coinSlots = [];
+    for (let r = 4; r <= maxCoord; r += blockSize) {
+        for (let c = 4; c <= maxCoord; c += blockSize) {
+            coinSlots.push({ row: r, col: c });
+        }
+    }
+    
+    // Generate powerup spawn slots (subset of road intersections)
+    const powerupSlots = coinSlots.filter((_, i) => i % 3 === 0);
+    
+    return {
+        width: size,
+        height: size,
+        blockSize: blockSize,
+        tileSize: tileSize,
+        spawnPositions: spawnPositions.slice(0, Math.max(9, playerCount + 2)),
+        coinSpawnSlots: coinSlots,
+        powerupSpawnSlots: powerupSlots,
+        maxPlayers: spawnPositions.length
+    };
+}
 
 export const GAME_CONFIG = {
     // Position update throttling
@@ -346,19 +420,19 @@ export const GAME_CONFIG = {
         MIN_X: -10000,
         MIN_Y: -10000
     },
-    // Fixed spawn positions for players (row, col)
-    // Each player spawns at a different position - supports up to 9 players
-    // All positions on valid road intersections (multiples of 4) for 50x50 city map
+    // Default spawn positions (fallback when room.mapConfig is not available)
+    // Prefer using room.mapConfig.spawnPositions which is dynamic based on player count
+    // All positions on valid road intersections (multiples of 4) for 30x30 city map
     SPAWN_POSITIONS: [
         { row: 4, col: 4 },      // Top-left intersection
-        { row: 4, col: 44 },     // Top-right intersection
-        { row: 44, col: 4 },     // Bottom-left intersection
-        { row: 44, col: 44 },    // Bottom-right intersection
-        { row: 4, col: 24 },     // Top-center
-        { row: 24, col: 4 },     // Mid-left
-        { row: 24, col: 44 },    // Mid-right
-        { row: 44, col: 24 },    // Bottom-center
-        { row: 24, col: 24 }     // Center intersection
+        { row: 4, col: 24 },     // Top-right intersection (adjusted for 30x30)
+        { row: 24, col: 4 },     // Bottom-left intersection
+        { row: 24, col: 24 },    // Bottom-right intersection
+        { row: 4, col: 12 },     // Top-center
+        { row: 12, col: 4 },     // Mid-left
+        { row: 12, col: 24 },    // Mid-right
+        { row: 24, col: 12 },    // Bottom-center
+        { row: 12, col: 12 }     // Center intersection
     ]
 };
 ''

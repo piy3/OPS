@@ -56,7 +56,8 @@ class GameStateManager {
         
         const room = roomManager.getRoom(roomCode);
         if (room?.players) {
-            positionManager.assignSpawnPositions(roomCode, room.players);
+            // Pass mapConfig for dynamic spawn positions based on player count
+            positionManager.assignSpawnPositions(roomCode, room.players, room.mapConfig);
         }
     }
 
@@ -432,10 +433,12 @@ class GameStateManager {
             io,
             (code) => quizManager.unfreezeRoom(code),
             (code, socket) => {
-                coinManager.initializeCoins(code, socket);
-                powerupManager.startSpawning(code, socket, (c) => gameLoopManager.getGamePhase(c));
-                sinkholeManager.initializeSinkholes(code, socket);
-                sinkTrapManager.initializeSinkTraps(code, socket);
+                // Pass mapConfig to managers so they filter spawn slots by map size
+                const mapConfig = room.mapConfig;
+                coinManager.initializeCoins(code, socket, mapConfig);
+                powerupManager.startSpawning(code, socket, (c) => gameLoopManager.getGamePhase(c), mapConfig);
+                sinkholeManager.initializeSinkholes(code, socket, mapConfig);
+                sinkTrapManager.initializeSinkTraps(code, socket, mapConfig);
             },
             (code, socket) => this._startNewBlitz(code, socket)
         );
@@ -762,8 +765,8 @@ class GameStateManager {
         // Restore health
         roomManager.setPlayerHealth(roomCode, playerId, COMBAT_CONFIG.RESPAWN_HEALTH);
         
-        // Get new spawn position
-        const spawnPos = positionManager.findFreeSpawnPosition(roomCode, playerId, room.players);
+        // Get new spawn position (pass mapConfig for dynamic map sizing)
+        const spawnPos = positionManager.findFreeSpawnPosition(roomCode, playerId, room.players, room.mapConfig);
         
         // Update position
         const newPos = {

@@ -39,11 +39,22 @@ class SinkholeManager {
         this.roomSinkholes = new Map();      // roomCode -> Map<sinkholeId, { row, col, color }>
         this.spawnTimers = new Map();        // roomCode -> timeoutId
         this.teleportCooldowns = new Map();  // playerId -> timestamp
+        this.roomMapConfigs = new Map();     // roomCode -> mapConfig
     }
 
-    initializeSinkholes(roomCode, io) {
+    initializeSinkholes(roomCode, io, mapConfig = null) {
+        // Store mapConfig for later spawns
+        this.roomMapConfigs.set(roomCode, mapConfig);
+        
+        // Filter spawn slots to be within map bounds
+        const mapWidth = mapConfig?.width ?? 30;
+        const mapHeight = mapConfig?.height ?? 30;
+        const validSlots = SINKHOLE_CONFIG.SPAWN_SLOTS.filter(
+            slot => slot.row < mapHeight - 1 && slot.col < mapWidth - 1
+        );
+        
         const sinkholeMap = new Map();
-        const shuffledSlots = [...SINKHOLE_CONFIG.SPAWN_SLOTS].sort(() => Math.random() - 0.5);
+        const shuffledSlots = [...validSlots].sort(() => Math.random() - 0.5);
         const initialSinkholes = shuffledSlots.slice(0, SINKHOLE_CONFIG.INITIAL_SPAWN_COUNT);
         
         initialSinkholes.forEach((slot, index) => {
@@ -84,10 +95,20 @@ class SinkholeManager {
             return;
         }
 
+        // Get stored mapConfig for this room
+        const mapConfig = this.roomMapConfigs.get(roomCode);
+        const mapWidth = mapConfig?.width ?? 30;
+        const mapHeight = mapConfig?.height ?? 30;
+
         const usedPositions = new Set();
         sinkholeMap.forEach(s => usedPositions.add(`${s.row},${s.col}`));
 
-        const availableSlots = SINKHOLE_CONFIG.SPAWN_SLOTS.filter(
+        // Filter slots to be within map bounds
+        const validSlots = SINKHOLE_CONFIG.SPAWN_SLOTS.filter(
+            slot => slot.row < mapHeight - 1 && slot.col < mapWidth - 1
+        );
+        
+        const availableSlots = validSlots.filter(
             slot => !usedPositions.has(`${slot.row},${slot.col}`)
         );
 
@@ -194,6 +215,7 @@ class SinkholeManager {
         if (timer) clearTimeout(timer);
         this.spawnTimers.delete(roomCode);
         this.roomSinkholes.delete(roomCode);
+        this.roomMapConfigs.delete(roomCode);
     }
 
     clearPlayerCooldown(playerId) {

@@ -38,9 +38,13 @@ class SinkTrapManager {
         this.roomDeployedTraps = new Map();
         this.playerInventories = new Map();
         this.spawnTimers = new Map();
+        this.roomMapConfigs = new Map();  // roomCode -> mapConfig
     }
 
-    initializeSinkTraps(roomCode, io) {
+    initializeSinkTraps(roomCode, io, mapConfig = null) {
+        // Store mapConfig for later spawns
+        this.roomMapConfigs.set(roomCode, mapConfig);
+        
         this.roomCollectibles.set(roomCode, new Map());
         this.roomDeployedTraps.set(roomCode, new Map());
         this.playerInventories.set(roomCode, new Map());
@@ -72,6 +76,11 @@ class SinkTrapManager {
             return;
         }
 
+        // Get stored mapConfig for this room
+        const mapConfig = this.roomMapConfigs.get(roomCode);
+        const mapWidth = mapConfig?.width ?? 30;
+        const mapHeight = mapConfig?.height ?? 30;
+
         const usedPositions = new Set();
         collectibles.forEach(c => usedPositions.add(`${c.row},${c.col}`));
         
@@ -80,7 +89,12 @@ class SinkTrapManager {
             deployedTraps.forEach(t => usedPositions.add(`${t.row},${t.col}`));
         }
 
-        const availableSlots = SINK_TRAP_CONFIG.SPAWN_SLOTS.filter(
+        // Filter slots to be within map bounds
+        const validSlots = SINK_TRAP_CONFIG.SPAWN_SLOTS.filter(
+            slot => slot.row < mapHeight - 1 && slot.col < mapWidth - 1
+        );
+        
+        const availableSlots = validSlots.filter(
             slot => !usedPositions.has(`${slot.row},${slot.col}`)
         );
 
@@ -192,6 +206,11 @@ class SinkTrapManager {
         const trap = deployedTraps.get(trapId);
         deployedTraps.delete(trapId);
 
+        // Get stored mapConfig for this room
+        const mapConfig = this.roomMapConfigs.get(roomCode);
+        const mapWidth = mapConfig?.width ?? 30;
+        const mapHeight = mapConfig?.height ?? 30;
+        
         const TILE_SIZE = 64;
         const fromPosition = {
             x: trap.col * TILE_SIZE + TILE_SIZE / 2,
@@ -199,8 +218,9 @@ class SinkTrapManager {
             row: trap.row, col: trap.col
         };
 
-        const destRow = Math.floor(Math.random() * 24) + 2;
-        const destCol = Math.floor(Math.random() * 28) + 2;
+        // Random destination within map bounds (avoiding edges)
+        const destRow = Math.floor(Math.random() * (mapHeight - 4)) + 2;
+        const destCol = Math.floor(Math.random() * (mapWidth - 4)) + 2;
         
         const toPosition = {
             x: destCol * TILE_SIZE + TILE_SIZE / 2,
@@ -245,6 +265,7 @@ class SinkTrapManager {
         this.roomCollectibles.delete(roomCode);
         this.roomDeployedTraps.delete(roomCode);
         this.playerInventories.delete(roomCode);
+        this.roomMapConfigs.delete(roomCode);
 
         log.debug(`[SinkTrapManager] Cleaned up room ${roomCode}`);
     }

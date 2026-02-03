@@ -117,6 +117,17 @@ export interface Player {
   };
 }
 
+export interface MapConfig {
+  width: number;
+  height: number;
+  blockSize: number;
+  tileSize: number;
+  spawnPositions: { row: number; col: number }[];
+  coinSpawnSlots?: { row: number; col: number }[];
+  powerupSpawnSlots?: { row: number; col: number }[];
+  maxPlayers?: number;
+}
+
 export interface Room {
   code: string;
   players: Player[];
@@ -125,6 +136,7 @@ export interface Room {
   hostId: string;
   unicornIds?: string[];
   unicornId?: string;
+  mapConfig?: MapConfig;
 }
 
 export interface Coin {

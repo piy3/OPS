@@ -3,7 +3,7 @@
  * Handles all room-related business logic
  */
 
-import { ROOM_CONFIG, ROOM_STATUS, COMBAT_CONFIG, PLAYER_STATE, GAME_LOOP_CONFIG, getNextAvailableCharacterId } from '../config/constants.js';
+import { ROOM_CONFIG, ROOM_STATUS, COMBAT_CONFIG, PLAYER_STATE, GAME_LOOP_CONFIG, getNextAvailableCharacterId, getMapConfigForPlayerCount } from '../config/constants.js';
 import log from "../utils/logger.js"
 // Extract starting coins from config for easy reference
 const STARTING_COINS = ROOM_CONFIG.STARTING_COINS;
@@ -24,6 +24,8 @@ class RoomManager {
      */
     createRoom(socketId, playerData = {}) {
         const roomCode = generateRoomCode(this.rooms);
+        // Initialize map config for 1 player (host)
+        const mapConfig = getMapConfigForPlayerCount(1);
         const room = {
             code: roomCode,
             hostId: socketId,
@@ -45,7 +47,8 @@ class RoomManager {
             createdAt: Date.now(),
             maxPlayers: playerData?.maxPlayers || ROOM_CONFIG.DEFAULT_MAX_PLAYERS,
             unicornIds: [],           // Multiple unicorns per round
-            unicornId: null           // Backward compat: unicornIds[0] ?? null
+            unicornId: null,          // Backward compat: unicornIds[0] ?? null
+            mapConfig: mapConfig      // Dynamic map configuration based on player count
         };
 
         this.rooms.set(roomCode, room);
@@ -108,7 +111,7 @@ class RoomManager {
      * @param {string} roomCode - Room code
      * @param {string} socketId - Socket ID
      * @param {string} playerName - Player name
-     * @returns {Object} Player object
+     * @returns {Object} { player, mapConfigChanged, newMapConfig }
      */
     addPlayerToRoom(roomCode, socketId, playerName) {
         const room = this.rooms.get(roomCode);
@@ -130,14 +133,45 @@ class RoomManager {
         };
 
         room.players.push(player);
-        return player;
+        
+        // Check if map config needs to update (only in waiting state)
+        let mapConfigChanged = false;
+        let newMapConfig = null;
+        if (room.status === ROOM_STATUS.WAITING) {
+            const updatedConfig = this.updateRoomMapConfig(roomCode);
+            if (updatedConfig) {
+                mapConfigChanged = true;
+                newMapConfig = updatedConfig;
+            }
+        }
+        
+        return { player, mapConfigChanged, newMapConfig };
+    }
+    
+    /**
+     * Update room map config based on current player count
+     * Only updates if in waiting state and size would change
+     * @param {string} roomCode - Room code
+     * @returns {Object|null} New config if changed, null otherwise
+     */
+    updateRoomMapConfig(roomCode) {
+        const room = this.rooms.get(roomCode);
+        if (!room || room.status !== ROOM_STATUS.WAITING) return null;
+        
+        const newConfig = getMapConfigForPlayerCount(room.players.length);
+        if (newConfig.width !== room.mapConfig?.width) {
+            room.mapConfig = newConfig;
+            log.info(`📐 Map config updated for room ${roomCode}: ${newConfig.width}x${newConfig.height} (${room.players.length} players)`);
+            return newConfig;
+        }
+        return null;
     }
 
     /**
      * Remove player from room
      * @param {string} roomCode - Room code
      * @param {string} socketId - Socket ID
-     * @returns {Object} { wasHost: boolean, roomDeleted: boolean }
+     * @returns {Object} { wasHost: boolean, roomDeleted: boolean, mapConfigChanged, newMapConfig }
      */
     removePlayerFromRoom(roomCode, socketId) {
         const room = this.rooms.get(roomCode);
@@ -153,6 +187,8 @@ class RoomManager {
         let roomDeleted = false;
         let newHostId = null;
         let newUnicornIds = null;
+        let mapConfigChanged = false;
+        let newMapConfig = null;
 
         // If host left and there are other players, assign new host
         if (wasHost && room.players.length > 0) {
@@ -193,6 +229,15 @@ class RoomManager {
         if (room.players.length === 0) {
             this.rooms.delete(roomCode);
             roomDeleted = true;
+        } else {
+            // Check if map config needs to update (only in waiting state)
+            if (room.status === ROOM_STATUS.WAITING) {
+                const updatedConfig = this.updateRoomMapConfig(roomCode);
+                if (updatedConfig) {
+                    mapConfigChanged = true;
+                    newMapConfig = updatedConfig;
+                }
+            }
         }
 
         return {
@@ -201,6 +246,8 @@ class RoomManager {
             roomDeleted,
             newHostId,
             newUnicornIds,
+            mapConfigChanged,
+            newMapConfig,
             room: roomDeleted ? null : room
         };
     }
