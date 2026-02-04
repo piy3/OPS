@@ -417,6 +417,8 @@ const Game: React.FC = () => {
   // Leave room when component unmounts (user navigates away from game)
   useEffect(() => {
     return () => {
+      // Stop any playing music when leaving the game
+      soundService.stopMusic();
       // Only leave room if we're in multiplayer mode
       if (isMultiplayer && socketService.isConnected()) {
         logger.game('Leaving room on game component unmount');
@@ -886,6 +888,7 @@ const Game: React.FC = () => {
 
     // Room closed (kicked from room after game ended)
     const unsubRoomLeft = socketService.on(SOCKET_EVENTS.SERVER.ROOM_LEFT, (data: any) => {
+      soundService.stopMusic();
       if (data?.reason === 'game_ended') {
         logger.game('Room closed after game ended, navigating to home');
         showStatus('Room closed. Returning to menu...', '#ffff00', 2000);

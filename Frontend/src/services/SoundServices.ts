@@ -79,6 +79,9 @@ function getMusic(id: MusicId): Howl {
       src: [PATHS[id]],
       loop: true,
       volume: musicVolumes[id],
+      onloaderror: (_id, err) => {
+        console.error(`[SoundService] Failed to load music '${id}':`, err);
+      },
     });
   }
   return music[id];
@@ -86,7 +89,14 @@ function getMusic(id: MusicId): Howl {
 
 function getSfx(id: SfxId): Howl {
   if (!sfx[id]) {
-    sfx[id] = new Howl({ src: [PATHS[id]], loop: false, volume: 0.6 });
+    sfx[id] = new Howl({
+      src: [PATHS[id]],
+      loop: false,
+      volume: 0.6,
+      onloaderror: (_id, err) => {
+        console.error(`[SoundService] Failed to load SFX '${id}':`, err);
+      },
+    });
   }
   return sfx[id];
 }

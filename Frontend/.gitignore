@@ -112,7 +112,7 @@ dist
 
 # Gatsby
 .cache/
-public
+# public  # Commented out - Vite needs public folder for static assets
 
 # Vue
 dist/
