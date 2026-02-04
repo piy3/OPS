@@ -599,6 +599,9 @@ const Game: React.FC = () => {
           player.isUnicorn = data.unicornIds.includes(id);
         });
       }
+      // Flush stored immunity and sink trap inventory at start of each hunt round
+      setImmunityInventory(0);
+      setSinkInventory(0);
       if (gameRef.current) {
         if (isMultiplayerRef.current) {
           if (gameRef.current.map?.portals) {
@@ -609,6 +612,8 @@ const Game: React.FC = () => {
           gameRef.current.deployedSinks = [];
           // So only current hunt's server events (COIN_SPAWNED, SINK_TRAP_*, etc.) apply
         }
+        gameRef.current.immunityInventory = 0;
+        gameRef.current.playerSinkInventory = 0;
         gameRef.current.isPlaying = true;
       }
       showStatus(`HUNT PHASE - Round ${data.roundInfo?.currentRound || 1}!`, '#ff4400', 2000);
