@@ -290,6 +290,10 @@ const Game: React.FC = () => {
     isUnicorn: boolean;
     visible: boolean;
   } | null>(null);
+
+  // Last round warning banner (top of screen for 3s when final hunt starts)
+  const [showLastRoundWarning, setShowLastRoundWarning] = useState(false);
+  const lastRoundBannerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
   // Unfreeze quiz state (when player is frozen after being tagged)
   const [unfreezeQuizData, setUnfreezeQuizData] = useState<{
@@ -592,6 +596,21 @@ const Game: React.FC = () => {
         gameRef.current.isPlaying = true;
       }
       showStatus(`HUNT PHASE - Round ${data.roundInfo?.currentRound || 1}!`, '#ff4400', 2000);
+
+      // Last round: show red banner for 3s
+      const roundInfo = data.roundInfo;
+      const isLastRound = roundInfo && (roundInfo.roundsRemaining === 1 || roundInfo.currentRound === roundInfo.totalRounds);
+      if (isLastRound) {
+        if (lastRoundBannerTimeoutRef.current) {
+          clearTimeout(lastRoundBannerTimeoutRef.current);
+          lastRoundBannerTimeoutRef.current = null;
+        }
+        setShowLastRoundWarning(true);
+        lastRoundBannerTimeoutRef.current = setTimeout(() => {
+          lastRoundBannerTimeoutRef.current = null;
+          setShowLastRoundWarning(false);
+        }, 3000);
+      }
     });
 
     // Hunt phase ended (or timer update - backend sends HUNT_END for both)
@@ -1185,6 +1204,16 @@ const Game: React.FC = () => {
       unsubGameStateSync();
     };
   }, [isMultiplayer, unicornIds, gameState, navigate]);
+
+  // Clear last-round banner timeout on unmount only (so the 3s hide timer is not cancelled when effect re-runs)
+  useEffect(() => {
+    return () => {
+      if (lastRoundBannerTimeoutRef.current) {
+        clearTimeout(lastRoundBannerTimeoutRef.current);
+        lastRoundBannerTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   // Show status helper (defined early for use in socket handlers)
   const showStatus = useCallback((text: string, color: string = '#fff', duration: number = 2000) => {
@@ -2910,6 +2939,15 @@ const Game: React.FC = () => {
             onAnswer={(index) => socketService.submitBlitzAnswer(index)}
           />
         )
+      )}
+
+      {/* Last Round warning banner (top, 3 seconds when final hunt starts) */}
+      {showLastRoundWarning && (
+        <div className="absolute top-0 left-0 right-0 z-40 flex justify-center pt-6 pointer-events-none">
+          <div className="bg-red-600 border-2 border-red-400 text-white font-bold text-2xl md:text-3xl uppercase tracking-widest px-4 py-2 rounded-lg shadow-lg animate-pulse">
+            Last Round
+          </div>
+        </div>
       )}
 
       {/* Role Announcement Overlay (shows before hunt phase) */}
