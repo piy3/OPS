@@ -199,18 +199,15 @@ class SinkTrapManager {
         return null;
     }
 
-    triggerTrap(roomCode, trapId, unicornId, unicornName, io, updatePlayerPosition) {
+    triggerTrap(roomCode, trapId, unicornId, unicornName, io, updatePlayerPosition, destinationPosition = null) {
         const deployedTraps = this.roomDeployedTraps.get(roomCode);
         if (!deployedTraps || !deployedTraps.has(trapId)) return null;
 
         const trap = deployedTraps.get(trapId);
         deployedTraps.delete(trapId);
 
-        // Get stored mapConfig for this room
+        // Get stored mapConfig for this room (for fallback)
         const mapConfig = this.roomMapConfigs.get(roomCode);
-        const mapWidth = mapConfig?.width ?? 30;
-        const mapHeight = mapConfig?.height ?? 30;
-        
         const TILE_SIZE = 64;
         const fromPosition = {
             x: trap.col * TILE_SIZE + TILE_SIZE / 2,
@@ -218,10 +215,23 @@ class SinkTrapManager {
             row: trap.row, col: trap.col
         };
 
-        // Random destination within map bounds (avoiding edges)
-        const destRow = Math.floor(Math.random() * (mapHeight - 4)) + 2;
-        const destCol = Math.floor(Math.random() * (mapWidth - 4)) + 2;
-        
+        // Use valid road destination (no buildings, no other players); fallback to first spawn if not provided
+        let destRow, destCol;
+        if (destinationPosition && typeof destinationPosition.row === 'number' && typeof destinationPosition.col === 'number') {
+            destRow = destinationPosition.row;
+            destCol = destinationPosition.col;
+        } else {
+            const spawnPositions = mapConfig?.spawnPositions || [];
+            const first = spawnPositions[0];
+            if (first) {
+                destRow = first.row;
+                destCol = first.col;
+            } else {
+                destRow = 4;
+                destCol = 4;
+            }
+        }
+
         const toPosition = {
             x: destCol * TILE_SIZE + TILE_SIZE / 2,
             y: destRow * TILE_SIZE + TILE_SIZE / 2,

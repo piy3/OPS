@@ -1118,9 +1118,14 @@ const Game: React.FC = () => {
           if (currentQuestion === null) {
             // Mark as handled to prevent any late BLITZ_START from double-processing
             blitzHandledRef.current = true;
-            // Reconnect/late join: no 3s intro, quiz shows immediately
-            setBlitzShowObjective(false);
-            isFirstBlitzRef.current = false;
+            // First blitz for this client: show 3s objective (same as BLITZ_START path)
+            if (isFirstBlitzRef.current) {
+              setBlitzShowObjective(true);
+              isFirstBlitzRef.current = false;
+              setTimeout(() => setBlitzShowObjective(false), 3000);
+            } else {
+              setBlitzShowObjective(false);
+            }
             logger.quiz('Setting up blitz quiz from state sync:', data.blitzQuiz.question.question);
             
             // Calculate remaining time from server data
@@ -2581,14 +2586,14 @@ const Game: React.FC = () => {
         if (coin.collected) return;
         const d = Math.hypot(game.player.x - coin.x, game.player.y - coin.y);
         if (d < 25) {
-          if (isMultiplayerRef.current) {
-            // In multiplayer, emit to server and let it handle the collection
+          if (isMultiplayerRef.current && !isUnicornRef.current) {
+            // In multiplayer, only survivors can collect coins (server ignores unicorn)
             // Mark as collected locally for immediate feedback (server will confirm)
             coin.collected = true;
             const grid = toGrid(coin.x, coin.y);
             socketService.collectCoin(`coin_${grid.row}_${grid.col}`);
             // Note: The actual score update comes from COIN_COLLECTED event
-          } else {
+          } else if (!isMultiplayerRef.current) {
             // Single player mode - handle locally
             coin.collected = true;
             game.coinsCollected++;

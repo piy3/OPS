@@ -257,9 +257,12 @@ class GameStateManager {
                 const triggeredTrapId = sinkTrapManager.checkTrapTrigger(roomCode, { row: pos.row, col: pos.col });
                 if (triggeredTrapId) {
                     const uPlayer = room.players.find(p => p.id === uid);
+                    // Teleport unicorn to a valid road with no other players (same as respawn)
+                    const destinationPosition = positionManager.findFreeSpawnPosition(roomCode, uid, room.players, room.mapConfig);
                     sinkTrapManager.triggerTrap(
                         roomCode, triggeredTrapId, uid, uPlayer?.name || 'Unicorn', io,
-                        (code, id, position) => positionManager.setPlayerPosition(code, id, position)
+                        (code, id, position) => positionManager.setPlayerPosition(code, id, position),
+                        destinationPosition
                     );
                     break;
                 }
