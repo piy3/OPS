@@ -3893,14 +3893,14 @@ const Game: React.FC = () => {
         <div className="absolute top-5 left-5 text-foreground pointer-events-none w-80">
           <div className="flex items-center justify-between">
             <h1 className="m-0 text-2xl text-cyan-400 uppercase tracking-widest font-bold drop-shadow-lg">
-              Qbit City
+              WayMaze
             </h1>
-            <button
+            {/* <button
               onClick={() => setShowLeaderboard(true)}
               className="pointer-events-auto p-2 text-amber-400 hover:text-amber-300 transition-colors"
             >
               <Trophy size={24} />
-            </button>
+            </button> */}
           </div>
           
           {/* Timer */}
@@ -3920,7 +3920,7 @@ const Game: React.FC = () => {
           )}
 
           {/* Coin Counter */}
-          <div className="mt-3 flex items-center gap-2">
+          {/* <div className="mt-3 flex items-center gap-2">
             <span className="text-muted-foreground text-sm">Coins:</span>
             <div className="flex gap-1">
               {[0, 1, 2, 3, 4].map(i => (
@@ -3937,10 +3937,10 @@ const Game: React.FC = () => {
               ))}
             </div>
             <span className="text-amber-400 text-xs">({coinsCollected}/5)</span>
-          </div>
+          </div> */}
 
           {/* Immunity Inventory */}
-          <div className="mt-2 flex items-center gap-2">
+          {/* <div className="mt-2 flex items-center gap-2">
             <span className="text-muted-foreground text-sm">Stored Immunity:</span>
             <div className="flex gap-1">
               {[0, 1, 2].map(i => (
@@ -3959,7 +3959,7 @@ const Game: React.FC = () => {
             {immunityInventory > 0 && (
               <span className="text-cyan-400 text-xs">(Press V)</span>
             )}
-          </div>
+          </div> */}
 
           {/* Energy Bar */}
           <div className="mt-3">
@@ -4002,16 +4002,16 @@ const Game: React.FC = () => {
           </div>
           
           <div className="mt-3 space-y-1">
-            <p className="text-sm text-muted-foreground">WASD / Arrows to Move</p>
+            {/*<p className="text-sm text-muted-foreground">WASD / Arrows to Move</p>*/}
             <p className="text-sm text-muted-foreground">
               <span className="text-fuchsia-500">SPACE</span>: Create Portal
             </p>
             <p className="text-sm text-muted-foreground">
               <span className="text-orange-400">C</span>: Deploy Sink Trap
             </p>
-            <p className="text-sm text-muted-foreground">
+            {/* <p className="text-sm text-muted-foreground">
               <span className="text-cyan-400">V</span>: Use Stored Immunity
-            </p>
+            </p> */}
             <p className="text-sm text-muted-foreground">
               Ride <span className="text-amber-700">Boats</span> (They sink in 10s!)
             </p>

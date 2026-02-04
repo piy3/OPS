@@ -4,6 +4,7 @@
  */
 import { SOCKET_EVENTS } from '../../config/constants.js';
 import logger from '../../utils/logger.js';
+import { getOccupiedSpawnPositions } from '../occupiedSpawnPositions.js';
 
 const log = logger.log;
 
@@ -53,8 +54,14 @@ class SinkholeManager {
             slot => slot.row < mapHeight - 1 && slot.col < mapWidth - 1
         );
         
+        // Exclude positions occupied by coins, sink traps, powerups
+        const occupiedSet = getOccupiedSpawnPositions(roomCode);
+        const availableSlots = validSlots.filter(
+            slot => !occupiedSet.has(`${slot.row},${slot.col}`)
+        );
+        
         const sinkholeMap = new Map();
-        const shuffledSlots = [...validSlots].sort(() => Math.random() - 0.5);
+        const shuffledSlots = [...availableSlots].sort(() => Math.random() - 0.5);
         const initialSinkholes = shuffledSlots.slice(0, SINKHOLE_CONFIG.INITIAL_SPAWN_COUNT);
         
         initialSinkholes.forEach((slot, index) => {
@@ -100,7 +107,7 @@ class SinkholeManager {
         const mapWidth = mapConfig?.width ?? 30;
         const mapHeight = mapConfig?.height ?? 30;
 
-        const usedPositions = new Set();
+        const usedPositions = new Set(getOccupiedSpawnPositions(roomCode));
         sinkholeMap.forEach(s => usedPositions.add(`${s.row},${s.col}`));
 
         // Filter slots to be within map bounds

@@ -5,6 +5,7 @@
 
 import { SOCKET_EVENTS, POWERUP_CONFIG, GAME_PHASE } from '../../config/constants.js';
 import log from '../../utils/logger.js';
+import { getOccupiedSpawnPositions } from '../occupiedSpawnPositions.js';
 
 class PowerupManager {
     constructor() {
@@ -87,8 +88,8 @@ class PowerupManager {
         const mapWidth = mapConfig?.width ?? 30;
         const mapHeight = mapConfig?.height ?? 30;
 
-        // Find available slot
-        const usedPositions = new Set();
+        // Find available slot (exclude coins, sinkholes, sink traps, and other powerups)
+        const usedPositions = new Set(getOccupiedSpawnPositions(roomCode));
         powerupMap.forEach(p => {
             if (!p.collected) {
                 usedPositions.add(`${p.row},${p.col}`);

@@ -4,6 +4,7 @@
  */
 import { SOCKET_EVENTS } from '../../config/constants.js';
 import logger from '../../utils/logger.js';
+import { getOccupiedSpawnPositions } from '../occupiedSpawnPositions.js';
 
 const log = logger;
 
@@ -81,7 +82,7 @@ class SinkTrapManager {
         const mapWidth = mapConfig?.width ?? 30;
         const mapHeight = mapConfig?.height ?? 30;
 
-        const usedPositions = new Set();
+        const usedPositions = new Set(getOccupiedSpawnPositions(roomCode));
         collectibles.forEach(c => usedPositions.add(`${c.row},${c.col}`));
         
         const deployedTraps = this.roomDeployedTraps.get(roomCode);

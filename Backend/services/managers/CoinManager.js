@@ -5,6 +5,7 @@
 
 import { SOCKET_EVENTS, COIN_CONFIG } from '../../config/constants.js';
 import log from '../../utils/logger.js';
+import { getOccupiedSpawnPositions } from '../occupiedSpawnPositions.js';
 
 class CoinManager {
     constructor() {
@@ -37,8 +38,14 @@ class CoinManager {
         // Use mapConfig's coinSpawnSlots if available, otherwise use filtered valid slots
         const spawnSlots = mapConfig?.coinSpawnSlots ?? validSlots;
         
+        // Exclude positions occupied by sinkholes, sink traps, powerups (and other coins)
+        const occupiedSet = getOccupiedSpawnPositions(roomCode);
+        const availableSlots = spawnSlots.filter(
+            slot => !occupiedSet.has(`${slot.row},${slot.col}`)
+        );
+        
         // Shuffle spawn slots and pick initial coins
-        const shuffledSlots = [...spawnSlots].sort(() => Math.random() - 0.5);
+        const shuffledSlots = [...availableSlots].sort(() => Math.random() - 0.5);
         const initialCoins = shuffledSlots.slice(0, COIN_CONFIG.INITIAL_SPAWN_COUNT);
         
         initialCoins.forEach((slot, index) => {
@@ -172,8 +179,8 @@ class CoinManager {
         const mapWidth = mapConfig?.width ?? 30;
         const mapHeight = mapConfig?.height ?? 30;
 
-        // Find unused position
-        const usedPositions = new Set();
+        // Find unused position (coins + all other collectibles/traps)
+        const usedPositions = new Set(getOccupiedSpawnPositions(roomCode));
         coinMap.forEach(c => {
             if (!c.collected) {
                 usedPositions.add(`${c.row},${c.col}`);
