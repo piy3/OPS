@@ -572,6 +572,7 @@ const Game: React.FC = () => {
     // Hunt phase started
     const unsubHuntStart = socketService.on(SOCKET_EVENTS.SERVER.HUNT_START, (data: any) => {
       console.log('[Music] HUNT_START -> playMusic("hunt"), duration:', data.duration);
+      soundService.stopMusic();
       soundService.setTrackVolume('hunt', 0.2);
       soundService.playMusic('hunt');
       // Hide role announcement when hunt starts
@@ -621,6 +622,7 @@ const Game: React.FC = () => {
           lastRoundBannerTimeoutRef.current = null;
         }
         setShowLastRoundWarning(true);
+        soundService.playSfx('last_round')
         lastRoundBannerTimeoutRef.current = setTimeout(() => {
           lastRoundBannerTimeoutRef.current = null;
           setShowLastRoundWarning(false);
@@ -957,6 +959,7 @@ const Game: React.FC = () => {
         showStatus('TELEPORTED!', '#00ffff', 1500);
         setScreenFlash({ color: '#00ffff', opacity: 0.3 });
         setTimeout(() => setScreenFlash(null), 200);
+        soundService.playSfx('teleport');
       } else {
         // Remote player teleported - update their position
         const remotePlayer = remotePlayersRef.current.get(playerId);
@@ -997,6 +1000,7 @@ const Game: React.FC = () => {
         game.playerSinkInventory = data.newInventoryCount ?? game.playerSinkInventory + 1;
         setSinkInventory(data.newInventoryCount ?? game.playerSinkInventory);
         showStatus('SINK TRAP COLLECTED!', '#ff6600', 1500);
+        soundService.playSfx('sink_trap');
       }
     });
 

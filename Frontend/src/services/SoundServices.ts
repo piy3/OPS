@@ -34,10 +34,13 @@ const PATHS = {
   tag: '/sounds/tag.mp3',
   frozen: '/sounds/frozen.mp3',
   gameOver: '/sounds/game-over.mp3',
+  last_round: '/sounds/last_round.mp3',
+  teleport: '/sounds/teleport.mp3',
+  sink_trap: '/sounds/sink-trap.mp3',
 } as const;
 
 export type MusicId = 'menu' | 'blitzQuiz' | 'hunt' | 'timer';
-export type SfxId = 'coin' | 'tag' | 'frozen' | 'gameOver';
+export type SfxId = 'coin' | 'tag' | 'frozen' | 'gameOver' | 'last_round' | 'teleport' | 'sink_trap';
 
 const DEFAULT_MUSIC_VOLUME = 0.5;
 
