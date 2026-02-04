@@ -5,7 +5,7 @@ import socketService, { SOCKET_EVENTS, toGrid, toPixel, Room, Player as SocketPl
 import BlitzQuiz from '@/components/BlitzQuiz';
 import UnfreezeQuiz from '@/components/UnfreezeQuiz';
 import logger from '@/utils/logger';
-import { soundService } from '@/services/soundServices';
+import { soundService } from '@/services/SoundServices';
 
 const TILE_SIZE = 64;
 // Default map dimensions (used when no mapConfig is available, e.g., single player mode)
