@@ -297,6 +297,7 @@ const Game: React.FC = () => {
   const [blitzQuestion, setBlitzQuestion] = useState<{ question: string; options: string[] } | null>(null);
   const [blitzTimeLeft, setBlitzTimeLeft] = useState(0);
   const isFirstBlitzRef = useRef(true);
+  const blitzHandledRef = useRef(false); // Prevents race between BLITZ_START and GAME_STATE_SYNC
   const [blitzShowObjective, setBlitzShowObjective] = useState(false);
   
   // Role announcement state (shows before hunt phase)
@@ -497,6 +498,7 @@ const Game: React.FC = () => {
       setGameState('playing');
       setRoom(data.room);
       isFirstBlitzRef.current = true; // Next blitz is first of this game → 3s objective intro
+      blitzHandledRef.current = false; // Reset for new game
       
       // Set final mapConfig for the game (locked at game start)
       if (data.mapConfig) {
@@ -628,6 +630,9 @@ const Game: React.FC = () => {
 
     // Blitz quiz started
     const unsubBlitzStart = socketService.on(SOCKET_EVENTS.SERVER.BLITZ_START, (data: any) => {
+      // Mark blitz as handled FIRST (sync ref) to prevent GAME_STATE_SYNC race condition
+      blitzHandledRef.current = true;
+      
       console.log('[Music] BLITZ_START -> playMusic("blitzQuiz")');
       soundService.playMusic('blitzQuiz');
       setGameState('blitz-quiz');
@@ -649,6 +654,7 @@ const Game: React.FC = () => {
 
     // Blitz quiz result
     const unsubBlitzResult = socketService.on(SOCKET_EVENTS.SERVER.BLITZ_RESULT, (data: any) => {
+      blitzHandledRef.current = false; // Reset for next blitz round
       setBlitzQuestion(null);
       const ids = data.newUnicornIds ?? (data.newUnicornId ? [data.newUnicornId] : []);
       const isPlayerUnicorn = ids.includes(socketService.getSocketId());
@@ -1101,10 +1107,18 @@ const Game: React.FC = () => {
       if (data.phase === 'blitz_quiz' && data.blitzQuiz) {
         logger.quiz('Game state sync: Received blitz quiz data');
         
+        // Skip if BLITZ_START already handled this blitz (prevents race condition)
+        if (blitzHandledRef.current) {
+          logger.quiz('Blitz already handled by BLITZ_START, skipping sync');
+          return;
+        }
+        
         // Only set up blitz quiz if we don't already have one active (reconnect / late join)
         setBlitzQuestion(currentQuestion => {
           if (currentQuestion === null) {
-            // Actually restoring from sync: no 3s intro so quiz shows immediately
+            // Mark as handled to prevent any late BLITZ_START from double-processing
+            blitzHandledRef.current = true;
+            // Reconnect/late join: no 3s intro, quiz shows immediately
             setBlitzShowObjective(false);
             isFirstBlitzRef.current = false;
             logger.quiz('Setting up blitz quiz from state sync:', data.blitzQuiz.question.question);
