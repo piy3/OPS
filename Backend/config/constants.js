@@ -409,9 +409,9 @@ export function getMapConfigForPlayerCount(playerCount) {
 
 export const GAME_CONFIG = {
     // Position update throttling
-    POSITION_UPDATE_RATE: 30,                // Target updates per second
-    POSITION_UPDATE_INTERVAL: 30,            // 30ms between updates (~33fps)
-    CLIENT_POSITION_SEND_INTERVAL: 33,       // Frontend sends at 33ms (~30fps)
+    POSITION_UPDATE_RATE: 16,                // Target updates per second
+    POSITION_UPDATE_INTERVAL: 16,            // 30ms between updates (~33fps)
+    CLIENT_POSITION_SEND_INTERVAL: 20,       // Frontend sends at 33ms (~30fps)
     
     MAX_POSITION_HISTORY: 10, // Keep last N positions for lag compensation
     POSITION_VALIDATION: {

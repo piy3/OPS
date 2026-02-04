@@ -339,7 +339,7 @@ class SocketService {
 
   // Position updates
   private lastPositionUpdate = 0;
-  private POSITION_UPDATE_INTERVAL = 33; // ~30fps
+  private POSITION_UPDATE_INTERVAL = 20; // ~30fps
 
   updatePosition(x: number, y: number, dirX: number, dirY: number, velocity?: { x: number; y: number }) {
     const now = Date.now();
