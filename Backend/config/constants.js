@@ -155,9 +155,9 @@ export const PLAYER_STATE = {
  * Collectible coins scattered in the maze
  */
 export const COIN_CONFIG = {
-    VALUE: 20,                      // +20 score per coin
+    VALUE: 5,                      // +20 score per coin
     RESPAWN_TIME: 5000,             // 5 seconds after collection
-    MAX_COINS: 15,                  // Maximum coins on map at once
+    MAX_COINS: 20,                  // Maximum coins on map at once
     INITIAL_SPAWN_COUNT: 10,        // Coins spawned at Hunt start
     COLLECTION_RADIUS: 0,           // Player must be within 1 cell to collect
     

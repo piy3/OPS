@@ -14,7 +14,7 @@ const SINK_TRAP_CONFIG = {
     SPAWN_INTERVAL_MAX: 35000,
     MAX_INVENTORY: 3,
     COLLECTION_RADIUS: 1,
-    TRIGGER_RADIUS: 1,
+    TRIGGER_RADIUS: 0,
     TELEPORT_MIN_DISTANCE: 10,
     
     // Spawn slots at road intersections

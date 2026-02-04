@@ -3652,38 +3652,6 @@ const Game: React.FC = () => {
         </div>
       )}
 
-      {/* Multiplayer HUD (when playing) */}
-      {isMultiplayer && gameState === 'playing' && (
-        <div className="absolute top-5 right-40 z-30 text-white pointer-events-none">
-          {/* Role indicator */}
-          <div className={`mb-2 px-4 py-2 rounded-lg ${
-            isUnicorn 
-              ? 'bg-purple-600/80 border border-purple-400' 
-              : 'bg-blue-600/80 border border-blue-400'
-          }`}>
-            <p className="font-bold text-sm">
-              {isUnicorn ? '🦄 UNICORN - Catch them!' : '🏃 SURVIVOR - Run!'}
-            </p>
-          </div>
-          
-          {/* Round indicator */}
-          <div className="bg-slate-800/80 rounded-lg px-4 py-2 mb-2">
-            <p className="text-sm text-slate-300">
-              Round <span className="text-yellow-400 font-bold">{currentRound}</span> / {totalRounds}
-            </p>
-          </div>
-
-          {/* Hunt timer */}
-          {huntTimeLeft > 0 && (
-            <div className="bg-slate-800/80 rounded-lg px-4 py-2">
-              <p className="text-sm text-slate-300">
-                Hunt: <span className="text-cyan-400 font-mono">{Math.ceil(huntTimeLeft)}s</span>
-              </p>
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Waiting for start screen (Multiplayer) */}
       {gameState === 'waiting-for-start' && room && (
         <div className="absolute inset-0 bg-black/90 flex items-center justify-center z-50">
@@ -3903,11 +3871,32 @@ const Game: React.FC = () => {
             </button> */}
           </div>
           
-          {/* Timer */}
-          <div className="flex items-center gap-4 mt-2 text-lg">
-            <span className="text-cyan-400 font-mono text-xl">
-              ⏱ {formatTime(gameTime)}
-            </span>
+          {/* Timer and multiplayer info in one row when applicable */}
+          <div className="flex flex-col gap-2 mt-2">
+            <div className="flex items-center gap-3 text-lg">
+              {/* <span className="text-cyan-400 font-mono text-xl">
+                ⏱ {formatTime(gameTime)}
+              </span> */}
+              {isMultiplayer && huntTimeLeft > 0 && (
+                <span className="text-cyan-400 font-mono text-xl">
+                  Hunt ⏱: <span className=" ">{Math.ceil(huntTimeLeft)}s</span>
+                </span>
+              )}
+            </div>
+            {isMultiplayer && (
+              <div className="flex flex-wrap items-center gap-2">
+                <div className={`px-3 py-1.5 rounded-lg text-sm font-bold ${
+                  isUnicorn
+                    ? 'bg-purple-600/80 border border-purple-400 text-white'
+                    : 'bg-blue-600/80 border border-blue-400 text-white'
+                }`}>
+                  {isUnicorn ? '🦄 Unicorn' : '🏃 Survivor'}
+                </div>
+                <div className="bg-slate-800/80 rounded-lg px-3 py-1.5 text-sm text-slate-300">
+                  Round <span className="text-yellow-400 font-bold">{currentRound}</span> / {totalRounds}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Immunity Indicator */}
