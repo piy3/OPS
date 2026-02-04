@@ -13,6 +13,12 @@ const DEFAULT_MAP_WIDTH = 30;
 const DEFAULT_MAP_HEIGHT = 30;
 const PERSPECTIVE_STRENGTH = 0.4;
 const BASE_PLAYER_SPEED = 450;
+const UNICORN_SPEED_MULTIPLIER = 1.5;
+
+function getSpeedForRole(isUnicorn: boolean): number {
+  return isUnicorn ? BASE_PLAYER_SPEED * UNICORN_SPEED_MULTIPLIER : BASE_PLAYER_SPEED;
+}
+
 const BASE_ENEMY_SPEED = 500;
 const IMMUNITY_DURATION = 10; // seconds
 const COLLECTIBLES_START_TIME = 30; // seconds before collectibles appear
@@ -514,9 +520,10 @@ const Game: React.FC = () => {
           });
         });
       }
-      // Start the game loop
+      // Start the game loop and set speed for role
       if (gameRef.current) {
         gameRef.current.isPlaying = true;
+        gameRef.current.player.speed = getSpeedForRole(isPlayerUnicorn);
       }
       
       // Show initial role announcement
@@ -537,10 +544,14 @@ const Game: React.FC = () => {
       const ids = data.newUnicornIds ?? (data.newUnicornId ? [data.newUnicornId] : []);
       setUnicornIds(ids);
       setUnicornId(ids[0] ?? data.newUnicornId ?? null);
-      setIsUnicorn(ids.includes(socketService.getSocketId()));
+      const amUnicorn = ids.includes(socketService.getSocketId());
+      setIsUnicorn(amUnicorn);
       remotePlayersRef.current.forEach((player, id) => {
         player.isUnicorn = ids.includes(id);
       });
+      if (gameRef.current) {
+        gameRef.current.player.speed = getSpeedForRole(amUnicorn);
+      }
       const socketId = socketService.getSocketId();
       if (ids.includes(socketId)) {
         showStatus(ids.length > 1 ? 'You are a Unicorn!' : 'YOU ARE THE UNICORN!', '#ff00ff', 3000);
@@ -570,13 +581,17 @@ const Game: React.FC = () => {
       setHuntTimeLeft(data.duration / 1000);
       setCurrentRound(data.roundInfo?.currentRound || 1);
       setTotalRounds(data.roundInfo?.totalRounds || 4);
+      const amUnicorn = data.unicornIds?.length !== undefined && data.unicornIds.includes(socketService.getSocketId());
       if (data.unicornIds?.length !== undefined) {
         setUnicornIds(data.unicornIds);
         setUnicornId(data.unicornIds[0] ?? data.unicornId ?? null);
-        setIsUnicorn(data.unicornIds.includes(socketService.getSocketId()));
+        setIsUnicorn(amUnicorn);
         remotePlayersRef.current.forEach((player, id) => {
           player.isUnicorn = data.unicornIds.includes(id);
         });
+      }
+      if (gameRef.current) {
+        gameRef.current.player.speed = getSpeedForRole(amUnicorn ?? false);
       }
       // Flush stored immunity and sink trap inventory at start of each hunt round
       setImmunityInventory(0);
@@ -1713,7 +1728,7 @@ const Game: React.FC = () => {
         y: 0,
         width: 24,
         height: 24,
-        speed: BASE_PLAYER_SPEED,
+        speed: getSpeedForRole(isUnicornRef.current),
         velX: 0,
         velY: 0,
         dirX: 0,
@@ -1898,7 +1913,7 @@ const Game: React.FC = () => {
       game.player.portalCooldown = 0;
       game.player.dirX = 0;
       game.player.dirY = 1;
-      game.player.speed = BASE_PLAYER_SPEED;
+      game.player.speed = getSpeedForRole(isUnicornRef.current);
 
       game.enemies = [];
       game.enemySpawnTimer = 0;
@@ -2071,7 +2086,7 @@ const Game: React.FC = () => {
       // Speed boost at 30 seconds (game difficulty)
       if (!game.speedBoostApplied && game.gameTime >= 30) {
         game.speedBoostApplied = true;
-        game.player.speed = BASE_PLAYER_SPEED * 1.2;
+        game.player.speed = getSpeedForRole(isUnicornRef.current) * 1.2;
         game.enemies.forEach(enemy => {
           enemy.speed = enemy.speed * 1.2;
         });
@@ -2779,7 +2794,7 @@ const Game: React.FC = () => {
       game.immunityInventory = 0;
       game.playerSinkInventory = 0;
       game.gameTime = 0;
-      game.player.speed = BASE_PLAYER_SPEED;
+      game.player.speed = getSpeedForRole(isUnicornRef.current);
       setSinkInventory(0);
       setCoinsCollected(0);
       setImmunityInventory(0);

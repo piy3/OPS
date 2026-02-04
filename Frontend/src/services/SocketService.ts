@@ -321,7 +321,7 @@ class SocketService {
   }
 
   // Room operations
-  createRoom(name: string, maxPlayers: number = 9) {
+  createRoom(name: string, maxPlayers: number = 30) {
     this.emit(SOCKET_EVENTS.CLIENT.CREATE_ROOM, { name, maxPlayers });
   }
 
