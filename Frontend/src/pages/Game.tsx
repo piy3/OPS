@@ -878,7 +878,7 @@ const Game: React.FC = () => {
       if (data.playerId === socketService.getSocketId()) {
         soundService.playSfx('coin');
         setCoinsCollected(data.newScore ?? game.coinsCollected + 1);
-        const msg = `+${data.value ?? 20} coins!`;
+        const msg = `+${data.value ?? 5} coins!`;
         showStatus(msg, '#ffd700', 1500);
         setRewardPopup({ text: msg, color: '#ffd700' });
         setTimeout(() => setRewardPopup(null), 1500);

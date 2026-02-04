@@ -23,7 +23,7 @@ export const ROOM_CONFIG = {
     ROOM_CODE_LENGTH: 6,
     ROOM_CODE_CHARS: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
     MIN_PLAYERS_TO_START: 2,
-    STARTING_COINS: 100,  // Starting coins for each player when a new game starts
+    STARTING_COINS: 0,  // Starting coins for each player when a new game starts
     STARTING_QUESTIONS_ATTEMPTED: 0,
     STARTING_QUESTIONS_ANSWERED_CORRECTLY: 0,
 };
