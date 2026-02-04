@@ -25,8 +25,6 @@ const C_SIDEWALK = '#3a3a3a';
 const C_WATER = '#004466';
 const C_LAVA = '#cf1020';
 const C_LAVA_HOT = '#ff4500';
-const C_BOAT = '#8B4513';
-const C_BOAT_DECK = '#A0522D';
 const C_GRASS = '#1e281e';
 const C_TREE = '#1e551e';
 
@@ -58,18 +56,6 @@ interface Enemy {
   stuckTime: number;
   flankTimer: number;
   flankDir: { x: number; y: number };
-}
-
-interface Boat {
-  dist: number;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  velX: number;
-  velY: number;
-  life: number;
-  maxLife: number;
 }
 
 interface Portal {
@@ -338,7 +324,6 @@ const Game: React.FC = () => {
   const gameRef = useRef<{
     player: Player;
     enemies: Enemy[];
-    boats: Boat[];
     coins: Coin[];
     immunityPickups: ImmunityPickup[];
     sinkCollectibles: SinkCollectible[];
@@ -1808,7 +1793,6 @@ const Game: React.FC = () => {
         portalCooldown: 0,
       },
       enemies: [] as Enemy[],
-      boats: [] as Boat[],
       coins: [] as Coin[],
       immunityPickups: [] as ImmunityPickup[],
       sinkCollectibles: [] as SinkCollectible[],
@@ -1964,26 +1948,6 @@ const Game: React.FC = () => {
       }
     };
 
-    const initBoats = () => {
-      game.boats = [];
-      const perimeter = (MAP_W * 2 + MAP_H * 2) * TILE_SIZE;
-      const boatCount = 10;
-      const spacing = perimeter / boatCount;
-
-      for (let i = 0; i < boatCount; i++) {
-        game.boats.push({
-          dist: i * spacing,
-          x: 0,
-          y: 0,
-          w: 48,
-          h: 48,
-          velX: 0,
-          velY: 0,
-          life: 10.0,
-          maxLife: 10.0,
-        });
-      }
-    };
 
     const findSafeSpawn = (entity: { x: number; y: number }) => {
       let spawnFound = false;
@@ -2152,7 +2116,6 @@ const Game: React.FC = () => {
 
     const init = () => {
       generateCity();
-      initBoats();
       findSafeSpawn(game.player);
       game.player.trail = [];
       game.player.portalCooldown = 0;
@@ -2209,8 +2172,7 @@ const Game: React.FC = () => {
         for (let gx = gridX - 1; gx <= gridX + 1; gx++) {
           if (gy >= 0 && gy < MAP_H && gx >= 0 && gx < MAP_W) {
             const tile = game.map.tiles[gy][gx];
-            let solid = tile === 1 || tile === 3;
-            if (tile === 4 && !isPlayer) solid = true;
+            let solid = tile === 1 || tile === 3 || tile === 4;
 
             if (solid) {
               const bx = gx * TILE_SIZE;
@@ -2225,21 +2187,7 @@ const Game: React.FC = () => {
       return false;
     };
 
-    const getBoatUnderPlayer = (): Boat | null => {
-      for (const b of game.boats) {
-        if (b.life <= 0) continue;
-        if (
-          Math.abs(game.player.x - b.x) < b.w / 2 + game.player.width / 2 &&
-          Math.abs(game.player.y - b.y) < b.h / 2 + game.player.height / 2
-        ) {
-          return b;
-        }
-      }
-      return null;
-    };
-
     const checkLavaDeath = (): boolean => {
-      if (getBoatUnderPlayer()) return false;
       const gridX = Math.floor(game.player.x / TILE_SIZE);
       const gridY = Math.floor(game.player.y / TILE_SIZE);
       if (gridY >= 0 && gridY < MAP_H && gridX >= 0 && gridX < MAP_W) {
@@ -2264,50 +2212,6 @@ const Game: React.FC = () => {
         actualDist += Math.abs(dy);
       }
       return actualDist;
-    };
-
-    const updateBoats = (dt: number) => {
-      const speed = 150;
-      const totalDist = (MAP_W - 1 + MAP_H - 1) * 2 * TILE_SIZE;
-
-      game.boats.forEach((b) => {
-        b.dist = (b.dist + speed * dt) % totalDist;
-
-        const topLen = (MAP_W - 1) * TILE_SIZE;
-        const rightLen = (MAP_H - 1) * TILE_SIZE;
-        const bottomLen = (MAP_W - 1) * TILE_SIZE;
-
-        let currentDist = b.dist;
-        let nx = 0, ny = 0;
-
-        if (currentDist < topLen) {
-          nx = currentDist;
-          ny = 0;
-          b.velX = speed;
-          b.velY = 0;
-        } else if (currentDist < topLen + rightLen) {
-          currentDist -= topLen;
-          nx = (MAP_W - 1) * TILE_SIZE;
-          ny = currentDist;
-          b.velX = 0;
-          b.velY = speed;
-        } else if (currentDist < topLen + rightLen + bottomLen) {
-          currentDist -= topLen + rightLen;
-          nx = (MAP_W - 1) * TILE_SIZE - currentDist;
-          ny = (MAP_H - 1) * TILE_SIZE;
-          b.velX = -speed;
-          b.velY = 0;
-        } else {
-          currentDist -= topLen + rightLen + bottomLen;
-          nx = 0;
-          ny = (MAP_H - 1) * TILE_SIZE - currentDist;
-          b.velX = 0;
-          b.velY = -speed;
-        }
-
-        b.x = nx + TILE_SIZE / 2;
-        b.y = ny + TILE_SIZE / 2;
-      });
     };
 
     const trySpawnPortal = () => {
@@ -2395,8 +2299,6 @@ const Game: React.FC = () => {
         setGameTime(game.gameTime);
       }
       
-      updateBoats(dt);
-
       // Speed boost at 30 seconds (game difficulty)
       if (!game.speedBoostApplied && game.gameTime >= 30) {
         game.speedBoostApplied = true;
@@ -2513,17 +2415,6 @@ const Game: React.FC = () => {
         game.energy = Math.min(1, game.energy + dt * 0.3);
         setEnergy(game.energy);
       }
-
-      const riddenBoat = getBoatUnderPlayer();
-      if (riddenBoat) {
-        riddenBoat.life -= dt;
-        game.player.x += riddenBoat.velX * dt;
-        game.player.y += riddenBoat.velY * dt;
-      }
-
-      game.boats.forEach((b) => {
-        if (b !== riddenBoat) b.life = b.maxLife;
-      });
 
       attemptMove(
         game.player,
@@ -2884,17 +2775,6 @@ const Game: React.FC = () => {
           }
         }
       }
-
-      // Boats
-      game.boats.forEach((b) => {
-        if (b.life <= 0) return;
-        ctx.globalAlpha = b.life / b.maxLife;
-        ctx.fillStyle = C_BOAT;
-        ctx.fillRect(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h);
-        ctx.fillStyle = C_BOAT_DECK;
-        ctx.fillRect(b.x - b.w / 2 + 4, b.y - b.h / 2 + 4, b.w - 8, b.h - 8);
-        ctx.globalAlpha = 1.0;
-      });
 
       // Portals
       game.map.portals.forEach((p) => {
@@ -3293,12 +3173,6 @@ const Game: React.FC = () => {
         minimapCtx.fill();
       });
 
-      game.boats.forEach((b) => {
-        if (b.life <= 0) return;
-        minimapCtx.fillStyle = '#8B4513';
-        minimapCtx.fillRect((b.x * sc) / TILE_SIZE - 2, (b.y * sc) / TILE_SIZE - 2, 4, 4);
-      });
-
       game.map.portals.forEach((p) => {
         minimapCtx.fillStyle = '#fff';
         minimapCtx.beginPath();
@@ -3475,12 +3349,6 @@ const Game: React.FC = () => {
           portalsCreated++;
         }
       }
-
-      game.boats = [];
-      const perimeter = (MAP_WIDTH * 2 + MAP_HEIGHT * 2) * TILE_SIZE;
-      const boatCount = 10;
-      const spacing = perimeter / boatCount;
-      for (let i = 0; i < boatCount; i++) game.boats.push({ dist: i * spacing, x: 0, y: 0, w: 48, h: 48, velX: 0, velY: 0, life: 10.0, maxLife: 10.0 });
 
       let spawnFound = false;
       while (!spawnFound) {
@@ -4001,9 +3869,6 @@ const Game: React.FC = () => {
             {/* <p className="text-sm text-muted-foreground">
               <span className="text-cyan-400">V</span>: Use Stored Immunity
             </p> */}
-            <p className="text-sm text-muted-foreground">
-              Ride <span className="text-amber-700">Boats</span> (They sink in 10s!)
-            </p>
           </div>
 
           {/* Collectibles info - only before 30 seconds */}
