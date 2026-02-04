@@ -8,7 +8,7 @@ import logger from '@/utils/logger';
 import { soundService } from '@/services/SoundServices';
 
 const TILE_SIZE = 64;
-// Default map dimensions (used when no mapConfig is available, e.g., single player mode)
+// Default map dimensions (used when no mapConfig is available)
 const DEFAULT_MAP_WIDTH = 30;
 const DEFAULT_MAP_HEIGHT = 30;
 const PERSPECTIVE_STRENGTH = 0.4;
@@ -158,7 +158,6 @@ interface UnfreezeQuestion {
 interface LocationState {
   room?: Room;
   gameState?: SocketGameState;
-  singlePlayer?: boolean;
 }
 
 type GameState = 'name-entry' | 'playing' | 'game-over' | 'waiting-for-start' | 'blitz-quiz' | 'frozen' | 'spectating';
@@ -248,7 +247,7 @@ const Game: React.FC = () => {
   // Map configuration from backend (scales with player count)
   const [mapConfig, setMapConfig] = useState<MapConfig | null>(null);
   const mapConfigRef = useRef<MapConfig | null>(null);
-  // Derived map dimensions - use backend config or defaults for single player
+  // Derived map dimensions - use backend config or defaults
   const MAP_WIDTH = mapConfig?.width ?? DEFAULT_MAP_WIDTH;
   const MAP_HEIGHT = mapConfig?.height ?? DEFAULT_MAP_HEIGHT;
   
@@ -360,45 +359,36 @@ const Game: React.FC = () => {
     isPlaying: boolean;
   } | null>(null);
 
-  // Initialize multiplayer mode from location state
+  // Initialize from location state (multiplayer only – must have room from lobby)
   useEffect(() => {
-    if (locationState?.room && !locationState?.singlePlayer) {
-      // Multiplayer mode - came from lobby
-      setIsMultiplayer(true);
-      setRoom(locationState.room);
-      setPlayerName(localStorage.getItem('playerName') || 'Player');
-      playerNameRef.current = localStorage.getItem('playerName') || 'Player';
-      
-      // Set map config from room (scales with player count)
-      if (locationState.room.mapConfig) {
-        setMapConfig(locationState.room.mapConfig);
-      }
-      
-      // Clear enemies that might have been spawned during init
-      // In multiplayer, the unicorn player is the threat, not AI enemies
-      if (gameRef.current) {
-        gameRef.current.enemies = [];
-      }
-      
-      // Check if game already started or waiting
-      if (locationState.gameState) {
-        setGameState('playing');
-        if (gameRef.current) {
-          gameRef.current.isPlaying = true;
-        }
-        const gs = locationState.gameState;
-        const ids = gs.unicornIds ?? (gs.unicornId ? [gs.unicornId] : []);
-        setUnicornIds(ids);
-        setUnicornId(ids[0] ?? gs.unicornId ?? null);
-        setIsUnicorn(ids.includes(socketService.getSocketId()));
-      } else {
-        setGameState('waiting-for-start');
-      }
-    } else if (locationState?.singlePlayer) {
-      // Explicit single player mode
-      setIsMultiplayer(false);
+    if (!locationState?.room) {
+      navigate('/lobby', { replace: true });
+      return;
     }
-  }, [locationState]);
+    setIsMultiplayer(true);
+    setRoom(locationState.room);
+    setPlayerName(localStorage.getItem('playerName') || 'Player');
+    playerNameRef.current = localStorage.getItem('playerName') || 'Player';
+    if (locationState.room.mapConfig) {
+      setMapConfig(locationState.room.mapConfig);
+    }
+    if (gameRef.current) {
+      gameRef.current.enemies = [];
+    }
+    if (locationState.gameState) {
+      setGameState('playing');
+      if (gameRef.current) {
+        gameRef.current.isPlaying = true;
+      }
+      const gs = locationState.gameState;
+      const ids = gs.unicornIds ?? (gs.unicornId ? [gs.unicornId] : []);
+      setUnicornIds(ids);
+      setUnicornId(ids[0] ?? gs.unicornId ?? null);
+      setIsUnicorn(ids.includes(socketService.getSocketId()));
+    } else {
+      setGameState('waiting-for-start');
+    }
+  }, [locationState, navigate]);
 
   // Leave room when component unmounts (user navigates away from game)
   useEffect(() => {
@@ -1522,7 +1512,7 @@ const Game: React.FC = () => {
     // Determine color scheme based on role
     // Unicorn: Pink/Purple theme
     // Player (survivor): Blue/Cyan theme
-    // Enemy (single player mode): Red theme
+    // Enemy: Red theme (legacy, multiplayer uses unicorn)
     const colors = isUnicornChar ? {
       shadow: 'rgba(255, 0, 255, 0.4)',
       coatDark: '#9333ea',
@@ -1653,96 +1643,6 @@ const Game: React.FC = () => {
     ctx.restore();
   };
 
-  const startGame = () => {
-    if (!playerName.trim()) return;
-    playerNameRef.current = playerName.trim();
-    setGameState('playing');
-    setSinkInventory(0);
-    setCoinsCollected(0);
-    setImmunityInventory(0);
-    setImmunityActive(false);
-    setImmunityTimeLeft(0);
-    setGameTime(0);
-    
-    if (document.activeElement instanceof HTMLElement) {
-      document.activeElement.blur();
-    }
-    
-    if (gameRef.current) {
-      const game = gameRef.current;
-      game.keys = {}; // Reset all keys to prevent stuck movement
-      game.isPlaying = true;
-      game.gameTime = 0;
-      game.speedBoostApplied = false;
-      game.immunityActive = false;
-      game.immunityEndTime = 0;
-      game.coinsCollected = 0;
-      game.immunityInventory = 0;
-      game.playerSinkInventory = 0;
-      game.coinSpawnTimer = 0;
-      game.immunityPickupSpawnTimer = 0;
-      game.sinkSpawnTimer = 0;
-      game.nextCoinSpawnTime = 10 + Math.random() * 5;
-      game.nextImmunityPickupSpawnTime = 20 + Math.random() * 10;
-      game.nextSinkSpawnTime = 25 + Math.random() * 10;
-      game.collectiblesInitialized = false;
-      game.coinsInitialized = false;
-      game.player.speed = BASE_PLAYER_SPEED;
-      game.player.velX = 0;
-      game.player.velY = 0;
-    }
-  };
-
-  const handleDeath = () => {
-    if (!gameRef.current) return;
-    
-    const time = gameRef.current.gameTime;
-    
-    setFinalStats({ time });
-    const nameToSave = playerNameRef.current || playerName;
-    if (nameToSave.trim()) {
-      saveToLeaderboard(nameToSave, time);
-    }
-    setGameState('game-over');
-    gameRef.current.isPlaying = false;
-  };
-
-  const handlePlayAgain = () => {
-    setGameState('playing');
-    setSinkInventory(0);
-    setCoinsCollected(0);
-    setImmunityInventory(0);
-    setImmunityActive(false);
-    setImmunityTimeLeft(0);
-    setEnergy(0);
-    
-    if (gameRef.current) {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      
-      gameRef.current.keys = {}; // Reset stuck keys
-      gameRef.current.isPlaying = true;
-      gameRef.current.gameTime = 0;
-      gameRef.current.speedBoostApplied = false;
-      gameRef.current.immunityActive = false;
-      gameRef.current.immunityEndTime = 0;
-      gameRef.current.coinsCollected = 0;
-      gameRef.current.immunityInventory = 0;
-      gameRef.current.playerSinkInventory = 0;
-      gameRef.current.energy = 0;
-      gameRef.current.coins = [];
-      gameRef.current.immunityPickups = [];
-      gameRef.current.sinkCollectibles = [];
-      gameRef.current.deployedSinks = [];
-      gameRef.current.coinSpawnTimer = 0;
-      gameRef.current.immunityPickupSpawnTimer = 0;
-      gameRef.current.sinkSpawnTimer = 0;
-      gameRef.current.player.speed = BASE_PLAYER_SPEED;
-      
-      handleRestart();
-    }
-  };
-
   useEffect(() => {
     const canvas = canvasRef.current;
     const minimapCanvas = minimapRef.current;
@@ -1841,7 +1741,7 @@ const Game: React.FC = () => {
       // This ensures all players in the same room get the same map
       const rng = roomCodeRef.current 
         ? new SeededRandom(roomCodeRef.current)
-        : { random: () => Math.random() }; // Fallback to Math.random for single player
+        : { random: () => Math.random() }; // Fallback when no room code
 
       for (let y = 0; y < MAP_H; y++) {
         const row: number[] = [];
@@ -1962,158 +1862,6 @@ const Game: React.FC = () => {
       }
     };
 
-    const spawnEnemy = () => {
-      let ex = 0, ey = 0;
-      let valid = false;
-      let attempts = 0;
-
-      while (!valid && attempts < 100) {
-        attempts++;
-        const rx = Math.floor(Math.random() * (MAP_W - 2)) + 1;
-        const ry = Math.floor(Math.random() * (MAP_H - 2)) + 1;
-
-        if (game.map.tiles[ry][rx] === 0) {
-          const candidateX = rx * TILE_SIZE + TILE_SIZE / 2;
-          const candidateY = ry * TILE_SIZE + TILE_SIZE / 2;
-          const d = Math.hypot(candidateX - game.player.x, candidateY - game.player.y);
-          if (d > 800) {
-            ex = candidateX;
-            ey = candidateY;
-            valid = true;
-          }
-        }
-      }
-
-      if (valid) {
-        const baseSpeed = BASE_ENEMY_SPEED + Math.random() * 30;
-        const speed = game.speedBoostApplied ? baseSpeed * 1.2 : baseSpeed;
-        
-        game.enemies.push({
-          x: ex,
-          y: ey,
-          width: 24,
-          height: 24,
-          speed,
-          trail: [],
-          stuckTime: 0,
-          flankTimer: 0,
-          flankDir: { x: 0, y: 0 },
-        });
-      }
-    };
-
-    // Spawn enemy far from player (for sink trap respawn)
-    const spawnEnemyFarFrom = (avoidX: number, avoidY: number, minDist: number) => {
-      let ex = 0, ey = 0;
-      let valid = false;
-      let attempts = 0;
-
-      while (!valid && attempts < 200) {
-        attempts++;
-        const rx = Math.floor(Math.random() * (MAP_W - 2)) + 1;
-        const ry = Math.floor(Math.random() * (MAP_H - 2)) + 1;
-
-        if (game.map.tiles[ry][rx] === 0) {
-          const candidateX = rx * TILE_SIZE + TILE_SIZE / 2;
-          const candidateY = ry * TILE_SIZE + TILE_SIZE / 2;
-          const d = Math.hypot(candidateX - avoidX, candidateY - avoidY);
-          if (d > minDist) {
-            ex = candidateX;
-            ey = candidateY;
-            valid = true;
-          }
-        }
-      }
-
-      return valid ? { x: ex, y: ey } : null;
-    };
-
-    // Spawn coin on road
-    const spawnCoin = () => {
-      if (game.coins.filter(c => !c.collected).length >= 40) return;
-      
-      let attempts = 0;
-      while (attempts < 100) {
-        attempts++;
-        const rx = Math.floor(Math.random() * (MAP_W - 2)) + 1;
-        const ry = Math.floor(Math.random() * (MAP_H - 2)) + 1;
-        
-        if (game.map.tiles[ry]?.[rx] === 0) {
-          const cx = rx * TILE_SIZE + TILE_SIZE / 2;
-          const cy = ry * TILE_SIZE + TILE_SIZE / 2;
-          const d = Math.hypot(cx - game.player.x, cy - game.player.y);
-          if (d > 200) {
-            game.coins.push({
-              x: cx,
-              y: cy,
-              collected: false,
-              spawnTime: Date.now() * 0.001,
-            });
-            return;
-          }
-        }
-      }
-    };
-
-    // Spawn immunity pickup in a specific quadrant
-    const spawnImmunityPickupInQuadrant = (quadrant: number) => {
-      const midX = MAP_W / 2;
-      const midY = MAP_H / 2;
-      
-      let minX = 1, maxX = midX - 1, minY = 1, maxY = midY - 1;
-      if (quadrant === 1) { minX = midX; maxX = MAP_W - 2; }
-      if (quadrant === 2) { minY = midY; maxY = MAP_H - 2; }
-      if (quadrant === 3) { minX = midX; maxX = MAP_W - 2; minY = midY; maxY = MAP_H - 2; }
-      
-      let attempts = 0;
-      while (attempts < 100) {
-        attempts++;
-        const rx = Math.floor(minX + Math.random() * (maxX - minX));
-        const ry = Math.floor(minY + Math.random() * (maxY - minY));
-        
-        if (game.map.tiles[ry]?.[rx] === 0) {
-          const cx = rx * TILE_SIZE + TILE_SIZE / 2;
-          const cy = ry * TILE_SIZE + TILE_SIZE / 2;
-          
-          game.immunityPickups.push({
-            x: cx,
-            y: cy,
-            collected: false,
-            quadrant,
-            spawnTime: Date.now() * 0.001,
-          });
-          return;
-        }
-      }
-    };
-
-    // Spawn sink collectible
-    const spawnSinkCollectible = () => {
-      if (game.sinkCollectibles.filter(s => !s.collected).length >= 2) return;
-      
-      let attempts = 0;
-      while (attempts < 100) {
-        attempts++;
-        const rx = Math.floor(Math.random() * (MAP_W - 2)) + 1;
-        const ry = Math.floor(Math.random() * (MAP_H - 2)) + 1;
-        
-        if (game.map.tiles[ry]?.[rx] === 0) {
-          const cx = rx * TILE_SIZE + TILE_SIZE / 2;
-          const cy = ry * TILE_SIZE + TILE_SIZE / 2;
-          const d = Math.hypot(cx - game.player.x, cy - game.player.y);
-          if (d > 300) {
-            game.sinkCollectibles.push({
-              x: cx,
-              y: cy,
-              collected: false,
-              spawnTime: Date.now() * 0.001,
-            });
-            return;
-          }
-        }
-      }
-    };
-
     const init = () => {
       generateCity();
       findSafeSpawn(game.player);
@@ -2143,14 +1891,6 @@ const Game: React.FC = () => {
       game.immunityPickups = [];
       game.sinkCollectibles = [];
       game.deployedSinks = [];
-      
-      // Only spawn enemies in single-player mode
-      // In multiplayer, the unicorn player is the threat
-      if (!isMultiplayerRef.current) {
-        for (let i = 0; i < 3; i++) {
-          spawnEnemy();
-        }
-      }
 
       game.camera.x = game.player.x - canvas.width / 2;
       game.camera.y = game.player.y - canvas.height / 2;
@@ -2321,78 +2061,6 @@ const Game: React.FC = () => {
         setImmunityTimeLeft(Math.max(0, game.immunityEndTime - game.gameTime));
       }
 
-      // Spawn coins from the start of the game (single player only)
-      // In multiplayer, coins are spawned by the server via COIN_SPAWNED events
-      if (!isMultiplayerRef.current) {
-        if (!game.coinsInitialized) {
-          game.coinsInitialized = true;
-          // Spawn initial batch of coins
-          for (let i = 0; i < 20; i++) {
-            spawnCoin();
-          }
-        }
-        
-        // Regular spawn timer for coins (always active)
-        game.coinSpawnTimer += dt;
-        if (game.coinSpawnTimer >= game.nextCoinSpawnTime) {
-          game.coinSpawnTimer = 0;
-          game.nextCoinSpawnTime = 3 + Math.random() * 4;
-          // Spawn 3-5 coins at a time
-          const numCoins = 3 + Math.floor(Math.random() * 3);
-          for (let i = 0; i < numCoins; i++) {
-            spawnCoin();
-          }
-        }
-      }
-      
-      // Spawn other collectibles after 30 seconds (single player only)
-      // In multiplayer, powerups and traps are controlled by the server
-      if (!isMultiplayerRef.current && game.gameTime >= COLLECTIBLES_START_TIME) {
-        // First time crossing threshold - spawn initial batch with screen flash
-        if (!game.collectiblesInitialized) {
-          game.collectiblesInitialized = true;
-          // Spawn initial immunity pickups in all quadrants
-          for (let q = 0; q < 4; q++) {
-            spawnImmunityPickupInQuadrant(q);
-          }
-          // Spawn initial sink
-          spawnSinkCollectible();
-          showStatus('⚡ POWER-UPS NOW AVAILABLE!', '#00ff00', 2000);
-          
-          // Screen flash effect
-          setScreenFlash({ color: '#00ff00', opacity: 0.4 });
-          setTimeout(() => setScreenFlash(null), 300);
-        }
-        
-        // Regular spawn timer for immunity pickups
-        game.immunityPickupSpawnTimer += dt;
-        if (game.immunityPickupSpawnTimer >= game.nextImmunityPickupSpawnTime) {
-          game.immunityPickupSpawnTimer = 0;
-          game.nextImmunityPickupSpawnTime = 25 + Math.random() * 15;
-          
-          // Count pickups per quadrant
-          const quadrantCounts = [0, 0, 0, 0];
-          game.immunityPickups.forEach(p => {
-            if (!p.collected) quadrantCounts[p.quadrant]++;
-          });
-          
-          // Spawn in quadrants with < 2 pickups
-          for (let q = 0; q < 4; q++) {
-            if (quadrantCounts[q] < 2) {
-              spawnImmunityPickupInQuadrant(q);
-            }
-          }
-        }
-        
-        // Regular spawn timer for sink collectibles
-        game.sinkSpawnTimer += dt;
-        if (game.sinkSpawnTimer >= game.nextSinkSpawnTime) {
-          game.sinkSpawnTimer = 0;
-          game.nextSinkSpawnTime = 25 + Math.random() * 10;
-          spawnSinkCollectible();
-        }
-      }
-
       let dx = 0, dy = 0;
       if (game.keys['ArrowUp'] || game.keys['KeyW']) dy = -1;
       if (game.keys['ArrowDown'] || game.keys['KeyS']) dy = 1;
@@ -2424,16 +2092,9 @@ const Game: React.FC = () => {
       );
 
       if (checkLavaDeath()) {
-        if (isMultiplayerRef.current) {
-          // In multiplayer, lava death triggers freeze + unfreeze quiz
-          // Only report once to prevent multiple quiz starts
-          if (!lavaDeathReportedRef.current) {
-            lavaDeathReportedRef.current = true;
-            socketService.reportLavaDeath();
-          }
-        } else {
-          // In single player, lava death is game over
-          handleDeath();
+        if (!lavaDeathReportedRef.current) {
+          lavaDeathReportedRef.current = true;
+          socketService.reportLavaDeath();
         }
         return;
       }
@@ -2488,73 +2149,12 @@ const Game: React.FC = () => {
             coin.collected = true;
             const grid = toGrid(coin.x, coin.y);
             socketService.collectCoin(`coin_${grid.row}_${grid.col}`);
-            // Note: The actual score update comes from COIN_COLLECTED event
-          } else if (!isMultiplayerRef.current) {
-            // Single player mode - handle locally
-            coin.collected = true;
-            game.coinsCollected++;
-            setCoinsCollected(game.coinsCollected);
-            
-            // Check if we've collected 5 coins
-            if (game.coinsCollected >= COINS_FOR_IMMUNITY) {
-              if (game.immunityInventory < MAX_IMMUNITY_INVENTORY) {
-                game.immunityInventory++;
-                setImmunityInventory(game.immunityInventory);
-                game.coinsCollected = 0;
-                setCoinsCollected(0);
-                showStatus('🛡️ IMMUNITY STORED! Press V to use', '#ffd700', 2000);
-                // Flash effect
-                setScreenFlash({ color: '#ffd700', opacity: 0.3 });
-                setTimeout(() => setScreenFlash(null), 200);
-              } else {
-                game.coinsCollected = COINS_FOR_IMMUNITY - 1; // Keep at max-1, can't store more
-                setCoinsCollected(game.coinsCollected);
-                showStatus('IMMUNITY FULL! (Max 3)', '#888', 1000);
-              }
-            }
           }
         }
       });
       game.coins = game.coins.filter(c => !c.collected);
 
-      // Immunity pickup collection (direct immunity)
-      // In multiplayer, this is handled by powerup events from server
-      if (!isMultiplayerRef.current) {
-        game.immunityPickups.forEach(pickup => {
-          if (pickup.collected) return;
-          const d = Math.hypot(game.player.x - pickup.x, game.player.y - pickup.y);
-          if (d < 30) {
-            pickup.collected = true;
-            game.immunityActive = true;
-            game.immunityEndTime = game.gameTime + IMMUNITY_DURATION;
-            setImmunityActive(true);
-            showStatus('🛡️ INSTANT IMMUNITY! 10 seconds', '#00ffff', 2000);
-            // Flash effect
-            setScreenFlash({ color: '#00ffff', opacity: 0.3 });
-            setTimeout(() => setScreenFlash(null), 200);
-          }
-        });
-        game.immunityPickups = game.immunityPickups.filter(p => !p.collected);
-
-        // Sink collectible collection (single player only)
-        game.sinkCollectibles.forEach(sink => {
-          if (sink.collected) return;
-          const d = Math.hypot(game.player.x - sink.x, game.player.y - sink.y);
-          if (d < 30) {
-            if (game.playerSinkInventory < 3) {
-              sink.collected = true;
-              game.playerSinkInventory++;
-              setSinkInventory(game.playerSinkInventory);
-              showStatus('SINK TRAP COLLECTED! Press C to deploy', '#ff6600', 2000);
-            } else {
-              showStatus('INVENTORY FULL! (Max 3 traps)', '#888', 1000);
-            }
-          }
-        });
-        game.sinkCollectibles = game.sinkCollectibles.filter(s => !s.collected);
-      }
-
-      // Multiplayer: survivors only – collect sink trap by trapId (optimistic collect to avoid double-send)
+      // Survivors only: – collect sink trap by trapId (optimistic collect to avoid double-send)
       if (isMultiplayerRef.current && !isUnicornRef.current && game.playerSinkInventory < 3) {
         for (const sink of game.sinkCollectibles) {
           if (sink.collected || !sink.id) continue;
@@ -2601,116 +2201,11 @@ const Game: React.FC = () => {
         }
       }
 
-      // Enemy logic (single player only)
-      // In multiplayer, the unicorn player is the threat instead
-      if (!isMultiplayerRef.current) {
-        game.enemies.forEach((enemy) => {
-          // Check collision with deployed sinks
-          for (let i = game.deployedSinks.length - 1; i >= 0; i--) {
-            const sink = game.deployedSinks[i];
-            const d = Math.hypot(enemy.x - sink.x, enemy.y - sink.y);
-            if (d < 25) {
-              game.deployedSinks.splice(i, 1);
-              const newPos = spawnEnemyFarFrom(game.player.x, game.player.y, 1000);
-              if (newPos) {
-                enemy.x = newPos.x;
-                enemy.y = newPos.y;
-                enemy.trail = [];
-                showStatus('ENEMY TRAPPED & RESPAWNED!', '#ff4400', 1500);
-              }
-              break;
-            }
-          }
-
-          let moveX = 0, moveY = 0;
-
-          if (enemy.flankTimer > 0) {
-            enemy.flankTimer -= dt;
-            moveX = enemy.flankDir.x * enemy.speed * dt;
-            moveY = enemy.flankDir.y * enemy.speed * dt;
-            if (enemy.flankTimer <= 0) enemy.stuckTime = 0;
-          } else {
-            let edx = game.player.x - enemy.x;
-            let edy = game.player.y - enemy.y;
-            const dist = Math.hypot(edx, edy);
-
-            if (dist > 0) {
-              moveX = (edx / dist) * enemy.speed * dt;
-              moveY = (edy / dist) * enemy.speed * dt;
-            }
-
-            // Enemy collision - check immunity
-            if (dist < (game.player.width / 2 + enemy.width / 2)) {
-              if (!game.immunityActive) {
-                handleDeath();
-                return;
-              } else {
-                // Push enemy away when immune
-                const pushDist = 50;
-                const newPos = spawnEnemyFarFrom(game.player.x, game.player.y, 500);
-                if (newPos) {
-                  enemy.x = newPos.x;
-                  enemy.y = newPos.y;
-                  enemy.trail = [];
-                }
-              }
-            }
-          }
-
-          let actualX = 0, actualY = 0;
-          if (!checkCollision(enemy.x + moveX, enemy.y, enemy.width, enemy.height, false)) {
-            enemy.x += moveX;
-            actualX = moveX;
-          }
-          if (!checkCollision(enemy.x, enemy.y + moveY, enemy.width, enemy.height, false)) {
-            enemy.y += moveY;
-            actualY = moveY;
-          }
-
-          if (enemy.flankTimer <= 0) {
-            const intended = enemy.speed * dt;
-            const actual = Math.hypot(actualX, actualY);
-            if (actual < intended * 0.5) {
-              enemy.stuckTime += dt;
-              if (enemy.stuckTime > 0.5) {
-                enemy.flankTimer = 1.0;
-                let edx = game.player.x - enemy.x;
-                let edy = game.player.y - enemy.y;
-                const dist = Math.hypot(edx, edy);
-                if (dist > 0) {
-                  edx /= dist;
-                  edy /= dist;
-                }
-                if (Math.random() < 0.5) enemy.flankDir = { x: -edy, y: edx };
-                else enemy.flankDir = { x: edy, y: -edx };
-              }
-            } else {
-              enemy.stuckTime = Math.max(0, enemy.stuckTime - dt);
-            }
-          }
-
-          enemy.trail.push({ x: enemy.x, y: enemy.y });
-          if (enemy.trail.length > 20) enemy.trail.shift();
-        });
-      }
-
       // Camera
       const targetCamX = game.player.x - canvas.width / 2;
       const targetCamY = game.player.y - canvas.height / 2;
       game.camera.x += (targetCamX - game.camera.x) * 5 * dt;
       game.camera.y += (targetCamY - game.camera.y) * 5 * dt;
-
-      // Enemy spawner (single player only)
-      // In multiplayer, the unicorn player is the threat
-      if (!isMultiplayerRef.current) {
-        game.enemySpawnTimer += dt;
-        if (game.enemySpawnTimer >= 30) {
-          game.enemySpawnTimer = 0;
-          spawnEnemy();
-          spawnEnemy();
-          showStatus('WARNING: ENEMY REINFORCEMENTS!', '#f00', 3000);
-        }
-      }
     };
 
     const draw = () => {
@@ -3006,29 +2501,6 @@ const Game: React.FC = () => {
         ctx.restore();
       }
 
-      // Enemies (single player only)
-      // In multiplayer, the unicorn player replaces enemies
-      if (!isMultiplayerRef.current) {
-        game.enemies.forEach((e) => {
-          ctx.lineWidth = e.width * 0.8;
-          ctx.strokeStyle = 'rgba(255, 0, 0, 0.2)';
-          ctx.beginPath();
-          if (e.trail.length > 0) {
-            ctx.moveTo(e.trail[0].x, e.trail[0].y);
-            for (const p of e.trail) ctx.lineTo(p.x, p.y);
-          }
-          ctx.stroke();
-
-          const edx = game.player.x - e.x;
-          const edy = game.player.y - e.y;
-          const dist = Math.hypot(edx, edy);
-          const dirX = dist > 0 ? edx / dist : 0;
-          const dirY = dist > 0 ? edy / dist : 1;
-
-          drawQbitIsometric(ctx, e.x, e.y, dirX, dirY, false, true, false, false);
-        });
-      }
-
       // Trees (top)
       ctx.fillStyle = C_TREE;
       game.map.trees.forEach((t) => {
@@ -3210,14 +2682,6 @@ const Game: React.FC = () => {
         4,
         4
       );
-      
-      // Enemies on minimap (single player mode only)
-      if (!isMultiplayerRef.current) {
-        minimapCtx.fillStyle = '#f00';
-        game.enemies.forEach((e) =>
-          minimapCtx.fillRect((e.x * sc) / TILE_SIZE - 2, (e.y * sc) / TILE_SIZE - 2, 4, 4)
-        );
-      }
     };
 
     const gameLoop = (timestamp: number) => {
@@ -3548,134 +3012,58 @@ const Game: React.FC = () => {
         </div>
       )}
 
-      {/* Name Entry Screen */}
-      {gameState === 'name-entry' && (
-        <div className="absolute inset-0 bg-black/90 flex items-center justify-center z-50">
-          <div className="bg-card p-8 rounded-xl border border-border max-w-md w-full mx-4">
-            <h2 className="text-4xl font-bold text-cyan-400 mb-2 text-center tracking-wider">
-              QBIT CITY
-            </h2>
-            <p className="text-muted-foreground text-center mb-6">Survive as long as you can!</p>
-            
-            <input
-              type="text"
-              placeholder="Enter your name..."
-              value={playerName}
-              onChange={(e) => setPlayerName(e.target.value.slice(0, 15))}
-              onKeyDown={(e) => e.key === 'Enter' && startGame()}
-              className="w-full px-4 py-3 bg-background border border-border rounded-lg 
-                         text-foreground text-lg mb-4 focus:outline-none focus:ring-2 
-                         focus:ring-cyan-400"
-              autoFocus
-            />
-            
-            <button
-              onClick={startGame}
-              disabled={!playerName.trim()}
-              className="w-full py-3 bg-gradient-to-r from-cyan-500 to-blue-600 
-                         text-white font-bold rounded-lg disabled:opacity-50 
-                         disabled:cursor-not-allowed hover:from-cyan-400 hover:to-blue-500
-                         transition-all"
-            >
-              Start Game
-            </button>
-            
-            <button
-              onClick={() => setShowLeaderboard(true)}
-              className="w-full py-2 mt-3 text-amber-400 hover:text-amber-300 
-                         flex items-center justify-center gap-2 transition-colors"
-            >
-              <Trophy size={18} />
-              View Leaderboard
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* Game Over Screen */}
       {gameState === 'game-over' && (
         <div className="absolute inset-0 bg-black/90 flex items-center justify-center z-50">
           <div className="bg-card p-8 rounded-xl border border-border max-w-md w-full mx-4 max-h-[90vh] overflow-hidden flex flex-col">
             <h2 className="text-3xl font-bold text-red-500 mb-4 text-center">GAME OVER</h2>
 
-            {isMultiplayer ? (
-              /* Multiplayer: only backend Final standings + Return to Lobby */
-              <>
-                {gameEndLeaderboard.length > 0 ? (
-                  <div className="mb-6 text-left flex-shrink min-h-0">
-                    <h3 className="text-lg font-semibold text-foreground mb-2">Final standings</h3>
-                    <div className="bg-background rounded-lg border border-border overflow-y-auto max-h-[50vh]">
-                      <table className="w-full">
-                        <thead className="sticky top-0 bg-background border-b border-border">
-                          <tr className="text-muted-foreground text-sm">
-                            <th className="py-2 px-3 text-left">#</th>
-                            <th className="py-2 px-3 text-left">Name</th>
-                            <th className="py-2 px-3 text-right">Coins</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {gameEndLeaderboard.map((entry, i) => {
-                            const isYou = entry.id === socketService.getSocketId();
-                            return (
-                              <tr
-                                key={entry.id || i}
-                                className={`border-b border-border/50 last:border-0 ${isYou ? 'bg-cyan-500/20 text-cyan-400' : 'text-foreground'}`}
-                              >
-                                <td className="py-2 px-3 font-mono">{i + 1}</td>
-                                <td className="py-2 px-3">
-                                  {entry.name}
-                                  {isYou && <span className="ml-1 text-muted-foreground">(You)</span>}
-                                </td>
-                                <td className="py-2 px-3 text-right font-mono">{entry.coins}</td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-muted-foreground text-center py-4 mb-2">No standings data.</p>
-                )}
-                <Link
-                  to="/lobby"
-                  className="flex-shrink-0 w-full py-3 bg-gradient-to-r from-cyan-500 to-blue-600 
-                             text-white font-bold rounded-lg hover:from-cyan-400 hover:to-blue-500
-                             transition-all text-center"
-                >
-                  Return to Lobby
-                </Link>
-              </>
-            ) : (
-              /* Single player: unchanged – name, time, Play Again, Trophy */
-              <>
-                <p className="text-xl text-foreground mb-2 text-center">{playerName}</p>
-                <div className="my-6">
-                  <div className="bg-background p-4 rounded-lg">
-                    <p className="text-muted-foreground text-sm">Time Survived</p>
-                    <p className="text-3xl font-mono text-cyan-400">{formatTime(finalStats.time)}</p>
+            <>
+              {gameEndLeaderboard.length > 0 ? (
+                <div className="mb-6 text-left flex-shrink min-h-0">
+                  <h3 className="text-lg font-semibold text-foreground mb-2">Final standings</h3>
+                  <div className="bg-background rounded-lg border border-border overflow-y-auto max-h-[50vh]">
+                    <table className="w-full">
+                      <thead className="sticky top-0 bg-background border-b border-border">
+                        <tr className="text-muted-foreground text-sm">
+                          <th className="py-2 px-3 text-left">#</th>
+                          <th className="py-2 px-3 text-left">Name</th>
+                          <th className="py-2 px-3 text-right">Coins</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {gameEndLeaderboard.map((entry, i) => {
+                          const isYou = entry.id === socketService.getSocketId();
+                          return (
+                            <tr
+                              key={entry.id || i}
+                              className={`border-b border-border/50 last:border-0 ${isYou ? 'bg-cyan-500/20 text-cyan-400' : 'text-foreground'}`}
+                            >
+                              <td className="py-2 px-3 font-mono">{i + 1}</td>
+                              <td className="py-2 px-3">
+                                {entry.name}
+                                {isYou && <span className="ml-1 text-muted-foreground">(You)</span>}
+                              </td>
+                              <td className="py-2 px-3 text-right font-mono">{entry.coins}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
-                <div className="flex gap-3 flex-shrink-0">
-                  <button
-                    onClick={handlePlayAgain}
-                    className="flex-1 py-3 bg-gradient-to-r from-cyan-500 to-blue-600 
-                               text-white font-bold rounded-lg hover:from-cyan-400 hover:to-blue-500
-                               transition-all"
-                  >
-                    Play Again
-                  </button>
-                  <button
-                    onClick={() => setShowLeaderboard(true)}
-                    className="px-4 py-3 bg-amber-500/20 border border-amber-400 
-                               text-amber-400 font-bold rounded-lg hover:bg-amber-500/30
-                               transition-all"
-                  >
-                    <Trophy size={20} />
-                  </button>
-                </div>
-              </>
-            )}
+              ) : (
+                <p className="text-muted-foreground text-center py-4 mb-2">No standings data.</p>
+              )}
+              <Link
+                to="/lobby"
+                className="flex-shrink-0 w-full py-3 bg-gradient-to-r from-cyan-500 to-blue-600 
+                           text-white font-bold rounded-lg hover:from-cyan-400 hover:to-blue-500
+                           transition-all text-center"
+              >
+                Return to Lobby
+              </Link>
+            </>
           </div>
         </div>
       )}

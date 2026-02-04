@@ -379,17 +379,6 @@ const Lobby = () => {
               {isJoining ? 'Joining...' : 'Join Room'}
             </Button>
           </div>
-
-          {/* Single Player Option */}
-          <div className="pt-4 border-t border-slate-700">
-            <Button
-              onClick={() => navigate('/game', { state: { singlePlayer: true } })}
-              variant="ghost"
-              className="w-full text-slate-400 hover:text-white"
-            >
-              Play Single Player (Practice)
-            </Button>
-          </div>
         </CardContent>
       </Card>
     </div>

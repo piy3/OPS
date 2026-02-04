@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { Play, Pause, RefreshCw, Move, Layers, Circle, Square, Save, Trash2, Camera, Download, Video, Gamepad2, ChevronRight } from 'lucide-react';
+import { Play, Pause, RefreshCw, Move, Layers, Circle, Square, Save, Trash2, Camera, Download, Video, ChevronRight } from 'lucide-react';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile, toBlobURL } from '@ffmpeg/util';
 import logger from '@/utils/logger';
@@ -1390,22 +1390,13 @@ const QbitAnimator = () => {
 
       {/* Game Entry Point */}
       <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-background via-background/95 to-transparent">
-        <div className="flex gap-3">
-          <Link to="/game" className="flex-1">
-            <button className="w-full py-3 px-6 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold text-lg flex items-center justify-center gap-3 shadow-lg hover:shadow-cyan-500/25 transition-all group">
-              <Gamepad2 size={24} />
-              <span>Single Player</span>
-              <ChevronRight size={20} className="group-hover:translate-x-1 transition-transform" />
-            </button>
-          </Link>
-          <Link to="/lobby" className="flex-1">
-            <button className="w-full py-3 px-6 rounded-xl bg-gradient-to-r from-purple-500 to-pink-600 hover:from-purple-400 hover:to-pink-500 text-white font-bold text-lg flex items-center justify-center gap-3 shadow-lg hover:shadow-purple-500/25 transition-all group">
-              <Layers size={24} />
-              <span>Multiplayer</span>
-              <ChevronRight size={20} className="group-hover:translate-x-1 transition-transform" />
-            </button>
-          </Link>
-        </div>
+        <Link to="/lobby" className="block">
+          <button className="w-full py-3 px-6 rounded-xl bg-gradient-to-r from-purple-500 to-pink-600 hover:from-purple-400 hover:to-pink-500 text-white font-bold text-lg flex items-center justify-center gap-3 shadow-lg hover:shadow-purple-500/25 transition-all group">
+            <Layers size={24} />
+            <span>Play Multiplayer</span>
+            <ChevronRight size={20} className="group-hover:translate-x-1 transition-transform" />
+          </button>
+        </Link>
       </div>
     </div>
   );
