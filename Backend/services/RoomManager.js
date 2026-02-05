@@ -48,7 +48,9 @@ class RoomManager {
             maxPlayers: playerData?.maxPlayers || ROOM_CONFIG.DEFAULT_MAX_PLAYERS,
             unicornIds: [],           // Multiple unicorns per round
             unicornId: null,          // Backward compat: unicornIds[0] ?? null
-            mapConfig: mapConfig      // Dynamic map configuration based on player count
+            mapConfig: mapConfig,      // Dynamic map configuration based on player count
+            quizId: playerData?.quizId ?? null,
+            quizQuestionPool: null,
         };
 
         this.rooms.set(roomCode, room);

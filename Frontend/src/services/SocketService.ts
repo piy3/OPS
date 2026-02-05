@@ -137,6 +137,8 @@ export interface Room {
   unicornIds?: string[];
   unicornId?: string;
   mapConfig?: MapConfig;
+  /** Optional Quizizz quiz ID; when set, blitz and unfreeze use questions from Quizizz */
+  quizId?: string | null;
 }
 
 export interface Coin {
@@ -321,8 +323,10 @@ class SocketService {
   }
 
   // Room operations
-  createRoom(name: string, maxPlayers: number = 30) {
-    this.emit(SOCKET_EVENTS.CLIENT.CREATE_ROOM, { name, maxPlayers });
+  createRoom(name: string, maxPlayers: number = 30, quizId?: string) {
+    const payload: { name: string; maxPlayers: number; quizId?: string } = { name, maxPlayers };
+    if (quizId?.trim()) payload.quizId = quizId.trim();
+    this.emit(SOCKET_EVENTS.CLIENT.CREATE_ROOM, payload);
   }
 
   joinRoom(roomCode: string, playerName: string) {

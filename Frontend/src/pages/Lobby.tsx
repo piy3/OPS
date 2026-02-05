@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,17 +14,19 @@ import logger from '@/utils/logger';
 
 const Lobby = () => {
   const navigate = useNavigate();
-  
+  const { quizId: quizIdParam } = useParams<{ quizId?: string }>();
+
   // Connection state
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
-  
+
   // Room state
   const [room, setRoom] = useState<Room | null>(null);
   const [playerName, setPlayerName] = useState(() => {
     return localStorage.getItem('playerName') || '';
   });
   const [roomCode, setRoomCode] = useState('');
+  const [quizId, setQuizId] = useState('');
   
   // UI state
   const [error, setError] = useState<string | null>(null);
@@ -61,6 +63,11 @@ const Lobby = () => {
       unsubConnection();
     };
   }, []);
+
+  // Pre-fill Quiz ID from route /lobby/:quizId
+  useEffect(() => {
+    if (quizIdParam) setQuizId(quizIdParam);
+  }, [quizIdParam]);
 
   // Set up socket event listeners
   useEffect(() => {
@@ -154,7 +161,7 @@ const Lobby = () => {
     }
     setError(null);
     setIsCreating(true);
-    socketService.createRoom(playerName.trim());
+    socketService.createRoom(playerName.trim(), 30, quizId.trim() || undefined);
   };
 
   // Join an existing room
@@ -335,6 +342,19 @@ const Lobby = () => {
               placeholder="Enter your name"
               className="bg-slate-700 border-slate-600 text-white"
               maxLength={20}
+            />
+          </div>
+
+          {/* Quiz ID - Blitz & unfreeze use Quizizz when set */}
+          <div>
+            <label className="text-sm font-medium text-slate-300 mb-2 block">
+              Quiz ID (optional)
+            </label>
+            <Input
+              value={quizId}
+              onChange={(e) => setQuizId(e.target.value)}
+              placeholder="Quizizz quiz ID for blitz/unfreeze"
+              className="bg-slate-700 border-slate-600 text-white font-mono"
             />
           </div>
 

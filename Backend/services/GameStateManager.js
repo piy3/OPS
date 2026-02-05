@@ -13,6 +13,7 @@
  */
 
 import roomManager from './RoomManager.js';
+import quizizzService from './QuizizzService.js';
 import { SOCKET_EVENTS, GAME_PHASE, GAME_LOOP_CONFIG, COMBAT_CONFIG, PLAYER_STATE, UNFREEZE_QUIZ_CONFIG, ROOM_STATUS } from '../config/constants.js';
 import { getRandomQuestions } from '../config/questions.js';
 import log from '../utils/logger.js';
@@ -66,7 +67,8 @@ class GameStateManager {
      */
     cleanupRoom(roomCode) {
         const room = roomManager.getRoom(roomCode);
-        
+        if (room) room.quizQuestionPool = null;
+
         positionManager.cleanupRoom(roomCode);
         // Clean up combat state for each player
         if (room?.players) {
@@ -139,20 +141,20 @@ class GameStateManager {
     /**
      * Start the game loop for a room
      */
-    startGameLoop(roomCode, io) {
+    async startGameLoop(roomCode, io) {
         // Initialize round tracking for this game
         gameLoopManager.initRoomRounds(roomCode);
-        
-        gameLoopManager.startGameLoop(roomCode, io, (code) => {
+
+        await gameLoopManager.startGameLoop(roomCode, io, (code) => {
             quizManager.freezeRoom(code);
         });
-        
+
         const room = roomManager.getRoom(roomCode);
         if (room) {
             gameLoopManager.sendBlitzQuiz(
-                roomCode, 
-                room.players.length, 
-                io, 
+                roomCode,
+                room.players.length,
+                io,
                 this._onBlitzEnd
             );
         }
@@ -451,7 +453,7 @@ class GameStateManager {
      * Start a new blitz quiz
      * First checks if game should end (all rounds completed), then cancels unfreeze quizzes
      */
-    _startNewBlitz(roomCode, io) {
+    async _startNewBlitz(roomCode, io) {
         // Decrement round counter and check if game should end
         const roundsRemaining = gameLoopManager.decrementRound(roomCode);
         
@@ -464,17 +466,17 @@ class GameStateManager {
         
         // Cancel all unfreeze quizzes - those players respawn and join blitz
         this._cancelAllUnfreezeQuizzes(roomCode, io);
-        
-        gameLoopManager.startBlitzQuiz(roomCode, io, (code) => {
+
+        await gameLoopManager.startBlitzQuiz(roomCode, io, (code) => {
             quizManager.freezeRoom(code);
         });
-        
+
         const room = roomManager.getRoom(roomCode);
         if (room) {
             gameLoopManager.sendBlitzQuiz(
-                roomCode, 
-                room.players.length, 
-                io, 
+                roomCode,
+                room.players.length,
+                io,
                 this._onBlitzEnd
             );
         }
@@ -807,12 +809,23 @@ class GameStateManager {
     // ==================== UNFREEZE QUIZ METHODS ====================
 
     /**
+     * Ensure room's Quizizz question pool is filled (lazy). No-op if no quizId or already filled.
+     * @param {string} roomCode - Room code
+     */
+    async _ensureRoomQuizPool(roomCode) {
+        const room = roomManager.getRoom(roomCode);
+        if (!room?.quizId || room.quizQuestionPool !== null) return;
+        const pool = await quizizzService.fetchAndNormalizeQuestions(room.quizId);
+        room.quizQuestionPool = Array.isArray(pool) && pool.length > 0 ? pool : null;
+    }
+
+    /**
      * Start a personal unfreeze quiz for a frozen player
      * @param {string} roomCode - Room code
      * @param {string} playerId - Player ID
      * @param {Object} io - Socket.IO server
      */
-    _startUnfreezeQuiz(roomCode, playerId, io) {
+    async _startUnfreezeQuiz(roomCode, playerId, io) {
         const room = roomManager.getRoom(roomCode);
         if (!room) return;
 
@@ -825,8 +838,19 @@ class GameStateManager {
             return;
         }
 
-        // Get 2 random questions for the unfreeze quiz
-        const questions = getRandomQuestions(UNFREEZE_QUIZ_CONFIG.QUESTIONS_COUNT);
+        await this._ensureRoomQuizPool(roomCode);
+        const pool = roomManager.getRoom(roomCode)?.quizQuestionPool;
+        const needCount = UNFREEZE_QUIZ_CONFIG.QUESTIONS_COUNT;
+        let questions;
+        if (Array.isArray(pool) && pool.length >= needCount) {
+            const indices = new Set();
+            while (indices.size < needCount) {
+                indices.add(Math.floor(Math.random() * pool.length));
+            }
+            questions = [...indices].map(i => pool[i]);
+        } else {
+            questions = getRandomQuestions(needCount);
+        }
         
         // Prepare questions for client (without correct answers)
         const questionsForClient = questions.map(q => ({

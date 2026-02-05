@@ -17,7 +17,7 @@ import { log } from 'console';
  */
 export function registerGameHandlers(socket, io) {
     // START GAME: Host starts the game
-    socket.on(SOCKET_EVENTS.CLIENT.START_GAME, () => {
+    socket.on(SOCKET_EVENTS.CLIENT.START_GAME, async () => {
         try {
             const roomCode = roomManager.getRoomCodeForSocket(socket.id);
             if (!roomCode) {
@@ -41,30 +41,30 @@ export function registerGameHandlers(socket, io) {
 
             // Initialize game state for the room (this assigns spawn positions)
             gameStateManager.initializeRoom(roomCode);
-            
+
             // Clear any stale quiz state from previous games
             gameStateManager.clearQuizState(roomCode);
 
 
             // Get game state with spawn positions
             const gameState = gameStateManager.getGameState(roomCode);
-            
+
             // Get round info (may be null if not initialized yet, use safe default)
             const roundInfo = gameLoopManager.getRoomRounds(roomCode) || {
                 currentRound: 1,
                 totalRounds: GAME_LOOP_CONFIG.TOTAL_GAME_ROUNDS,
                 roundsRemaining: GAME_LOOP_CONFIG.TOTAL_GAME_ROUNDS
             };
-            
+
             // Notify all players in the room with initial game state
             // Include mapConfig so all clients use the same map dimensions
-            io.to(roomCode).emit(SOCKET_EVENTS.SERVER.GAME_STARTED, { 
+            io.to(roomCode).emit(SOCKET_EVENTS.SERVER.GAME_STARTED, {
                 room: room,
                 gameState: gameState,
                 roundInfo: roundInfo,
                 mapConfig: room.mapConfig
             });
-            
+
             // Immediately broadcast initial spawn positions to all players
             // This ensures all clients know where each player spawns before any movement
             if (gameState && gameState.players) {
@@ -79,10 +79,8 @@ export function registerGameHandlers(socket, io) {
                 });
             }
 
-            // Start the game loop (Blitz Quiz + Hunt cycle)
-            // This begins with the first Blitz Quiz
-            gameStateManager.startGameLoop(roomCode, io);
-            
+            // Start the game loop (Blitz Quiz + Hunt cycle); may fetch Quizizz if room has quizId
+            await gameStateManager.startGameLoop(roomCode, io);
         } catch (error) {
             log(`Error starting game: ${error.message}`);
             socket.emit(SOCKET_EVENTS.SERVER.START_ERROR, { message: 'Failed to start game' });

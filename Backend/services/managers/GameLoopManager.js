@@ -6,7 +6,8 @@
 import { SOCKET_EVENTS, GAME_PHASE, GAME_LOOP_CONFIG, COMBAT_CONFIG } from '../../config/constants.js';
 import { getBlitzQuestion, BLITZ_QUIZ_CONFIG } from '../../config/questions.js';
 import log from '../../utils/logger.js';
-import RoomManager from '../RoomManager.js';
+import roomManager from '../RoomManager.js';
+import quizizzService from '../QuizizzService.js';
 
 class GameLoopManager {
     constructor() {
@@ -135,29 +136,49 @@ class GameLoopManager {
     }
 
     /**
+     * Ensure room's Quizizz question pool is filled (lazy). No-op if no quizId or already filled.
+     * @param {string} roomCode - Room code
+     */
+    async _ensureRoomQuizPool(roomCode) {
+        const room = roomManager.getRoom(roomCode);
+        if (!room?.quizId || room.quizQuestionPool !== null) return;
+        const pool = await quizizzService.fetchAndNormalizeQuestions(room.quizId);
+        room.quizQuestionPool = Array.isArray(pool) && pool.length > 0 ? pool : null;
+    }
+
+    /**
      * Start the game loop for a room
      * @param {string} roomCode - Room code
      * @param {Object} io - Socket.IO server
      * @param {Function} onFreezeRoom - Callback to freeze room
      */
-    startGameLoop(roomCode, io, onFreezeRoom) {
+    async startGameLoop(roomCode, io, onFreezeRoom) {
         this.clearGameLoopTimers(roomCode);
-        this.startBlitzQuiz(roomCode, io, onFreezeRoom);
+        await this.startBlitzQuiz(roomCode, io, onFreezeRoom);
     }
 
     /**
-     * Start Blitz Quiz phase
+     * Start Blitz Quiz phase. Uses room.quizQuestionPool when room has quizId and pool is available.
      * @param {string} roomCode - Room code
      * @param {Object} io - Socket.IO server
      * @param {Function} onFreezeRoom - Callback to freeze room
      */
-    startBlitzQuiz(roomCode, io, onFreezeRoom) {
+    async startBlitzQuiz(roomCode, io, onFreezeRoom) {
         this.setGamePhase(roomCode, GAME_PHASE.BLITZ_QUIZ, io);
         onFreezeRoom(roomCode);
 
-        const question = getBlitzQuestion();
+        await this._ensureRoomQuizPool(roomCode);
+        const room = roomManager.getRoom(roomCode);
+        let question;
+        if (room?.quizQuestionPool?.length > 0) {
+            const idx = Math.floor(Math.random() * room.quizQuestionPool.length);
+            question = room.quizQuestionPool[idx];
+        } else {
+            log.info(`Couldn't get question from quizizz service, using fallback`)
+            question = getBlitzQuestion(); // fallback for play-test: should be removed before shipping
+        }
+
         const now = Date.now();
-        
         const blitzData = {
             question: question,
             answers: new Map(),
@@ -168,7 +189,6 @@ class GameLoopManager {
         };
         this.blitzQuizzes.set(roomCode, blitzData);
 
-        // Return data for caller to broadcast
         return {
             questionForClients: {
                 id: question.id,
@@ -239,7 +259,7 @@ class GameLoopManager {
         });
 
         // handle questions record for the player.
-        RoomManager.handlePlayerQuestionsAttempt(roomCode, playerId, isCorrect);
+        roomManager.handlePlayerQuestionsAttempt(roomCode, playerId, isCorrect);
         // Send individual feedback
         io.to(playerId).emit(SOCKET_EVENTS.SERVER.BLITZ_ANSWER_RESULT, {
             isCorrect: isCorrect,
@@ -320,7 +340,7 @@ class GameLoopManager {
         newUnicornIds.forEach(id => updatePlayerCoins(roomCode, id, GAME_LOOP_CONFIG.BLITZ_WINNER_BONUS));
 
         const oldUnicornId = room.unicornId;
-        const updatedRoom = RoomManager.getRoom(roomCode);
+        const updatedRoom = roomManager.getRoom(roomCode);
         const finalUnicornIds = updatedRoom?.unicornIds ?? newUnicornIds;
 
         const results = {

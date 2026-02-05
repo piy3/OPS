@@ -3355,7 +3355,7 @@ const Game: React.FC = () => {
       </Link>
 
       {/* Restart Button - Only show when playing */}
-      {gameState === 'playing' && (
+      {/* {gameState === 'playing' && (
         <button
           onClick={handleRestart}
           className="absolute bottom-5 right-5 flex items-center gap-2 px-4 py-2 bg-secondary/90 hover:bg-secondary text-secondary-foreground rounded-lg transition-all pointer-events-auto"
@@ -3363,7 +3363,7 @@ const Game: React.FC = () => {
           <RefreshCw size={18} />
           <span>Restart</span>
         </button>
-      )}
+      )} */}
     </div>
   );
 };

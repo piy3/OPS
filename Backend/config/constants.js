@@ -435,4 +435,25 @@ export const GAME_CONFIG = {
         { row: 12, col: 12 }     // Center intersection
     ]
 };
-''
+
+/**
+ * Quizizz / external quiz (optional per room)
+ * When room has quizId, blitz and unfreeze use questions from this API.
+ * Base URL: use QUIZIZZ_BASE_URL env if set, else prod for NODE_ENV=production, else dev.
+ */
+export const QUIZIZZ_CONFIG = {
+    // BASE_URL_PROD: 'https://wayground.com/_quizserver/main',
+    BASE_URL_PROD: 'https://dev.quizizz.com/_quizserver/main',
+    BASE_URL_DEV: 'https://dev.quizizz.com/_quizserver/main',
+    QUIZ_PATH: '/v2/quiz',
+    QUERY: 'convertQuestions=false&includeFsFeatures=true&sanitize=read&questionMetadata=true',
+    FETCH_TIMEOUT_MS: 10000,
+    /** Resolve base URL from env (QUIZIZZ_BASE_URL > NODE_ENV) */
+    getBaseUrl() {
+        if (typeof process !== 'undefined' && process.env?.QUIZIZZ_BASE_URL) {
+            return process.env.QUIZIZZ_BASE_URL;
+        }
+        const isProd = typeof process !== 'undefined' && process.env?.NODE_ENV === 'production';
+        return isProd ? this.BASE_URL_PROD : this.BASE_URL_DEV;
+    }
+};
