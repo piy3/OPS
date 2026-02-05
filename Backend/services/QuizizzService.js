@@ -36,10 +36,32 @@ function buildQuizUrl(quizId) {
 }
 
 /**
+ * Extract question image URL from structure.query.media (first element with type === 'image' and url).
+ * @param {Array|undefined} media - structure.query.media
+ * @returns {string|null}
+ */
+function getQuestionImageUrl(media) {
+    const first = Array.isArray(media) && media[0] ? media[0] : null;
+    if (!first || first.type !== 'image' || typeof first.url !== 'string') return null;
+    return first.url;
+}
+
+/**
+ * Extract option image URL from option.media (first element with url).
+ * @param {object} opt - option object
+ * @returns {string|null}
+ */
+function getOptionImageUrl(opt) {
+    const first = opt?.media?.[0];
+    if (!first || typeof first.url !== 'string') return null;
+    return first.url;
+}
+
+/**
  * Fetch quiz from Quizizz API and normalize to QbitMaze question shape.
- * Shape: { id, question, options: string[], correctAnswer: number (0-based) }
+ * Shape: { id, question, options, correctAnswer, questionImage, optionImages }
  * @param {string} quizId - Quiz ID
- * @returns {Promise<Array<{id: number, question: string, options: string[], correctAnswer: number}>|null>} Normalized questions or null on error/empty
+ * @returns {Promise<Array<{id: number, question: string, options: string[], correctAnswer: number, questionImage: string|null, optionImages: (string|null)[]}>|null>} Normalized questions or null on error/empty
  */
 async function fetchAndNormalizeQuestions(quizId) {
     if (!quizId || typeof quizId !== 'string') return null;
@@ -86,11 +108,15 @@ async function fetchAndNormalizeQuestions(quizId) {
         const options = structure.options.map(opt => stripHtml(opt?.text ?? ''));
         const correctAnswer = typeof structure.answer === 'number' ? structure.answer : 0;
         if (correctAnswer < 0 || correctAnswer >= options.length) continue;
+        const questionImage = getQuestionImageUrl(structure.query?.media);
+        const optionImages = structure.options.map(opt => getOptionImageUrl(opt));
         normalized.push({
             id: i,
             question: questionText,
             options,
-            correctAnswer
+            correctAnswer,
+            questionImage: questionImage ?? null,
+            optionImages
         });
     }
 

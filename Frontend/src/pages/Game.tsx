@@ -158,6 +158,8 @@ interface UnfreezeQuestion {
   id: number;
   question: string;
   options: string[];
+  questionImage?: string | null;
+  optionImages?: (string | null)[];
 }
 
 // Location state from Lobby
@@ -285,7 +287,12 @@ const Game: React.FC = () => {
   const [totalRounds, setTotalRounds] = useState(4);
   
   // Blitz quiz state
-  const [blitzQuestion, setBlitzQuestion] = useState<{ question: string; options: string[] } | null>(null);
+  const [blitzQuestion, setBlitzQuestion] = useState<{
+    question: string;
+    options: string[];
+    questionImage?: string | null;
+    optionImages?: (string | null)[];
+  } | null>(null);
   const [blitzTimeLeft, setBlitzTimeLeft] = useState(0);
   const isFirstBlitzRef = useRef(true);
   const blitzHandledRef = useRef(false); // Prevents race between BLITZ_START and GAME_STATE_SYNC
@@ -654,7 +661,9 @@ const Game: React.FC = () => {
       setGameState('blitz-quiz');
       setBlitzQuestion({
         question: data.question.question,
-        options: data.question.options
+        options: data.question.options,
+        questionImage: data.question.questionImage ?? null,
+        optionImages: data.question.optionImages ?? []
       });
       setBlitzTimeLeft(data.timeLimit / 1000);
       showStatus('BLITZ QUIZ!', '#ffff00', 1500);
@@ -1154,7 +1163,9 @@ const Game: React.FC = () => {
             
             return {
               question: data.blitzQuiz.question.question,
-              options: data.blitzQuiz.question.options
+              options: data.blitzQuiz.question.options,
+              questionImage: data.blitzQuiz.question.questionImage ?? null,
+              optionImages: data.blitzQuiz.question.optionImages ?? []
             };
           }
           return currentQuestion;
@@ -2956,6 +2967,8 @@ const Game: React.FC = () => {
             options={blitzQuestion.options}
             timeLeft={blitzTimeLeft}
             onAnswer={(index) => socketService.submitBlitzAnswer(index)}
+            questionImage={blitzQuestion.questionImage}
+            optionImages={blitzQuestion.optionImages}
           />
         )
       )}

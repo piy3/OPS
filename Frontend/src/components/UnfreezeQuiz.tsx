@@ -11,6 +11,10 @@ interface UnfreezeQuestion {
   id: number;
   question: string;
   options: string[];
+  /** Question image URL (Quizizz); when present, shown above question text */
+  questionImage?: string | null;
+  /** Option image URLs; same length as options; null = no image for that option */
+  optionImages?: (string | null)[];
 }
 
 interface AnswerResult {
@@ -186,6 +190,11 @@ const UnfreezeQuiz: React.FC<UnfreezeQuizProps> = ({ questions, passThreshold, o
 
         {/* Question */}
         <div className="bg-slate-900 rounded-lg p-4 mb-6 border border-cyan-800">
+          {currentQuestion.questionImage && (
+            <div className="flex justify-center mb-3">
+              <img src={currentQuestion.questionImage} alt="" className="max-h-32 max-w-full object-contain rounded" />
+            </div>
+          )}
           <p className="text-white text-lg text-center">{currentQuestion.question}</p>
         </div>
 
@@ -196,12 +205,17 @@ const UnfreezeQuiz: React.FC<UnfreezeQuizProps> = ({ questions, passThreshold, o
               key={index}
               onClick={() => handleAnswer(index)}
               disabled={showingResult || selectedAnswer !== null}
-              className={`w-full p-4 rounded-lg text-left font-medium transition-all ${getAnswerStyle(index)}`}
+              className={`w-full p-4 rounded-lg text-left font-medium transition-all flex items-center gap-3 ${getAnswerStyle(index)}`}
             >
-              <span className="inline-block w-8 h-8 rounded-full bg-slate-600 text-center leading-8 mr-3">
+              <span className="inline-block w-8 h-8 rounded-full bg-slate-600 text-center leading-8 flex-shrink-0">
                 {String.fromCharCode(65 + index)}
               </span>
-              {option}
+              <span className="flex-1 min-w-0 flex flex-col items-start gap-1">
+                {currentQuestion.optionImages?.[index] ? (
+                  <img src={currentQuestion.optionImages[index]!} alt="" className="max-h-20 max-w-full object-contain rounded" />
+                ) : null}
+                {option ? <span>{option}</span> : null}
+              </span>
             </button>
           ))}
         </div>

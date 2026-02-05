@@ -852,11 +852,13 @@ class GameStateManager {
             questions = getRandomQuestions(needCount);
         }
         
-        // Prepare questions for client (without correct answers)
+        // Prepare questions for client (without correct answers); include images when present
         const questionsForClient = questions.map(q => ({
             id: q.id,
             question: q.question,
-            options: q.options
+            options: q.options,
+            questionImage: q.questionImage ?? null,
+            optionImages: q.optionImages ?? []
         }));
 
         // Initialize unfreeze quiz state for this room if needed

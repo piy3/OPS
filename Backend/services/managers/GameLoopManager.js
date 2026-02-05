@@ -217,7 +217,9 @@ class GameLoopManager {
             question: {
                 id: blitz.question.id,
                 question: blitz.question.question,
-                options: blitz.question.options
+                options: blitz.question.options,
+                questionImage: blitz.question.questionImage ?? null,
+                optionImages: blitz.question.optionImages ?? []
             },
             timeLimit: blitz.timeLimit,
             playerCount: playerCount,
@@ -534,7 +536,9 @@ class GameLoopManager {
             question: {
                 id: blitz.question.id,
                 question: blitz.question.question,
-                options: blitz.question.options
+                options: blitz.question.options,
+                questionImage: blitz.question.questionImage ?? null,
+                optionImages: blitz.question.optionImages ?? []
             },
             timeLimit: blitz.timeLimit,
             timeRemaining: timeRemaining,

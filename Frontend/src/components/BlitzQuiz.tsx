@@ -11,9 +11,13 @@ interface BlitzQuizProps {
   options: string[];
   timeLeft: number;
   onAnswer: (index: number) => void;
+  /** Question image URL (Quizizz); when present, shown above question text */
+  questionImage?: string | null;
+  /** Option image URLs; same length as options; null = no image for that option */
+  optionImages?: (string | null)[];
 }
 
-const BlitzQuiz: React.FC<BlitzQuizProps> = ({ question, options, timeLeft, onAnswer }) => {
+const BlitzQuiz: React.FC<BlitzQuizProps> = ({ question, options, timeLeft, onAnswer, questionImage, optionImages }) => {
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
   const [hasAnswered, setHasAnswered] = useState(false);
 
@@ -64,6 +68,11 @@ const BlitzQuiz: React.FC<BlitzQuizProps> = ({ question, options, timeLeft, onAn
 
         {/* Question */}
         <div className="bg-slate-900 rounded-lg p-4 mb-6">
+          {questionImage && (
+            <div className="flex justify-center mb-3">
+              <img src={questionImage} alt="" className="max-h-32 max-w-full object-contain rounded" />
+            </div>
+          )}
           <p className="text-white text-lg text-center">{question}</p>
         </div>
 
@@ -74,7 +83,7 @@ const BlitzQuiz: React.FC<BlitzQuizProps> = ({ question, options, timeLeft, onAn
               key={index}
               onClick={() => handleAnswer(index)}
               disabled={hasAnswered}
-              className={`w-full p-4 rounded-lg text-left font-medium transition-all ${
+              className={`w-full p-4 rounded-lg text-left font-medium transition-all flex items-center gap-3 ${
                 hasAnswered
                   ? selectedAnswer === index
                     ? 'bg-purple-600 text-white border-2 border-purple-400'
@@ -82,10 +91,15 @@ const BlitzQuiz: React.FC<BlitzQuizProps> = ({ question, options, timeLeft, onAn
                   : 'bg-slate-700 hover:bg-slate-600 text-white hover:border-purple-400 border-2 border-transparent'
               }`}
             >
-              <span className="inline-block w-8 h-8 rounded-full bg-slate-600 text-center leading-8 mr-3">
+              <span className="inline-block w-8 h-8 rounded-full bg-slate-600 text-center leading-8 flex-shrink-0">
                 {String.fromCharCode(65 + index)}
               </span>
-              {option}
+              <span className="flex-1 min-w-0 flex flex-col items-start gap-1">
+                {optionImages?.[index] ? (
+                  <img src={optionImages[index]!} alt="" className="max-h-20 max-w-full object-contain rounded" />
+                ) : null}
+                {option ? <span>{option}</span> : null}
+              </span>
             </button>
           ))}
         </div>
