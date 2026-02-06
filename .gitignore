@@ -1,0 +1,10 @@
+# Logs (persisted via Docker volume mounts)
+logs/
+
+# Environment
+.env
+.env.*
+
+# OS
+.DS_Store
+Thumbs.db

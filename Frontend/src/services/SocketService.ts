@@ -9,12 +9,39 @@ import logger from '@/utils/logger';
 // Socket configuration from environment variables
 // In Vite, use import.meta.env (not process.env)
 const ENV = import.meta.env.VITE_ENV || 'dev';
-const SERVER_URL = ENV === 'prod' 
-  ? import.meta.env.VITE_PROD_URL 
-  : import.meta.env.VITE_DEV_URL;
+
+/**
+ * Determine Socket.IO connection URL and path.
+ *
+ * Three scenarios:
+ * 1. Local dev (no Docker): set VITE_DEV_URL=http://localhost:3000 → direct connection
+ * 2. Docker (no base path): nginx proxies /socket.io/ → same origin
+ * 3. Docker prod (base path): nginx proxies /play-api/way-maze/socket.io/ → same origin
+ */
+function getSocketConfig(): { url: string | undefined; path: string } {
+  // If an explicit dev URL is set, use it (local dev without Docker)
+  if (import.meta.env.VITE_DEV_URL) {
+    return {
+      url: import.meta.env.VITE_DEV_URL,
+      path: '/socket.io/',
+    };
+  }
+  // Otherwise connect to same origin — nginx proxies to backend.
+  // Detect base path from current URL for production.
+  const basePath = window.location.pathname.startsWith('/play-api/way-maze/')
+    ? '/play-api/way-maze'
+    : '';
+  return {
+    url: undefined,
+    path: `${basePath}/socket.io/`,
+  };
+}
+
+const socketConfig = getSocketConfig();
 
 logger.socket('Environment:', ENV);
-logger.socket('Socket URL:', SERVER_URL);
+logger.socket('Socket URL:', socketConfig.url ?? '(same origin)');
+logger.socket('Socket path:', socketConfig.path);
 
 // Tile size for coordinate conversion (must match frontend Game.tsx)
 const TILE_SIZE = 64;
@@ -213,17 +240,23 @@ class SocketService {
       this.socket = null;
     }
 
-    logger.socket('Connecting to server:', SERVER_URL);
+    logger.socket('Connecting to server:', socketConfig.url ?? '(same origin)', 'path:', socketConfig.path);
 
-    this.socket = io(SERVER_URL, {
-      transports: ['polling', 'websocket'],  // Start with polling, upgrade to websocket
+    const connectOpts = {
+      path: socketConfig.path,
+      transports: ['polling', 'websocket'] as ('polling' | 'websocket')[],
       autoConnect: true,
       reconnection: true,
       reconnectionAttempts: 10,
       reconnectionDelay: 1000,
       timeout: 10000,
       forceNew: true,
-    });
+    };
+
+    // When URL is undefined (production), io() connects to same origin
+    this.socket = socketConfig.url
+      ? io(socketConfig.url, connectOpts)
+      : io(connectOpts);
 
     this.socket.on('connect', () => {
       logger.socket('✅ Connected to server:', this.socket?.id);

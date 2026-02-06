@@ -1,0 +1,50 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+# Prevent concurrent deployments
+concurrency:
+  group: way-maze-deploy
+  cancel-in-progress: false
+
+# Minimal permissions
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to EC2
+    runs-on: [self-hosted, way-arena-prod]
+
+    steps:
+      - name: Pull latest code
+        working-directory: /mnt/ebs_volume/mini-games/way-maze
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          echo "Pulling latest changes..."
+          git fetch https://x-access-token:${GITHUB_TOKEN}@github.com/quizizz/way-maze.git main
+          git reset --hard FETCH_HEAD
+
+      - name: Rebuild and deploy
+        working-directory: /mnt/ebs_volume/mini-games/way-maze
+        run: |
+          echo "Starting containers..."
+          ./docker-run.sh start-prod
+
+      - name: Verify deployment
+        working-directory: /mnt/ebs_volume/mini-games/way-maze
+        run: |
+          # Verify both client and server are up
+          running=$(./docker-run.sh status | grep -c "Up")
+          if [ "$running" -eq 2 ]; then
+            echo "Both client and server are running"
+          else
+            echo "Expected 2 running services, found $running"
+            ./docker-run.sh logs --tail=50
+            exit 1
+          fi
