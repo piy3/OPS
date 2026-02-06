@@ -28,7 +28,7 @@ function getSocketConfig(): { url: string | undefined; path: string } {
   }
   // Otherwise connect to same origin — nginx proxies to backend.
   // Detect base path from current URL for production.
-  const basePath = window.location.pathname.startsWith('/play-api/way-maze/')
+  const basePath = window.location.pathname.startsWith('/play-api/way-maze')
     ? '/play-api/way-maze'
     : '';
   return {
