@@ -13,10 +13,12 @@ const ENV = import.meta.env.VITE_ENV || 'dev';
 /**
  * Determine Socket.IO connection URL and path.
  *
- * Three scenarios:
- * 1. Local dev (no Docker): set VITE_DEV_URL=http://localhost:3000 → direct connection
- * 2. Docker (no base path): nginx proxies /socket.io/ → same origin
- * 3. Docker prod (base path): nginx proxies /play-api/way-maze/socket.io/ → same origin
+ * Uses import.meta.env.BASE_URL (set by Vite at build time) to derive the
+ * socket path. This is '/' for local/docker-start and '/play-api/way-maze/'
+ * for docker-start-prod. No runtime guessing needed.
+ *
+ * When VITE_DEV_URL is set (local dev without Docker), connect directly to that URL.
+ * Otherwise connect to same origin and let nginx proxy.
  */
 function getSocketConfig(): { url: string | undefined; path: string } {
   // If an explicit dev URL is set, use it (local dev without Docker)
@@ -26,14 +28,12 @@ function getSocketConfig(): { url: string | undefined; path: string } {
       path: '/socket.io/',
     };
   }
-  // Otherwise connect to same origin — nginx proxies to backend.
-  // Detect base path from current URL for production.
-  const basePath = window.location.pathname.startsWith('/play-api/way-maze')
-    ? '/play-api/way-maze'
-    : '';
+  // Same origin — nginx proxies to backend.
+  // BASE_URL is '/' or '/play-api/way-maze/' depending on build.
+  const base = import.meta.env.BASE_URL.replace(/\/$/, ''); // strip trailing slash
   return {
     url: undefined,
-    path: `${basePath}/socket.io/`,
+    path: `${base}/socket.io/`,
   };
 }
 

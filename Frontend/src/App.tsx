@@ -10,9 +10,8 @@ import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
-const basename = window.location.pathname.startsWith('/play-api/way-maze')
-  ? '/play-api/way-maze'
-  : '/';
+// BASE_URL is set by Vite at build time: '/' or '/play-api/way-maze/'
+const basename = import.meta.env.BASE_URL.replace(/\/$/, '') || '/';
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
