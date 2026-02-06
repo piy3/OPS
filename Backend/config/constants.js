@@ -212,7 +212,7 @@ export const POWERUP_CONFIG = {
 };
 
 export const SERVER_CONFIG = {
-    PORT: 3000,
+    PORT: process.env.PORT ? parseInt(process.env.PORT, 10) : 3000,
     CORS_ORIGIN: '*',
     CORS_METHODS: ['GET', 'POST']
 };

@@ -14,6 +14,9 @@ import { setupSocketIO } from './socket/socketSetup.js';
 const app = express();
 app.use(cors());
 
+// Health check endpoint
+app.get('/health', (req, res) => res.send('OK'));
+
 // Create HTTP server
 const server = http.createServer(app);
 

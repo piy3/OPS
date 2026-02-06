@@ -25,18 +25,21 @@ if (typeof document !== 'undefined') {
   });
 }
 
+// BASE_URL is '/' or '/play-api/way-maze/' depending on build
+const base = import.meta.env.BASE_URL;
+
 const PATHS = {
-  menu: '/sounds/menu.mp3',
-  blitzQuiz: '/sounds/blitz-quiz.mp3',
-  hunt: '/sounds/hunt.mp3',
-  timer: '/sounds/timer.mp3',
-  coin: '/sounds/coin.mp3',
-  tag: '/sounds/tag.mp3',
-  frozen: '/sounds/frozen.mp3',
-  gameOver: '/sounds/game-over.mp3',
-  last_round: '/sounds/last_round.mp3',
-  teleport: '/sounds/teleport.mp3',
-  sink_trap: '/sounds/sink-trap.mp3',
+  menu: `${base}sounds/menu.mp3`,
+  blitzQuiz: `${base}sounds/blitz-quiz.mp3`,
+  hunt: `${base}sounds/hunt.mp3`,
+  timer: `${base}sounds/timer.mp3`,
+  coin: `${base}sounds/coin.mp3`,
+  tag: `${base}sounds/tag.mp3`,
+  frozen: `${base}sounds/frozen.mp3`,
+  gameOver: `${base}sounds/game-over.mp3`,
+  last_round: `${base}sounds/last_round.mp3`,
+  teleport: `${base}sounds/teleport.mp3`,
+  sink_trap: `${base}sounds/sink-trap.mp3`,
 } as const;
 
 export type MusicId = 'menu' | 'blitzQuiz' | 'hunt' | 'timer';

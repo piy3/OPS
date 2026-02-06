@@ -1,0 +1,50 @@
+services:
+  server:
+    build:
+      context: ./Backend
+      dockerfile: Dockerfile.dev
+    container_name: waymaze-server
+    ports:
+      - "8092:3000"
+    networks:
+      - waymaze-network
+    volumes:
+      - ./Backend:/app
+      - /app/node_modules
+      - ./logs/server:/var/log/waymaze
+    environment:
+      - PORT=3000
+      - NODE_ENV=development
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  client:
+    build:
+      context: ./Frontend
+      dockerfile: Dockerfile.dev
+    container_name: waymaze-client
+    ports:
+      - "8093:8080"
+    networks:
+      - waymaze-network
+    depends_on:
+      - server
+    volumes:
+      - ./Frontend:/app
+      - /app/node_modules
+      - ./logs/client:/var/log/vite
+    environment:
+      - VITE_ENV=dev
+      - VITE_DEV_URL=http://localhost:3000
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+networks:
+  waymaze-network:
+    driver: bridge

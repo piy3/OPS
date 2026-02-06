@@ -1,0 +1,63 @@
+services:
+  # Node.js backend server
+  server:
+    build:
+      context: ./Backend
+      dockerfile: Dockerfile
+    container_name: waymaze-server
+    ports:
+      - "8092:3000"
+    networks:
+      - waymaze-network
+    restart: unless-stopped
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+        labels: "service"
+    labels:
+      - "service=waymaze-server"
+    volumes:
+      - ./logs/server:/var/log/waymaze
+
+  # React frontend client (nginx)
+  client:
+    build:
+      context: ./Frontend
+      dockerfile: Dockerfile
+    container_name: waymaze-client
+    ports:
+      - "8093:80"
+    networks:
+      - waymaze-network
+    depends_on:
+      - server
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+        labels: "service"
+    labels:
+      - "service=waymaze-client"
+    volumes:
+      - ./logs/client:/var/log/nginx
+
+networks:
+  waymaze-network:
+    driver: bridge
