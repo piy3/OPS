@@ -510,7 +510,8 @@ const Game: React.FC = () => {
         data.gameState.players.forEach((p: any) => {
           if (p.id === myId) return;
           const pos = p.position;
-          const pixel = pos?.x != null ? { x: pos.x, y: pos.y } : (pos ? toPixel(pos.row, pos.col) : { x: 0, y: 0 });
+          // const pixel = pos?.x != null ? { x: pos.x, y: pos.y } : (pos ? toPixel(pos.row, pos.col) : { x: 0, y: 0 });
+          const pixel = (pos?.row != null && pos?.col != null) ? toPixel(pos.row, pos.col) : (pos?.x != null && pos?.y != null ? { x: pos.x, y: pos.y } : { x: 0, y: 0 });
           remotePlayers.set(p.id, {
             id: p.id,
             name: p.name || 'Player',
@@ -1100,7 +1101,7 @@ const Game: React.FC = () => {
         data.gameState.players.forEach((p: any) => {
           if (p.id === myId) return;
           const pos = p.position;
-          const pixel = pos?.x != null ? { x: pos.x, y: pos.y } : (pos ? toPixel(pos.row, pos.col) : { x: 0, y: 0 });
+          const pixel = (pos?.row != null && pos?.col != null) ? toPixel(pos.row, pos.col) : (pos?.x != null && pos?.y != null ? { x: pos.x, y: pos.y } : { x: 0, y: 0 });
           const existing = remotePlayers.get(p.id);
           if (existing) {
             existing.name = p.name || existing.name || 'Player';
