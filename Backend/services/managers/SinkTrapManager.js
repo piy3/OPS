@@ -200,7 +200,7 @@ class SinkTrapManager {
         return null;
     }
 
-    triggerTrap(roomCode, trapId, unicornId, unicornName, io, updatePlayerPosition, destinationPosition = null) {
+    triggerTrap(roomCode, trapId, unicornId, unicornName, io, updatePlayerPosition, updateLastMoveWasTeleport, destinationPosition = null) {
         const deployedTraps = this.roomDeployedTraps.get(roomCode);
         if (!deployedTraps || !deployedTraps.has(trapId)) return null;
 
@@ -240,6 +240,7 @@ class SinkTrapManager {
         };
 
         if (updatePlayerPosition) {
+            if(updateLastMoveWasTeleport) updateLastMoveWasTeleport(roomCode, playerId);
             updatePlayerPosition(roomCode, unicornId, toPosition);
         }
 

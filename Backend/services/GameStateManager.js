@@ -266,7 +266,8 @@ class GameStateManager {
                     sinkTrapManager.triggerTrap(
                         roomCode, triggeredTrapId, uid, uPlayer?.name || 'Unicorn', io,
                         (code, id, position) => positionManager.setPlayerPosition(code, id, position),
-                        destinationPosition
+                        (code, playerId) => positionManager.setLastMoveWasTeleport(code, playerId),
+                        destinationPosition,
                     );
                     break;
                 }
@@ -375,7 +376,8 @@ class GameStateManager {
     enterSinkhole(roomCode, playerId, playerName, sinkholeId, io) {
         return sinkholeManager.enterSinkhole(
             roomCode, playerId, playerName, sinkholeId, io,
-            (code, id, position) => positionManager.setPlayerPosition(code, id, position)
+            (code, id, position) => positionManager.setPlayerPosition(code, id, position),
+            (code, playerId) => positionManager.setLastMoveWasTeleport(code, playerId)
         );
     }
 
@@ -632,6 +634,12 @@ class GameStateManager {
 
         const unicornIds = room.unicornIds ?? (room.unicornId ? [room.unicornId] : []);
         if (unicornIds.length === 0) return;
+
+        const isTeleport = positionManager.getLastMoveWasTeleport(roomCode, playerId);
+        if (isTeleport) {
+            positionManager.clearLastMoveWasTeleport(roomCode, playerId);
+            return;
+        };
 
         const oldPos = oldPosition || newPosition;
         const pathCells = positionManager.getCellsInPath(oldPos, newPosition);

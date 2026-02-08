@@ -16,6 +16,8 @@ class PositionManager {
         
         // Track recently respawned players: playerId -> timestamp (ignore their position updates briefly)
         this.respawnedPlayers = new Map();
+
+        this.lastMoveWasTeleport = new Map(); // roomCode -> set of PlyerId
     }
 
     /**
@@ -286,6 +288,11 @@ class PositionManager {
         if (!roomPositions) return null;
         return roomPositions.get(playerId) || null;
     }
+    
+    getLastMoveWasTeleport(roomCode, playerId){
+        const lastTeleportPlayers = this.lastMoveWasTeleport.get(roomCode);
+        return lastTeleportPlayers ? lastTeleportPlayers.has(playerId) : false;
+    }
 
     /**
      * Get all positions in a room
@@ -322,6 +329,20 @@ class PositionManager {
         
         // Mark as recently respawned
         this.respawnedPlayers.set(playerId, Date.now());
+    }
+
+    setLastMoveWasTeleport(roomCode, playerId){
+        const lastTeleportPlayers = this.lastMoveWasTeleport.get(roomCode);
+        if(!lastTeleportPlayers) {
+            lastTeleportPlayers = new Set();
+            this.lastMoveWasTeleport.set(roomCode, lastTeleportPlayers);
+        }
+        lastTeleportPlayers.add(playerId);
+    }
+
+    clearLastMoveWasTeleport(roomCode, playerId){
+        const lastMoveWasTeleport = this.lastMoveWasTeleport.get(roomCode);
+        lastMoveWasTeleport.delete(playerId);
     }
 
     /**

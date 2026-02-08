@@ -156,7 +156,7 @@ class SinkholeManager {
         return null;
     }
 
-    enterSinkhole(roomCode, playerId, playerName, sinkholeId, io, updatePlayerPosition) {
+    enterSinkhole(roomCode, playerId, playerName, sinkholeId, io, updatePlayerPosition, updateLastMoveAsTeleport) {
         const sinkholeMap = this.roomSinkholes.get(roomCode);
         if (!sinkholeMap || !sinkholeMap.has(sinkholeId)) return null;
 
@@ -194,6 +194,7 @@ class SinkholeManager {
 
         // Update player position
         if (updatePlayerPosition) {
+            if (updateLastMoveAsTeleport) updateLastMoveAsTeleport(roomCode, playerId);
             updatePlayerPosition(roomCode, playerId, toPosition);
         }
 
