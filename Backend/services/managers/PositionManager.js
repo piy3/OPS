@@ -3,7 +3,7 @@
  * Handles player positions, validation, spawn positions, and path calculations
  */
 
-import { GAME_CONFIG, MAZE_CONFIG, hasWrapAround } from '../../config/constants.js';
+import { GAME_CONFIG } from '../../config/constants.js';
 import log from '../../utils/logger.js';
 
 class PositionManager {
@@ -13,9 +13,6 @@ class PositionManager {
         
         // Throttle tracking: socketId -> lastUpdateTime
         this.lastUpdateTime = new Map();
-        
-        // Track last grid positions for wrap-around detection: playerId -> { row, col }
-        this.lastGridPositions = new Map();
         
         // Track recently respawned players: playerId -> timestamp (ignore their position updates briefly)
         this.respawnedPlayers = new Map();
@@ -103,11 +100,9 @@ class PositionManager {
                 col: spawnPos.col,
                 playerId: player.id,
                 timestamp: Date.now(),
-                isWrap: false
             };
 
             roomPositions.set(player.id, positionState);
-            this.lastGridPositions.set(player.id, { row: spawnPos.row, col: spawnPos.col });
         });
     }
 
@@ -177,40 +172,16 @@ class PositionManager {
         const roomPositions = this.playerPositions.get(roomCode);
         if (!roomPositions) return null;
 
-        // Get last position for wrap detection
-        const lastGridPos = this.lastGridPositions.get(playerId) || { 
-            row: validatedPosition.row, 
-            col: validatedPosition.col 
-        };
-        
-        // Detect wrap-around
-        let isWrap = false;
-        if (typeof validatedPosition.row === 'number' && typeof validatedPosition.col === 'number') {
-            const colDiff = validatedPosition.col - lastGridPos.col;
-            if (Math.abs(colDiff) > 16) {
-                isWrap = true;
-            }
-        }
-
         // Store position
         const positionState = {
             ...validatedPosition,
             playerId: playerId,
             timestamp: now,
-            isWrap: isWrap,
             isUnicorn: isUnicorn
         };
 
         roomPositions.set(playerId, positionState);
         this.lastUpdateTime.set(playerId, now);
-        
-        // Update last grid position
-        if (typeof validatedPosition.row === 'number' && typeof validatedPosition.col === 'number') {
-            this.lastGridPositions.set(playerId, { 
-                row: validatedPosition.row, 
-                col: validatedPosition.col 
-            });
-        }
 
         return positionState;
     }
@@ -241,7 +212,6 @@ class PositionManager {
 
     /**
      * Get all cells in a path from old position to new position
-     * Uses Bresenham's line algorithm, with special handling for tunnel wrap-around
      * @param {Object} oldPos - Old position { row, col }
      * @param {Object} newPos - New position { row, col }
      * @returns {Array} Array of cells in the path
@@ -260,21 +230,6 @@ class PositionManager {
         
         if (startRow === endRow && startCol === endCol) {
             return [{ row: endRow, col: endCol }];
-        }
-        
-        // Special handling for tunnel wrap-around rows
-        // When moving horizontally on a wrap-around row and the shortest path is through the tunnel,
-        // only return the start and end positions (they are adjacent through the tunnel)
-        if (startRow === endRow && hasWrapAround(startRow)) {
-            const colDiff = Math.abs(endCol - startCol);
-            // If colDiff > half the maze width, the shortest path is through the tunnel
-            if (colDiff > MAZE_CONFIG.MAZE_COLS / 2) {
-                // Movement is through the tunnel - only the two cells are in the path
-                return [
-                    { row: startRow, col: startCol },
-                    { row: endRow, col: endCol }
-                ];
-            }
         }
         
         // Bresenham's line algorithm for normal movement
@@ -307,7 +262,6 @@ class PositionManager {
 
     /**
      * Check if two positions are adjacent
-     * Handles wrap-around adjacency for tunnel rows (col 0 and col 31 are adjacent)
      * @param {Object} pos1 - First position
      * @param {Object} pos2 - Second position
      * @returns {boolean} True if adjacent
@@ -317,14 +271,6 @@ class PositionManager {
         
         const rowDiff = Math.abs(pos1.row - pos2.row);
         let colDiff = Math.abs(pos1.col - pos2.col);
-        
-        // Check for wrap-around adjacency on tunnel rows
-        // If both positions are on the same wrap-around row and one is at col 0 and the other at col 31
-        if (rowDiff === 0 && hasWrapAround(pos1.row)) {
-            // Calculate wrapped column difference
-            const wrappedColDiff = MAZE_CONFIG.MAZE_COLS - colDiff;
-            colDiff = Math.min(colDiff, wrappedColDiff);
-        }
         
         return rowDiff <= 1 && colDiff <= 1 && !(rowDiff === 0 && colDiff === 0);
     }
@@ -373,10 +319,6 @@ class PositionManager {
             playerId: playerId,
             timestamp: Date.now()
         });
-        
-        if (position.row !== undefined && position.col !== undefined) {
-            this.lastGridPositions.set(playerId, { row: position.row, col: position.col });
-        }
         
         // Mark as recently respawned
         this.respawnedPlayers.set(playerId, Date.now());
@@ -441,7 +383,6 @@ class PositionManager {
             roomPositions.delete(playerId);
         }
         this.lastUpdateTime.delete(playerId);
-        this.lastGridPositions.delete(playerId);
         this.respawnedPlayers.delete(playerId);
     }
 
@@ -453,8 +394,6 @@ class PositionManager {
         const roomPositions = this.playerPositions.get(roomCode);
         if (roomPositions) {
             roomPositions.forEach((_, playerId) => {
-                this.lastUpdateTime.delete(playerId);
-                this.lastGridPositions.delete(playerId);
                 this.respawnedPlayers.delete(playerId);
             });
         }

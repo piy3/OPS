@@ -2024,8 +2024,16 @@ const Game: React.FC = () => {
       
       // Spawn portal 1 second ahead of player based on current speed
       const spawnDist = game.player.speed * 1;
-      const px = game.player.x + game.player.dirX * spawnDist;
-      const py = game.player.y + game.player.dirY * spawnDist;
+      let px = game.player.x + game.player.dirX * spawnDist;
+      let py = game.player.y + game.player.dirY * spawnDist;
+
+      // Clamp to valid grid so portal stays inside map and off lava border (0 and MAP_*-1 are lava)
+      let col = Math.floor(px / TILE_SIZE);
+      let row = Math.floor(py / TILE_SIZE);
+      col = Math.max(1, Math.min(MAP_W - 2, col));
+      row = Math.max(1, Math.min(MAP_H - 2, row));
+      px = col * TILE_SIZE + TILE_SIZE / 2;
+      py = row * TILE_SIZE + TILE_SIZE / 2;
 
       game.map.portals.push({
         x: px,

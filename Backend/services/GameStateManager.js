@@ -123,12 +123,11 @@ class GameStateManager {
                 name: player.name,
                 isUnicorn: player.isUnicorn,
                 coins: player.coins,
-                characterId: player.characterId, // Include character ID for avatar rendering
                 state: player.state || PLAYER_STATE.ACTIVE, // Include player state for frozen detection
                 position: positionManager.getPlayerPosition(roomCode, player.id)
             })),
             unicornIds: room.unicornIds ?? (room.unicornId ? [room.unicornId] : []),
-            unicornId: room.unicornIds?.[0] ?? room.unicornId ?? null,
+            unicornId: room.unicornIds?.[0] ?? room.unicornId ?? null, // not necessary to send it, but kept due to support legacy frontend code
             leaderboard: roomManager.getLeaderboard(roomCode),
             sinkholes: sinkholeManager.getActiveSinkholes(roomCode),
             sinkTraps: sinkTrapManager.getActiveCollectibles(roomCode),
@@ -205,7 +204,7 @@ class GameStateManager {
             return null;
         }
 
-        // Check if room is frozen (cheap set lookup)
+        // Check if room is frozen -- helpful while the blitz-quiz -- cheap lookup
         if (quizManager.isRoomFrozen(roomCode)) {
             return null;
         }
@@ -250,6 +249,9 @@ class GameStateManager {
             this._checkTagCollision(roomCode, playerId, oldPosition, validatedPosition, isUnicorn, io);
 
             // Check if any unicorn stepped on a sink trap (moving player's position + all other unicorns' positions)
+            // My Idea is to only check this if the current update is from unicorn but that might look like a bug because
+            // if unicorn just stays on the trap, it won't trigger, will only trigger when unicorn sends update-- this might
+            // look like a bug to users that Hey I can keep standing on the trap. Although the current implementation won't choke the cpu.
             const unicornIds = room.unicornIds ?? (room.unicornId ? [room.unicornId] : []);
             for (const uid of unicornIds) {
                 const pos = uid === playerId
@@ -647,17 +649,18 @@ class GameStateManager {
                 }
             }
         } else {
-            const caughtPlayer = room.players.find(p => {
-                if (p.id === playerId || p.isUnicorn) return false;
+            const caughtPlayers = [];
+            for (const p of room.players) {
+                if (p.id === playerId || p.isUnicorn) continue;
                 const playerPos = positionManager.getPlayerPosition(roomCode, p.id);
-                if (!playerPos) return false;
-                const crossedPlayer = pathCells.some(cell =>
+                if (!playerPos) continue;
+                const caught = pathCells.some(cell =>
                     cell.row === playerPos.row && cell.col === playerPos.col
-                );
-                return crossedPlayer ||
-                    (playerPos.row === newPosition.row && playerPos.col === newPosition.col);
-            });
-            if (caughtPlayer) {
+                ) || (playerPos.row === newPosition.row && playerPos.col === newPosition.col);
+
+                if (caught) caughtPlayers.push(p);
+            }
+            for (const caughtPlayer of caughtPlayers) {
                 this._handleTag(roomCode, playerId, caughtPlayer.id, io);
             }
         }

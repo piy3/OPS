@@ -162,30 +162,6 @@ export function registerGameHandlers(socket, io) {
         }
     });
 
-    // GAME EVENTS: Handle in-game actions/updates (non-position actions)
-    socket.on(SOCKET_EVENTS.CLIENT.GAME_ACTION, (actionData) => {
-        try {
-            const roomCode = roomManager.getRoomCodeForSocket(socket.id);
-            if (!roomCode) {
-                return; // Silently ignore if not in a room
-            }
-
-            const room = roomManager.getRoom(roomCode);
-            if (!room || room.status !== ROOM_STATUS.PLAYING) {
-                return; // Silently ignore if game not playing
-            }
-
-            // Broadcast action to all other players in the room
-            socket.to(roomCode).emit(SOCKET_EVENTS.SERVER.GAME_ACTION, {
-                playerId: socket.id,
-                action: actionData
-            });
-        } catch (error) {
-            log(`Error handling game action: ${error.message}`);
-            // Silently fail for game actions to avoid disrupting gameplay
-        }
-    });
-
     // GET GAME STATE: Request current game state (for late joiners or reconnection)
     // Also handles blitz quiz sync when clients miss BLITZ_START due to navigation timing
     socket.on(SOCKET_EVENTS.CLIENT.GET_GAME_STATE, () => {

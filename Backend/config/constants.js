@@ -2,22 +2,6 @@
  * Application constants and configuration
  */
 
-/**
- * Character IDs for player avatars
- * Each player in a room gets a unique character ID
- */
-export const CHARACTER_IDS = ['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
-
-/**
- * Get the next available character ID that is not already assigned in the room
- * @param {Array} players - Array of player objects with characterId property
- * @returns {string} The first available character ID
- */
-export const getNextAvailableCharacterId = (players) => {
-    const usedIds = new Set(players.map(p => p.characterId).filter(Boolean));
-    return CHARACTER_IDS.find(id => !usedIds.has(id)) || CHARACTER_IDS[0];
-};
-
 export const ROOM_CONFIG = {
     DEFAULT_MAX_PLAYERS: 30,
     ROOM_CODE_LENGTH: 6,
@@ -73,7 +57,7 @@ export const GAME_LOOP_CONFIG = {
     // Multiple Unicorns (30% of players, min 1)
     UNICORN_PERCENTAGE: 0.5,
     MIN_UNICORNS: 1,
-    MAX_UNICORNS: null,             // null = no cap; set to N to ensure at least one survivor
+    MAX_UNICORNS: 30,             // null = no cap; set to N to ensure at least one survivor
     
     // Reserve Unicorn (legacy: used only when refilling after unicorn disconnect if desired)
     RESERVE_UNICORN_ENABLED: false, // Disabled for multi-unicorn; refill from room when needed
@@ -224,7 +208,6 @@ export const SOCKET_EVENTS = {
         JOIN_ROOM: 'join_room',
         LEAVE_ROOM: 'leave_room',
         START_GAME: 'start_game',
-        GAME_ACTION: 'game_action',
         UPDATE_POSITION: 'update_position',
         GET_ROOM_INFO: 'get_room_info',
         GET_GAME_STATE: 'get_game_state',
@@ -324,7 +307,7 @@ export const MAZE_CONFIG = {
     MAZE_ROWS: 30,                           // Default rows (used when no mapConfig)
     BLOCK_SIZE: 4,                           // Roads are at multiples of this
     TILE_SIZE: 64,                           // Pixel size of each tile
-    WRAP_AROUND_ROWS: []                     // Not used in city map
+    // WRAP_AROUND_ROWS: []                     // Not used in city map
 };
 
 /**
@@ -332,7 +315,7 @@ export const MAZE_CONFIG = {
  * @param {number} row - Row index (0-based)
  * @returns {boolean} True if the row has wrap-around
  */
-export const hasWrapAround = (row) => MAZE_CONFIG.WRAP_AROUND_ROWS.includes(row);
+// export const hasWrapAround = (row) => MAZE_CONFIG.WRAP_AROUND_ROWS.includes(row);
 
 /**
  * Generate map configuration based on player count

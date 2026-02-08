@@ -298,10 +298,11 @@ class GameLoopManager {
 
         blitz.completed = true;
 
-        const pct = GAME_LOOP_CONFIG.UNICORN_PERCENTAGE ?? 0.3;
+        const pct = GAME_LOOP_CONFIG.UNICORN_PERCENTAGE ?? 0.5;
         const minU = GAME_LOOP_CONFIG.MIN_UNICORNS ?? 1;
-        const maxU = GAME_LOOP_CONFIG.MAX_UNICORNS ?? Infinity;
-        let unicornCount = Math.max(minU, Math.min(maxU, Math.ceil(room.players.length * pct)));
+        const maxU = GAME_LOOP_CONFIG.MAX_UNICORNS ?? 30;
+        let unicornCount = Math.max(minU, Math.min(maxU, Math.floor(room.players.length * pct)));
+
         unicornCount = Math.min(unicornCount, Math.max(1, room.players.length - 1)); // at least one survivor
 
         // Get correct answers sorted by response time

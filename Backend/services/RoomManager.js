@@ -3,7 +3,7 @@
  * Handles all room-related business logic
  */
 
-import { ROOM_CONFIG, ROOM_STATUS, COMBAT_CONFIG, PLAYER_STATE, GAME_LOOP_CONFIG, getNextAvailableCharacterId, getMapConfigForPlayerCount } from '../config/constants.js';
+import { ROOM_CONFIG, ROOM_STATUS, COMBAT_CONFIG, PLAYER_STATE, GAME_LOOP_CONFIG, getMapConfigForPlayerCount } from '../config/constants.js';
 import log from "../utils/logger.js"
 // Extract starting coins from config for easy reference
 const STARTING_COINS = ROOM_CONFIG.STARTING_COINS;
@@ -41,7 +41,6 @@ class RoomManager {
                 state: PLAYER_STATE.ACTIVE, // Player state
                 isImmune: false, // Immunity powerup
                 inIFrames: false, // Invincibility frames
-                characterId: getNextAvailableCharacterId([]) // Assign first character (host is first player)
             }],
             status: ROOM_STATUS.WAITING,
             createdAt: Date.now(),
@@ -131,7 +130,6 @@ class RoomManager {
             state: PLAYER_STATE.ACTIVE, // Player state
             isImmune: false, // Immunity powerup
             inIFrames: false, // Invincibility frames
-            characterId: getNextAvailableCharacterId(room.players) // Assign unique character
         };
 
         room.players.push(player);

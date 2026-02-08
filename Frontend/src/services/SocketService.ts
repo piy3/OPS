@@ -54,7 +54,6 @@ export const SOCKET_EVENTS = {
     JOIN_ROOM: 'join_room',
     LEAVE_ROOM: 'leave_room',
     START_GAME: 'start_game',
-    GAME_ACTION: 'game_action',
     UPDATE_POSITION: 'update_position',
     GET_ROOM_INFO: 'get_room_info',
     GET_GAME_STATE: 'get_game_state',
@@ -135,7 +134,6 @@ export interface Player {
   coins: number;
   health: number;
   state: 'active' | 'frozen' | 'immune' | 'in_iframes' | 'eliminated';
-  characterId: string;
   position?: {
     x: number;
     y: number;
