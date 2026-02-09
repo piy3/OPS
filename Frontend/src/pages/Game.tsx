@@ -13,7 +13,7 @@ const DEFAULT_MAP_WIDTH = 30;
 const DEFAULT_MAP_HEIGHT = 30;
 const PERSPECTIVE_STRENGTH = 0.4;
 const BASE_PLAYER_SPEED = 450;
-const UNICORN_SPEED_MULTIPLIER = 1.5;
+const UNICORN_SPEED_MULTIPLIER = 1.1;
 
 function getSpeedForRole(isUnicorn: boolean): number {
   return isUnicorn ? BASE_PLAYER_SPEED * UNICORN_SPEED_MULTIPLIER : BASE_PLAYER_SPEED;
