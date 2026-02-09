@@ -250,6 +250,7 @@ const Game: React.FC = () => {
   const remotePlayersRef = useRef<Map<string, RemotePlayer>>(new Map());
   
   const isUnicornRef = useRef(false);
+  const isFrozenRef = useRef(false);
   useEffect(() => {
     isUnicornRef.current = isUnicorn;
   }, [isUnicorn]);
@@ -564,6 +565,7 @@ const Game: React.FC = () => {
       // Hide role announcement when hunt starts
       setRoleAnnouncement(null);
       setGameState('playing');
+      isFrozenRef.current = false;
       setBlitzQuestion(null);
       setHuntTimeLeft(data.duration / 1000);
       setCurrentRound(data.roundInfo?.currentRound || 1);
@@ -707,6 +709,7 @@ const Game: React.FC = () => {
           // We got frozen - set state immediately so we show loading/frozen UI
           // The UNFREEZE_QUIZ_START event should follow shortly with quiz questions
           setGameState('frozen');
+          isFrozenRef.current = true;
           showStatus('YOU\'VE BEEN FROZEN!', '#00ffff', 2000);
           setScreenFlash({ color: '#00ffff', opacity: 0.5 });
           setTimeout(() => setScreenFlash(null), 300);
@@ -725,6 +728,7 @@ const Game: React.FC = () => {
           }, 3000);
         } else if (state === 'active') {
           // We're active again (unfrozen)
+          isFrozenRef.current = false;
           if (gameState === 'frozen') {
             setGameState('playing');
             setUnfreezeQuizData(null);
@@ -768,6 +772,7 @@ const Game: React.FC = () => {
     // Unfreeze quiz started (we got tagged and frozen)
     const unsubUnfreezeStart = socketService.on(SOCKET_EVENTS.SERVER.UNFREEZE_QUIZ_START, (data: any) => {
       setGameState('frozen');
+      isFrozenRef.current = true;
       setUnfreezeQuizData({
         questions: data.questions,
         passThreshold: data.passThreshold
@@ -778,6 +783,7 @@ const Game: React.FC = () => {
     const unsubUnfreezeComplete = socketService.on(SOCKET_EVENTS.SERVER.UNFREEZE_QUIZ_COMPLETE, (data: any) => {
       if (data.passed) {
         setGameState('playing');
+        isFrozenRef.current = false;
         setUnfreezeQuizData(null);
         lavaDeathReportedRef.current = false; // Reset so lava death can be reported again
         showStatus('UNFROZEN! Back in the game!', '#00ff00', 2000);
@@ -792,6 +798,7 @@ const Game: React.FC = () => {
     // Unfreeze quiz cancelled (blitz starting or game ending)
     const unsubUnfreezeCancelled = socketService.on(SOCKET_EVENTS.SERVER.UNFREEZE_QUIZ_CANCELLED, (data: any) => {
       setGameState('playing');
+      isFrozenRef.current = false;
       setUnfreezeQuizData(null);
       lavaDeathReportedRef.current = false; // Reset so lava death can be reported again
       showStatus(data.message || 'Quiz cancelled - you\'ve been unfrozen!', '#ffff00', 2000);
@@ -803,6 +810,7 @@ const Game: React.FC = () => {
       
       if (playerId === socketService.getSocketId()) {
         // We respawned - update our position
+        isFrozenRef.current = false;
         lavaDeathReportedRef.current = false; // Reset so lava death can be reported again
         if (gameRef.current && position) {
           gameRef.current.player.x = position.x || toPixel(position.row, position.col).x;
@@ -1938,7 +1946,7 @@ const Game: React.FC = () => {
         showStatus('⚡ DIFFICULTY UP! Everything is 20% faster!', '#ffcc00', 3000);
       }
 
-      let dx = 0, dy = 0;
+      if(!isFrozenRef.current) {let dx = 0, dy = 0;
       if (game.keys['ArrowUp'] || game.keys['KeyW']) dy = -1;
       if (game.keys['ArrowDown'] || game.keys['KeyS']) dy = 1;
       if (game.keys['ArrowLeft'] || game.keys['KeyA']) dx = -1;
@@ -1982,7 +1990,7 @@ const Game: React.FC = () => {
           game.player.dirY,
           { x: game.player.velX, y: game.player.velY }
         );
-      }
+      }}
 
       // Interpolate remote players in multiplayer mode
       if (isMultiplayerRef.current) {
