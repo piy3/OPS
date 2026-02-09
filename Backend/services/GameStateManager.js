@@ -811,8 +811,8 @@ class GameStateManager {
         const newPos = {
             row: spawnPos.row,
             col: spawnPos.col,
-            x: 0,
-            y: 0,
+            x: null, // sending null instead of (0,0) so that fronted would use row and col for first render of player at respawn position.
+            y: null,
             timestamp: Date.now()
         };
         positionManager.setPlayerPosition(roomCode, playerId, newPos);
