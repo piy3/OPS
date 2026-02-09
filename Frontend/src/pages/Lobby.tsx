@@ -359,18 +359,6 @@ const Lobby = () => {
                 </div>
               </div>
 
-              {/* Create Portal */}
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="w-8 h-8 rounded-lg bg-fuchsia-600 flex items-center justify-center text-white text-lg">◇</div>
-                  <span className="font-bold text-fuchsia-400">CREATE PORTAL</span>
-                </div>
-                <div className="flex gap-2 flex-wrap items-center">
-                  <kbd className="px-3 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">SPACE</kbd>
-                </div>
-                <p className="text-slate-500 text-xs mt-1">Place a portal ahead (requires full energy)</p>
-              </div>
-
               {/* Deploy Sink */}
               <div>
                 <div className="flex items-center gap-2 mb-2">
@@ -516,16 +504,6 @@ const Lobby = () => {
                 <kbd className="px-2.5 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">S</kbd>
                 <kbd className="px-2.5 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">D</kbd>
               </div>
-            </div>
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <div className="w-8 h-8 rounded-lg bg-fuchsia-600 flex items-center justify-center text-white text-lg">◇</div>
-                <span className="font-bold text-fuchsia-400">CREATE PORTAL</span>
-              </div>
-              <div className="flex gap-2 flex-wrap items-center">
-                <kbd className="px-3 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">SPACE</kbd>
-              </div>
-              <p className="text-slate-500 text-xs mt-1">Place a portal ahead (requires full energy)</p>
             </div>
             <div>
               <div className="flex items-center gap-2 mb-2">

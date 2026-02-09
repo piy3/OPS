@@ -10,8 +10,8 @@ const log = logger.log;
 
 // Sinkhole configuration
 const SINKHOLE_CONFIG = {
-    MAX_SINKHOLES: 6,              // Maximum sinkholes on map
-    INITIAL_SPAWN_COUNT: 4,        // Initial sinkholes at game start
+    MAX_SINKHOLES: 3,              // Maximum sinkholes on map
+    INITIAL_SPAWN_COUNT: 2,        // Initial sinkholes at game start
     SPAWN_INTERVAL_MIN: 15000,     // Min time between spawns (ms)
     SPAWN_INTERVAL_MAX: 25000,     // Max time between spawns (ms)
     TELEPORT_COOLDOWN: 2000,       // Cooldown after teleporting (ms)

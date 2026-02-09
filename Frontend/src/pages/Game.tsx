@@ -13,7 +13,7 @@ const DEFAULT_MAP_WIDTH = 30;
 const DEFAULT_MAP_HEIGHT = 30;
 const PERSPECTIVE_STRENGTH = 0.4;
 const BASE_PLAYER_SPEED = 450;
-const UNICORN_SPEED_MULTIPLIER = 1.1;
+const UNICORN_SPEED_MULTIPLIER = 1.2;
 
 function getSpeedForRole(isUnicorn: boolean): number {
   return isUnicorn ? BASE_PLAYER_SPEED * UNICORN_SPEED_MULTIPLIER : BASE_PLAYER_SPEED;
@@ -218,7 +218,6 @@ const Game: React.FC = () => {
   const [rewardPopup, setRewardPopup] = useState<{ text: string; color: string } | null>(null);
   const [sinkInventory, setSinkInventory] = useState(0);
   const [coinsCollected, setCoinsCollected] = useState(0);
-  const [energy, setEnergy] = useState(0);
   const [gameTime, setGameTime] = useState(0);
   const [screenFlash, setScreenFlash] = useState<{ color: string; opacity: number } | null>(null);
   
@@ -349,7 +348,6 @@ const Game: React.FC = () => {
     speedBoostApplied: boolean;
     coinsCollected: number;
     playerSinkInventory: number;
-    energy: number;
     lastTime: number;
     animationId: number | null;
     isPlaying: boolean;
@@ -1661,7 +1659,6 @@ const Game: React.FC = () => {
       speedBoostApplied: false,
       coinsCollected: 0,
       playerSinkInventory: 0,
-      energy: 0,
       lastTime: 0,
       animationId: null as number | null,
       isPlaying: false,
@@ -1886,42 +1883,6 @@ const Game: React.FC = () => {
       return actualDist;
     };
 
-    const trySpawnPortal = () => {
-      if (game.energy < 1) {
-        showStatus('ENERGY NOT FULL! Keep moving!', '#888', 500);
-        return;
-      }
-      
-      // Remove only player-created portals (keep permanent ones)
-      game.map.portals = game.map.portals.filter(p => !p.isPlayerCreated);
-      
-      // Spawn portal 1 second ahead of player based on current speed
-      const spawnDist = game.player.speed * 1;
-      let px = game.player.x + game.player.dirX * spawnDist;
-      let py = game.player.y + game.player.dirY * spawnDist;
-
-      // Clamp to valid grid so portal stays inside map and off lava border (0 and MAP_*-1 are lava)
-      let col = Math.floor(px / TILE_SIZE);
-      let row = Math.floor(py / TILE_SIZE);
-      col = Math.max(1, Math.min(MAP_W - 2, col));
-      row = Math.max(1, Math.min(MAP_H - 2, row));
-      px = col * TILE_SIZE + TILE_SIZE / 2;
-      py = row * TILE_SIZE + TILE_SIZE / 2;
-
-      game.map.portals.push({
-        x: px,
-        y: py,
-        color: '#ff00ff',
-        angle: 0,
-        life: 10.0,
-        isPlayerCreated: true,
-      });
-
-      game.energy = 0; // Consume energy
-      setEnergy(0);
-      showStatus('>> PORTAL CREATED <<', '#d0f');
-    };
-
     const deploySink = () => {
       if (game.playerSinkInventory <= 0) {
         showStatus('NO SINK TRAPS!', '#888', 500);
@@ -1983,12 +1944,6 @@ const Game: React.FC = () => {
 
       game.player.velX = dx * game.player.speed;
       game.player.velY = dy * game.player.speed;
-
-      // Energy recharge based on movement
-      if (dx !== 0 || dy !== 0) {
-        game.energy = Math.min(1, game.energy + dt * 0.3);
-        setEnergy(game.energy);
-      }
 
       attemptMove(
         game.player,
@@ -2584,9 +2539,6 @@ const Game: React.FC = () => {
     // Input handlers
     const handleKeyDown = (e: KeyboardEvent) => {
       game.keys[e.code] = true;
-      if (e.code === 'Space' && game.isPlaying) {
-        trySpawnPortal();
-      }
       if (e.code === 'KeyC' && game.isPlaying) {
         deploySink();
       }
@@ -3062,24 +3014,6 @@ const Game: React.FC = () => {
             <span className="text-amber-400 text-xs">({coinsCollected}/5)</span>
           </div> */}
 
-          {/* Energy Bar */}
-          <div className="mt-3">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-muted-foreground text-sm">Portal Energy:</span>
-              <span className={`text-xs ${energy >= 1 ? 'text-fuchsia-400' : 'text-muted-foreground'}`}>
-                {energy >= 1 ? 'READY!' : `${Math.floor(energy * 100)}%`}
-              </span>
-            </div>
-            <div className="h-3 bg-muted/30 rounded-full overflow-hidden border border-muted-foreground/30">
-              <div 
-                className={`h-full transition-all duration-100 ${
-                  energy >= 1 ? 'bg-fuchsia-500 animate-pulse' : 'bg-fuchsia-500/60'
-                }`}
-                style={{ width: `${energy * 100}%` }}
-              />
-            </div>
-          </div>
-
           {/* Sink Inventory */}
           <div className="mt-3 flex items-center gap-2">
             <span className="text-muted-foreground text-sm">Sink Traps:</span>
@@ -3103,10 +3037,6 @@ const Game: React.FC = () => {
           </div>
           
           <div className="mt-3 space-y-1">
-            {/*<p className="text-sm text-muted-foreground">WASD / Arrows to Move</p>*/}
-            <p className="text-sm text-muted-foreground">
-              <span className="text-fuchsia-500">SPACE</span>: Create Portal
-            </p>
             <p className="text-sm text-muted-foreground">
               <span className="text-orange-400">C</span>: Deploy Sink Trap
             </p>

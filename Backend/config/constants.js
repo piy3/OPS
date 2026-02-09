@@ -54,8 +54,8 @@ export const GAME_LOOP_CONFIG = {
     COIN_VALUE: 5,                  // Each coin worth 5 points
     BLITZ_WINNER_BONUS: 10,         // Bonus for winning Blitz Quiz
     
-    // Multiple Unicorns (30% of players, min 1)
-    UNICORN_PERCENTAGE: 0.5,
+    // Multiple Unicorns (20% of players, min 1)
+    UNICORN_PERCENTAGE: 0.2,
     MIN_UNICORNS: 1,
     MAX_UNICORNS: 30,             // null = no cap; set to N to ensure at least one survivor
     
@@ -69,7 +69,7 @@ export const GAME_LOOP_CONFIG = {
  */
 export const ROLE_CONFIG = {
     UNICORN: {
-        speedMultiplier: 1.5,       // 1.5x base speed
+        speedMultiplier: 1.2,       // 1.5x base speed
         abilities: ['tag'],          // Can only tag
         canCollectCoins: false,
         canUsePowerups: false
