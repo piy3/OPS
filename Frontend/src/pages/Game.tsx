@@ -351,6 +351,7 @@ const Game: React.FC = () => {
     lastTime: number;
     animationId: number | null;
     isPlaying: boolean;
+    floatingRewards: { text: string; x: number; y: number; createdAt: number }[];
   } | null>(null);
 
   // Initialize from location state (multiplayer only – must have room from lobby)
@@ -748,11 +749,16 @@ const Game: React.FC = () => {
 
       if (unicornId === myId) {
         soundService.playSfx('tag');
-        // I am the unicorn who tagged
-        const msg = `You tagged ${caughtName}! +${coinsGained ?? 15} coins!`;
-        showStatus(msg, '#ff00ff', 2000);
-        setRewardPopup({ text: msg, color: '#ff00ff' });
-        setTimeout(() => setRewardPopup(null), 2000);
+        showStatus(`You tagged ${caughtName}! +${coinsGained ?? 15} coins!`, '#ff00ff', 2000);
+        const game = gameRef.current;
+        if (game) {
+          game.floatingRewards.push({
+            text: '+15💰',
+            x: game.player.x,
+            y: game.player.y,
+            createdAt: Date.now(),
+          });
+        }
       } else if (caughtId !== myId) {
         // Someone else got tagged (not me)
         showStatus(`${caughtName} was caught by ${unicornName}!`, '#ff4400', 2000);
@@ -865,10 +871,13 @@ const Game: React.FC = () => {
       if (data.playerId === socketService.getSocketId()) {
         soundService.playSfx('coin');
         setCoinsCollected(data.newScore ?? game.coinsCollected + 1);
-        const msg = `+${data.value ?? 5} coins!`;
-        showStatus(msg, '#ffd700', 1500);
-        setRewardPopup({ text: msg, color: '#ffd700' });
-        setTimeout(() => setRewardPopup(null), 1500);
+        showStatus(`+${data.value ?? 5} coins!`, '#ffd700', 1500);
+        game.floatingRewards.push({
+          text: '+5💰',
+          x: game.player.x,
+          y: game.player.y,
+          createdAt: Date.now(),
+        });
       }
     });
 
@@ -1662,6 +1671,7 @@ const Game: React.FC = () => {
       lastTime: 0,
       animationId: null as number | null,
       isPlaying: false,
+      floatingRewards: [],
     };
     gameRef.current = game;
 
@@ -2352,6 +2362,30 @@ const Game: React.FC = () => {
         }
         ctx.restore();
       }
+
+      // Floating rewards above local player (world space)
+      const floatDuration = 1.5;
+      const tNow = Date.now();
+      ctx.save();
+      game.floatingRewards.forEach((r) => {
+        const elapsed = (tNow - r.createdAt) / 1000;
+        if (elapsed > floatDuration) return;
+        const alpha = 1 - (elapsed / floatDuration) ** 2;
+        const yOffsetPx = elapsed * 50;
+        const drawY = game.player.y - 30 - yOffsetPx;
+        ctx.globalAlpha = alpha;
+        ctx.font = 'bold 20px Arial';
+        ctx.textAlign = 'center';
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 3;
+        ctx.strokeText(r.text, game.player.x, drawY);
+        ctx.fillStyle = r.text === '+15💰' ? '#ff00ff' : '#ffd700';
+        ctx.fillText(r.text, game.player.x, drawY);
+      });
+      ctx.restore();
+      game.floatingRewards = game.floatingRewards.filter(
+        (r) => (tNow - r.createdAt) / 1000 <= floatDuration
+      );
 
       // Trees (top)
       ctx.fillStyle = C_TREE;
