@@ -60,7 +60,6 @@ export const SOCKET_EVENTS = {
     SUBMIT_QUIZ_ANSWER: 'submit_quiz_answer',
     BLITZ_ANSWER: 'blitz_answer',
     COLLECT_COIN: 'collect_coin',
-    COLLECT_POWERUP: 'collect_powerup',
     SUBMIT_UNFREEZE_QUIZ_ANSWER: 'submit_unfreeze_quiz_answer',
     ENTER_SINKHOLE: 'enter_sinkhole',
     COLLECT_SINK_TRAP: 'collect_sink_trap',
@@ -103,10 +102,6 @@ export const SOCKET_EVENTS = {
     HEALTH_UPDATE: 'health_update',
     COIN_SPAWNED: 'coin_spawned',
     COIN_COLLECTED: 'coin_collected',
-    POWERUP_SPAWNED: 'powerup_spawned',
-    POWERUP_COLLECTED: 'powerup_collected',
-    POWERUP_ACTIVATED: 'powerup_activated',
-    POWERUP_EXPIRED: 'powerup_expired',
     UNFREEZE_QUIZ_START: 'unfreeze_quiz_start',
     UNFREEZE_QUIZ_ANSWER_RESULT: 'unfreeze_quiz_answer_result',
     UNFREEZE_QUIZ_COMPLETE: 'unfreeze_quiz_complete',
@@ -133,7 +128,7 @@ export interface Player {
   isUnicorn: boolean;
   coins: number;
   health: number;
-  state: 'active' | 'frozen' | 'immune' | 'in_iframes' | 'eliminated';
+  state: 'active' | 'frozen' | 'in_iframes' | 'eliminated';
   position?: {
     x: number;
     y: number;
@@ -172,13 +167,6 @@ export interface Coin {
   col: number;
 }
 
-export interface Powerup {
-  id: string;
-  row: number;
-  col: number;
-  type: string;
-}
-
 export interface Sinkhole {
   id: string;
   row: number;
@@ -196,7 +184,6 @@ export interface GameState {
   phase: 'waiting' | 'blitz_quiz' | 'hunt' | 'round_end' | 'game_end';
   players: Record<string, Player>;
   coins: Coin[];
-  powerups: Powerup[];
   sinkholes: Sinkhole[];
   sinkTraps: SinkTrap[];
   deployedSinkTraps: SinkTrap[];
@@ -403,10 +390,6 @@ class SocketService {
 
   collectCoin(coinId: string) {
     this.emit(SOCKET_EVENTS.CLIENT.COLLECT_COIN, { coinId });
-  }
-
-  collectPowerup(powerupId: string) {
-    this.emit(SOCKET_EVENTS.CLIENT.COLLECT_POWERUP, { powerupId });
   }
 
   enterSinkhole(sinkholeId: string) {

@@ -109,7 +109,6 @@ export const COMBAT_CONFIG = {
     PLAYER_STATE: {
         ACTIVE: 'active',
         FROZEN: 'frozen',           // Cannot move, zero health
-        IMMUNE: 'immune',           // Has immunity powerup
         IN_IFRAMES: 'in_iframes'    // In invincibility frames
     }
 };
@@ -130,7 +129,6 @@ export const UNFREEZE_QUIZ_CONFIG = {
 export const PLAYER_STATE = {
     ACTIVE: 'active',
     FROZEN: 'frozen',
-    IMMUNE: 'immune',
     IN_IFRAMES: 'in_iframes'
 };
 
@@ -161,40 +159,6 @@ export const COIN_CONFIG = {
     ]
 };
 
-/**
- * Power-up Configuration
- * Immunity shields that protect from unicorn attacks
- */
-export const POWERUP_CONFIG = {
-    SPAWN_INTERVAL_MIN: 10000,      // Minimum 10 seconds between spawns
-    SPAWN_INTERVAL_MAX: 15000,      // Maximum 15 seconds between spawns
-    DURATION: 10000,                // 10 seconds of immunity
-    MAX_POWERUPS: 4,                // Maximum powerups on map at once
-    COLLECTION_RADIUS: 0,           // Player must be within 1 cell to collect
-    
-    // Types of powerups
-    TYPES: {
-        IMMUNITY: {
-            id: 'immunity',
-            name: 'Immunity Shield',
-            duration: 10000,
-            visual: 'shield_bubble'
-        }
-        // Future powerups can be added here:
-        // SPEED_BOOST: { id: 'speed', name: 'Speed Boost', duration: 5000, visual: 'speed_trails' }
-        // INVISIBILITY: { id: 'invisible', name: 'Invisibility', duration: 8000, visual: 'ghost' }
-    },
-    
-    // Predefined powerup spawn slots (row, col) - all on road intersections (multiples of 4)
-    SPAWN_SLOTS: [
-        { row: 8, col: 12 }, { row: 8, col: 36 },
-        { row: 16, col: 16 }, { row: 16, col: 32 },
-        { row: 24, col: 12 }, { row: 24, col: 36 },
-        { row: 32, col: 16 }, { row: 32, col: 32 },
-        { row: 40, col: 24 }
-    ]
-};
-
 export const SERVER_CONFIG = {
     PORT: process.env.PORT ? parseInt(process.env.PORT, 10) : 3000,
     CORS_ORIGIN: '*',
@@ -214,7 +178,6 @@ export const SOCKET_EVENTS = {
         SUBMIT_QUIZ_ANSWER: 'submit_quiz_answer',
         BLITZ_ANSWER: 'blitz_answer',           // Submit blitz quiz answer
         COLLECT_COIN: 'collect_coin',           // Request coin collection
-        COLLECT_POWERUP: 'collect_powerup',     // Request powerup collection
         SUBMIT_UNFREEZE_QUIZ_ANSWER: 'submit_unfreeze_quiz_answer',  // Submit unfreeze quiz answer
         ENTER_SINKHOLE: 'enter_sinkhole',       // Enter a sinkhole to teleport
         COLLECT_SINK_TRAP: 'collect_sink_trap', // Collect a sink trap item
@@ -260,11 +223,6 @@ export const SOCKET_EVENTS = {
         // Coin Events
         COIN_SPAWNED: 'coin_spawned',           // Coin spawned on map
         COIN_COLLECTED: 'coin_collected',       // Player collected a coin
-        // Power-up Events
-        POWERUP_SPAWNED: 'powerup_spawned',     // Power-up appeared on map
-        POWERUP_COLLECTED: 'powerup_collected', // Player collected a power-up
-        POWERUP_ACTIVATED: 'powerup_activated', // Power-up effect started
-        POWERUP_EXPIRED: 'powerup_expired',     // Power-up effect ended
         // Unfreeze Quiz Events
         UNFREEZE_QUIZ_START: 'unfreeze_quiz_start',           // Personal unfreeze quiz started
         UNFREEZE_QUIZ_ANSWER_RESULT: 'unfreeze_quiz_answer_result', // Feedback on submitted answer

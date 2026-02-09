@@ -3,8 +3,10 @@
  * Handles player positions, validation, spawn positions, and path calculations
  */
 
-import { GAME_CONFIG } from '../../config/constants.js';
+import { GAME_CONFIG, MAZE_CONFIG } from '../../config/constants.js';
 import log from '../../utils/logger.js';
+
+const TILE_SIZE = MAZE_CONFIG.TILE_SIZE;
 
 class PositionManager {
     constructor() {
@@ -206,8 +208,14 @@ class PositionManager {
             y: Math.max(MIN_Y, Math.min(MAX_Y, y))
         };
 
-        if (typeof row === 'number') validated.row = row;
-        if (typeof col === 'number') validated.col = col;
+        if (typeof row === 'number' && !Number.isNaN(row)) validated.row = row;
+        if (typeof col === 'number' && !Number.isNaN(col)) validated.col = col;
+        if (typeof validated.row !== 'number' || Number.isNaN(validated.row)) {
+            validated.row = Math.floor(validated.y / TILE_SIZE);
+        }
+        if (typeof validated.col !== 'number' || Number.isNaN(validated.col)) {
+            validated.col = Math.floor(validated.x / TILE_SIZE);
+        }
 
         return validated;
     }
@@ -332,8 +340,8 @@ class PositionManager {
     }
 
     setLastMoveWasTeleport(roomCode, playerId){
-        const lastTeleportPlayers = this.lastMoveWasTeleport.get(roomCode);
-        if(!lastTeleportPlayers) {
+        let lastTeleportPlayers = this.lastMoveWasTeleport.get(roomCode);
+        if (!lastTeleportPlayers) {
             lastTeleportPlayers = new Set();
             this.lastMoveWasTeleport.set(roomCode, lastTeleportPlayers);
         }

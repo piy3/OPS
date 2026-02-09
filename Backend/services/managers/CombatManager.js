@@ -59,10 +59,6 @@ class CombatManager {
      * @returns {Object} { canHit: boolean, reason?: string }
      */
     canHitPlayer(targetPlayer, targetId) {
-        if (targetPlayer.isImmune) {
-            return { canHit: false, reason: 'immune' };
-        }
-        
         if (targetPlayer.inIFrames || this.playerIFrames.has(targetId)) {
             return { canHit: false, reason: 'iframes' };
         }

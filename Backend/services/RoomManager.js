@@ -39,7 +39,6 @@ class RoomManager {
                 questions_correctly_answered: QUESTIONS_CORRECTLY_ANSWERED,
                 questions_attempted: QUESTIONS_ATTEMPTED,
                 state: PLAYER_STATE.ACTIVE, // Player state
-                isImmune: false, // Immunity powerup
                 inIFrames: false, // Invincibility frames
             }],
             status: ROOM_STATUS.WAITING,
@@ -128,7 +127,6 @@ class RoomManager {
             questions_correctly_answered: QUESTIONS_CORRECTLY_ANSWERED,
             questions_attempted: QUESTIONS_ATTEMPTED,
             state: PLAYER_STATE.ACTIVE, // Player state
-            isImmune: false, // Immunity powerup
             inIFrames: false, // Invincibility frames
         };
 
@@ -492,24 +490,6 @@ class RoomManager {
     }
 
     /**
-     * Set player immunity status
-     * @param {string} roomCode - Room code
-     * @param {string} playerId - Player socket ID
-     * @param {boolean} isImmune - Whether player is immune
-     * @returns {Object|null} Updated player object or null
-     */
-    setPlayerImmunity(roomCode, playerId, isImmune) {
-        const room = this.rooms.get(roomCode);
-        if (!room) return null;
-
-        const player = room.players.find(p => p.id === playerId);
-        if (!player) return null;
-
-        player.isImmune = isImmune;
-        return player;
-    }
-
-    /**
      * Get player by ID
      * @param {string} roomCode - Room code
      * @param {string} playerId - Player socket ID
@@ -534,7 +514,6 @@ class RoomManager {
             player.health = COMBAT_CONFIG.STARTING_HEALTH;
             player.state = PLAYER_STATE.ACTIVE;
             player.inIFrames = false;
-            player.isImmune = false;
         });
     }
 

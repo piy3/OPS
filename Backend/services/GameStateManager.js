@@ -5,7 +5,6 @@
  * - PositionManager: Player positions, validation, spawn logic
  * - CombatManager: Combat, health, i-frames, knockback
  * - CoinManager: Coin spawning and collection
- * - PowerupManager: Powerup spawning, collection, activation
  * - QuizManager: Tag quiz handling
  * - GameLoopManager: Game phases, blitz quiz, hunt timing
  * 
@@ -14,7 +13,9 @@
 
 import roomManager from './RoomManager.js';
 import quizizzService from './QuizizzService.js';
-import { SOCKET_EVENTS, GAME_PHASE, GAME_LOOP_CONFIG, COMBAT_CONFIG, PLAYER_STATE, UNFREEZE_QUIZ_CONFIG, ROOM_STATUS } from '../config/constants.js';
+import { SOCKET_EVENTS, GAME_PHASE, GAME_LOOP_CONFIG, COMBAT_CONFIG, PLAYER_STATE, UNFREEZE_QUIZ_CONFIG, ROOM_STATUS, MAZE_CONFIG } from '../config/constants.js';
+
+const TILE_SIZE = MAZE_CONFIG.TILE_SIZE;
 import { getRandomQuestions } from '../config/questions.js';
 import log from '../utils/logger.js';
 
@@ -22,7 +23,6 @@ import log from '../utils/logger.js';
 import positionManager from './managers/PositionManager.js';
 import combatManager from './managers/CombatManager.js';
 import coinManager from './managers/CoinManager.js';
-import powerupManager from './managers/PowerupManager.js';
 import quizManager from './managers/QuizManager.js';
 import gameLoopManager from './managers/GameLoopManager.js';
 import sinkholeManager from './managers/SinkholeManager.js';
@@ -77,7 +77,6 @@ class GameStateManager {
             });
         }
         coinManager.cleanupRoom(roomCode);
-        powerupManager.cleanupRoom(roomCode);
         quizManager.clearQuizState(roomCode);
         gameLoopManager.cleanupRoom(roomCode);
         sinkholeManager.cleanupRoom(roomCode);
@@ -242,31 +241,66 @@ class GameStateManager {
             // Check coin collection (survivors only)
             if (!isUnicorn) {
                 this._checkCoinCollection(roomCode, playerId, validatedPosition, io);
-                this._checkPowerupCollection(roomCode, playerId, validatedPosition, io);
             }
 
             // Check tag collision
             this._checkTagCollision(roomCode, playerId, oldPosition, validatedPosition, isUnicorn, io);
 
             // Check if any unicorn stepped on a sink trap (moving player's position + all other unicorns' positions)
-            // My Idea is to only check this if the current update is from unicorn but that might look like a bug because
-            // if unicorn just stays on the trap, it won't trigger, will only trigger when unicorn sends update-- this might
-            // look like a bug to users that Hey I can keep standing on the trap. Although the current implementation won't choke the cpu.
             const unicornIds = room.unicornIds ?? (room.unicornId ? [room.unicornId] : []);
+            const deployedCount = (sinkTrapManager.getDeployedTraps(roomCode) || []).length;
+            if (isUnicorn && deployedCount > 0 && !this._lastSinkTrapLog) this._lastSinkTrapLog = 0;
+            const now = Date.now();
+            const shouldLogSinkTrap = isUnicorn && deployedCount > 0 && (now - (this._lastSinkTrapLog || 0) > 2000);
+            if (shouldLogSinkTrap) this._lastSinkTrapLog = now;
+
             for (const uid of unicornIds) {
                 const pos = uid === playerId
-                    ? { row: updatedPosition.row, col: updatedPosition.col }
+                    ? { row: updatedPosition.row, col: updatedPosition.col, x: updatedPosition.x, y: updatedPosition.y }
                     : positionManager.getPlayerPosition(roomCode, uid);
                 if (!pos) continue;
-                const triggeredTrapId = sinkTrapManager.checkTrapTrigger(roomCode, { row: pos.row, col: pos.col });
+                const gridRow = typeof pos.row === 'number' && !Number.isNaN(pos.row)
+                    ? pos.row
+                    : Math.floor((pos.y ?? 0) / TILE_SIZE);
+                const gridCol = typeof pos.col === 'number' && !Number.isNaN(pos.col)
+                    ? pos.col
+                    : Math.floor((pos.x ?? 0) / TILE_SIZE);
+
+                // For the moving unicorn: check every cell along the path so we don't miss a trap when updates are throttled
+                let triggeredTrapId = null;
+                let pathLength = 0;
+                if (uid === playerId && isUnicorn && oldPosition) {
+                    const oldRow = typeof oldPosition.row === 'number' && !Number.isNaN(oldPosition.row)
+                        ? oldPosition.row
+                        : Math.floor((oldPosition.y ?? 0) / TILE_SIZE);
+                    const oldCol = typeof oldPosition.col === 'number' && !Number.isNaN(oldPosition.col)
+                        ? oldPosition.col
+                        : Math.floor((oldPosition.x ?? 0) / TILE_SIZE);
+                    const path = positionManager.getCellsInPath(
+                        { row: oldRow, col: oldCol },
+                        { row: gridRow, col: gridCol }
+                    );
+                    pathLength = path.length;
+                    for (const cell of path) {
+                        triggeredTrapId = sinkTrapManager.checkTrapTrigger(roomCode, cell, false);
+                        if (triggeredTrapId) break;
+                    }
+                }
+                if (!triggeredTrapId) {
+                    triggeredTrapId = sinkTrapManager.checkTrapTrigger(roomCode, { row: gridRow, col: gridCol }, shouldLogSinkTrap);
+                }
+
+                if (shouldLogSinkTrap && uid === playerId) {
+                    log.info(`[SinkTrap] room=${roomCode} phase=HUNT unicornId=${playerId} grid=(${gridRow},${gridCol}) pathCells=${pathLength} deployedTraps=${deployedCount} triggered=${!!triggeredTrapId}`);
+                }
+
                 if (triggeredTrapId) {
                     const uPlayer = room.players.find(p => p.id === uid);
-                    // Teleport unicorn to a valid road with no other players (same as respawn)
                     const destinationPosition = positionManager.findFreeSpawnPosition(roomCode, uid, room.players, room.mapConfig);
                     sinkTrapManager.triggerTrap(
                         roomCode, triggeredTrapId, uid, uPlayer?.name || 'Unicorn', io,
                         (code, id, position) => positionManager.setPlayerPosition(code, id, position),
-                        (code, playerId) => positionManager.setLastMoveWasTeleport(code, playerId),
+                        (code, pId) => positionManager.setLastMoveWasTeleport(code, pId),
                         destinationPosition,
                     );
                     break;
@@ -297,7 +331,6 @@ class GameStateManager {
     removePlayerPosition(roomCode, playerId) {
         positionManager.removePlayerPosition(roomCode, playerId);
         combatManager.cleanupPlayer(playerId);
-        powerupManager.cleanupPlayerImmunity(playerId);
         this.cleanupUnfreezeQuiz(roomCode, playerId);
     }
 
@@ -308,7 +341,6 @@ class GameStateManager {
         positionManager.cleanupRoom(roomCode);
         gameLoopManager.cleanupRoom(roomCode);
         coinManager.cleanupRoom(roomCode);
-        powerupManager.cleanupRoom(roomCode);
     }
 
     /**
@@ -326,7 +358,6 @@ class GameStateManager {
             (code) => roomManager.getRoom(code),
             (code, socket) => {
                 coinManager.cleanupRoom(code);
-                powerupManager.cleanupRoom(code);
                 setTimeout(() => {
                     this._startNewBlitz(code, socket);
                 }, 2000);
@@ -354,13 +385,6 @@ class GameStateManager {
      */
     getActiveCoins(roomCode) {
         return coinManager.getActiveCoins(roomCode);
-    }
-
-    /**
-     * Get active powerups in a room
-     */
-    getActivePowerups(roomCode) {
-        return powerupManager.getActivePowerups(roomCode);
     }
 
     /**
@@ -445,7 +469,6 @@ class GameStateManager {
                 // Pass mapConfig to managers so they filter spawn slots by map size
                 const mapConfig = room.mapConfig;
                 coinManager.initializeCoins(code, socket, mapConfig);
-                powerupManager.startSpawning(code, socket, (c) => gameLoopManager.getGamePhase(c), mapConfig);
                 sinkholeManager.initializeSinkholes(code, socket, mapConfig);
                 sinkTrapManager.initializeSinkTraps(code, socket, mapConfig);
             },
@@ -533,7 +556,6 @@ class GameStateManager {
             });
         }
         coinManager.cleanupRoom(roomCode);
-        powerupManager.cleanupRoom(roomCode);
         quizManager.clearQuizState(roomCode);
         gameLoopManager.cleanupRoom(roomCode);
         sinkholeManager.cleanupRoom(roomCode);
@@ -692,7 +714,7 @@ class GameStateManager {
         const survivorPlayer = room.players.find(p => p.id === survivorId);
         if (!unicornPlayer || !survivorPlayer) return;
 
-        // Check if survivor can be hit (not already frozen, not immune, not in i-frames)
+        // Check if survivor can be hit (not already frozen, not in i-frames)
         const hitCheck = combatManager.canHitPlayer(survivorPlayer, survivorId);
         if (!hitCheck.canHit) {
             log.debug(`Cannot tag ${survivorPlayer.name}: ${hitCheck.reason}`);
@@ -1166,26 +1188,6 @@ class GameStateManager {
         );
     }
 
-    /**
-     * Check for powerup collection
-     */
-    _checkPowerupCollection(roomCode, playerId, position, io) {
-        const room = roomManager.getRoom(roomCode);
-        const player = room?.players.find(p => p.id === playerId);
-        if (!player) return;
-
-        const powerupId = powerupManager.getCollectiblePowerupAtPosition(roomCode, position);
-        if (!powerupId) return;
-
-        powerupManager.collectPowerup(
-            roomCode,
-            playerId,
-            powerupId,
-            player.name,
-            io,
-            (code, id, value) => roomManager.setPlayerImmunity(code, id, value)
-        );
-    }
 }
 
 // Export singleton instance

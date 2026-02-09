@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeft, RefreshCw, Trophy, X, Shield, Users } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Trophy, X, Users } from 'lucide-react';
 import socketService, { SOCKET_EVENTS, toGrid, toPixel, Room, Player as SocketPlayer, GameState as SocketGameState, Coin as SocketCoin, MapConfig } from '@/services/SocketService';
 import BlitzQuiz from '@/components/BlitzQuiz';
 import UnfreezeQuiz from '@/components/UnfreezeQuiz';
@@ -20,10 +20,7 @@ function getSpeedForRole(isUnicorn: boolean): number {
 }
 
 const BASE_ENEMY_SPEED = 500;
-const IMMUNITY_DURATION = 10; // seconds
 const COLLECTIBLES_START_TIME = 30; // seconds before collectibles appear
-const COINS_FOR_IMMUNITY = 5; // coins needed for 1 stored immunity
-const MAX_IMMUNITY_INVENTORY = 3; // max stored immunities
 
 // Colors
 const C_ROAD = '#2a2a2a';
@@ -98,15 +95,6 @@ interface Coin {
   x: number;
   y: number;
   collected: boolean;
-  spawnTime: number;
-}
-
-// Immunity pickup (direct 10s immunity when collected)
-interface ImmunityPickup {
-  x: number;
-  y: number;
-  collected: boolean;
-  quadrant: number;
   spawnTime: number;
 }
 
@@ -230,9 +218,6 @@ const Game: React.FC = () => {
   const [rewardPopup, setRewardPopup] = useState<{ text: string; color: string } | null>(null);
   const [sinkInventory, setSinkInventory] = useState(0);
   const [coinsCollected, setCoinsCollected] = useState(0);
-  const [immunityInventory, setImmunityInventory] = useState(0);
-  const [immunityActive, setImmunityActive] = useState(false);
-  const [immunityTimeLeft, setImmunityTimeLeft] = useState(0);
   const [energy, setEnergy] = useState(0);
   const [gameTime, setGameTime] = useState(0);
   const [screenFlash, setScreenFlash] = useState<{ color: string; opacity: number } | null>(null);
@@ -341,7 +326,6 @@ const Game: React.FC = () => {
     player: Player;
     enemies: Enemy[];
     coins: Coin[];
-    immunityPickups: ImmunityPickup[];
     sinkCollectibles: SinkCollectible[];
     deployedSinks: DeployedSink[];
     map: {
@@ -357,18 +341,13 @@ const Game: React.FC = () => {
     gameTime: number;
     enemySpawnTimer: number;
     coinSpawnTimer: number;
-    immunityPickupSpawnTimer: number;
     sinkSpawnTimer: number;
     nextCoinSpawnTime: number;
-    nextImmunityPickupSpawnTime: number;
     nextSinkSpawnTime: number;
     collectiblesInitialized: boolean;
     coinsInitialized: boolean;
     speedBoostApplied: boolean;
-    immunityActive: boolean;
-    immunityEndTime: number;
     coinsCollected: number;
-    immunityInventory: number;
     playerSinkInventory: number;
     energy: number;
     lastTime: number;
@@ -602,8 +581,7 @@ const Game: React.FC = () => {
       if (gameRef.current) {
         gameRef.current.player.speed = getSpeedForRole(amUnicorn ?? false);
       }
-      // Flush stored immunity and sink trap inventory at start of each hunt round
-      setImmunityInventory(0);
+      // Flush sink trap inventory at start of each hunt round
       setSinkInventory(0);
       if (gameRef.current) {
         if (isMultiplayerRef.current) {
@@ -615,7 +593,6 @@ const Game: React.FC = () => {
           gameRef.current.deployedSinks = [];
           // So only current hunt's server events (COIN_SPAWNED, SINK_TRAP_*, etc.) apply
         }
-        gameRef.current.immunityInventory = 0;
         gameRef.current.playerSinkInventory = 0;
         gameRef.current.isPlaying = true;
       }
@@ -1366,76 +1343,6 @@ const Game: React.FC = () => {
     ctx.restore();
   };
 
-  // Draw immunity pickup - Lightning bolt with shield icon
-  const drawImmunityPickup = (ctx: CanvasRenderingContext2D, pickup: ImmunityPickup) => {
-    const time = Date.now() * 0.005 + pickup.spawnTime;
-    const pulse = 0.8 + Math.sin(time * 3) * 0.2;
-    const bob = Math.sin(time * 2) * 4;
-    
-    ctx.save();
-    ctx.translate(pickup.x, pickup.y + bob);
-    
-    // Electric glow effect
-    ctx.shadowColor = '#00ffff';
-    ctx.shadowBlur = 30 * pulse;
-    
-    // Outer glowing circle
-    const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, 20 * pulse);
-    gradient.addColorStop(0, 'rgba(0, 255, 255, 0.9)');
-    gradient.addColorStop(0.5, 'rgba(0, 200, 255, 0.6)');
-    gradient.addColorStop(1, 'rgba(0, 100, 255, 0)');
-    ctx.fillStyle = gradient;
-    ctx.beginPath();
-    ctx.arc(0, 0, 20 * pulse, 0, Math.PI * 2);
-    ctx.fill();
-    
-    // Core circle
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = '#001133';
-    ctx.beginPath();
-    ctx.arc(0, 0, 14, 0, Math.PI * 2);
-    ctx.fill();
-    
-    // Shield icon
-    ctx.fillStyle = '#00ffff';
-    ctx.shadowColor = '#00ffff';
-    ctx.shadowBlur = 10;
-    ctx.beginPath();
-    ctx.moveTo(0, -9);
-    ctx.lineTo(8, -5);
-    ctx.lineTo(8, 2);
-    ctx.quadraticCurveTo(8, 9, 0, 12);
-    ctx.quadraticCurveTo(-8, 9, -8, 2);
-    ctx.lineTo(-8, -5);
-    ctx.closePath();
-    ctx.fill();
-    
-    // Inner shield highlight
-    ctx.fillStyle = '#001133';
-    ctx.beginPath();
-    ctx.moveTo(0, -5);
-    ctx.lineTo(4, -3);
-    ctx.lineTo(4, 1);
-    ctx.quadraticCurveTo(4, 5, 0, 7);
-    ctx.quadraticCurveTo(-4, 5, -4, 1);
-    ctx.lineTo(-4, -3);
-    ctx.closePath();
-    ctx.fill();
-    
-    // Electric arcs around
-    ctx.strokeStyle = '#00ffff';
-    ctx.lineWidth = 2;
-    for (let i = 0; i < 3; i++) {
-      const angle = time * 3 + (i * Math.PI * 2 / 3);
-      const dist = 18;
-      ctx.beginPath();
-      ctx.arc(Math.cos(angle) * dist, Math.sin(angle) * dist, 3, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-    
-    ctx.restore();
-  };
-
   // Draw sink collectible - Blackhole vortex icon
   const drawSinkCollectible = (ctx: CanvasRenderingContext2D, sink: SinkCollectible) => {
     const time = Date.now() * 0.004 + sink.spawnTime;
@@ -1548,7 +1455,7 @@ const Game: React.FC = () => {
     ctx.restore();
   };
 
-  // Draw isometric Qbit with immunity effect
+  // Draw isometric Qbit
   const drawQbitIsometric = (
     ctx: CanvasRenderingContext2D,
     x: number,
@@ -1557,7 +1464,6 @@ const Game: React.FC = () => {
     dirY: number,
     isPlayer: boolean,
     isWalking: boolean,
-    hasImmunity: boolean = false,
     isUnicornChar: boolean = false
   ) => {
     ctx.save();
@@ -1617,28 +1523,6 @@ const Game: React.FC = () => {
       ctx.stroke();
       ctx.globalAlpha = 1;
       ctx.shadowBlur = 0;
-      ctx.restore();
-    }
-
-    // Immunity shield effect
-    if (hasImmunity && isPlayer) {
-      ctx.save();
-      ctx.rotate(-(angle + Math.PI / 2)); // Counter-rotate for screen-aligned shield
-      const shieldPulse = 0.8 + Math.sin(Date.now() * 0.01) * 0.2;
-      ctx.strokeStyle = '#00ffff';
-      ctx.lineWidth = 4;
-      ctx.globalAlpha = 0.6 + Math.sin(Date.now() * 0.008) * 0.3;
-      ctx.beginPath();
-      ctx.arc(0, 0, 35 * shieldPulse, 0, Math.PI * 2);
-      ctx.stroke();
-      
-      // Inner shield glow
-      ctx.globalAlpha = 0.2;
-      ctx.fillStyle = '#00ffff';
-      ctx.beginPath();
-      ctx.arc(0, 0, 30, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalAlpha = 1;
       ctx.restore();
     }
 
@@ -1754,7 +1638,6 @@ const Game: React.FC = () => {
       },
       enemies: [] as Enemy[],
       coins: [] as Coin[],
-      immunityPickups: [] as ImmunityPickup[],
       sinkCollectibles: [] as SinkCollectible[],
       deployedSinks: [] as DeployedSink[],
       map: {
@@ -1770,18 +1653,13 @@ const Game: React.FC = () => {
       gameTime: 0,
       enemySpawnTimer: 0,
       coinSpawnTimer: 0,
-      immunityPickupSpawnTimer: 0,
       sinkSpawnTimer: 0,
       nextCoinSpawnTime: 10 + Math.random() * 5,
-      nextImmunityPickupSpawnTime: 20 + Math.random() * 10,
       nextSinkSpawnTime: 25 + Math.random() * 10,
       collectiblesInitialized: false,
       coinsInitialized: false,
       speedBoostApplied: false,
-      immunityActive: false,
-      immunityEndTime: 0,
       coinsCollected: 0,
-      immunityInventory: 0,
       playerSinkInventory: 0,
       energy: 0,
       lastTime: 0,
@@ -1934,21 +1812,15 @@ const Game: React.FC = () => {
       game.enemies = [];
       game.enemySpawnTimer = 0;
       game.coinSpawnTimer = 0;
-      game.immunityPickupSpawnTimer = 0;
       game.sinkSpawnTimer = 0;
       game.nextCoinSpawnTime = 10 + Math.random() * 5;
-      game.nextImmunityPickupSpawnTime = 20 + Math.random() * 10;
       game.nextSinkSpawnTime = 25 + Math.random() * 10;
       game.collectiblesInitialized = false;
       game.coinsInitialized = false;
       game.speedBoostApplied = false;
-      game.immunityActive = false;
-      game.immunityEndTime = 0;
       game.coinsCollected = 0;
-      game.immunityInventory = 0;
       game.playerSinkInventory = 0;
       game.coins = [];
-      game.immunityPickups = [];
       game.sinkCollectibles = [];
       game.deployedSinks = [];
 
@@ -2075,28 +1947,6 @@ const Game: React.FC = () => {
       }
     };
 
-    const activateImmunity = () => {
-      if (game.immunityInventory <= 0) {
-        showStatus('NO IMMUNITY STORED! Collect 5 coins', '#888', 500);
-        return;
-      }
-      if (game.immunityActive) {
-        showStatus('IMMUNITY ALREADY ACTIVE!', '#888', 500);
-        return;
-      }
-      
-      game.immunityInventory--;
-      setImmunityInventory(game.immunityInventory);
-      game.immunityActive = true;
-      game.immunityEndTime = game.gameTime + IMMUNITY_DURATION;
-      setImmunityActive(true);
-      showStatus('🛡️ IMMUNITY ACTIVATED! 10 seconds', '#00ffff', 2000);
-      
-      // Screen flash effect
-      setScreenFlash({ color: '#00ffff', opacity: 0.3 });
-      setTimeout(() => setScreenFlash(null), 200);
-    };
-
     const update = (dt: number) => {
       if (!game.isPlaying) return;
       
@@ -2115,18 +1965,6 @@ const Game: React.FC = () => {
           enemy.speed = enemy.speed * 1.2;
         });
         showStatus('⚡ DIFFICULTY UP! Everything is 20% faster!', '#ffcc00', 3000);
-      }
-
-      // Handle immunity expiration
-      if (game.immunityActive && game.gameTime >= game.immunityEndTime) {
-        game.immunityActive = false;
-        setImmunityActive(false);
-        showStatus('Immunity ended!', '#888', 1000);
-      }
-      
-      // Update immunity time left for UI
-      if (game.immunityActive) {
-        setImmunityTimeLeft(Math.max(0, game.immunityEndTime - game.gameTime));
       }
 
       let dx = 0, dy = 0;
@@ -2421,13 +2259,6 @@ const Game: React.FC = () => {
         }
       });
 
-      // Draw immunity pickups
-      game.immunityPickups.forEach(pickup => {
-        if (!pickup.collected) {
-          drawImmunityPickup(ctx, pickup);
-        }
-      });
-
       // Draw sink collectibles
       game.sinkCollectibles.forEach(sink => {
         if (!sink.collected) {
@@ -2438,12 +2269,12 @@ const Game: React.FC = () => {
       // Entities - Draw trails
       const isPlayerWalking = game.player.velX !== 0 || game.player.velY !== 0;
 
-      // Player trail - changes color when immune; unicorn uses same palette as remote unicorns
+      // Player trail; unicorn uses same palette as remote unicorns
       ctx.lineWidth = game.player.width * 0.8;
       ctx.lineCap = 'round';
       ctx.strokeStyle = isUnicornRef.current
         ? 'rgba(255, 0, 255, 0.3)'
-        : game.immunityActive ? 'rgba(0, 255, 255, 0.5)' : 'rgba(0, 255, 255, 0.2)';
+        : 'rgba(0, 255, 255, 0.2)';
       ctx.beginPath();
       if (game.player.trail.length > 0) {
         ctx.moveTo(game.player.trail[0].x, game.player.trail[0].y);
@@ -2506,7 +2337,6 @@ const Game: React.FC = () => {
             remotePlayer.dirY,
             false, // not local player
             !remotePlayer.isFrozen,  // not walking if frozen
-            false, // no immunity visual
             remotePlayer.isUnicorn // pass unicorn status for special coloring
           );
           ctx.restore();
@@ -2539,7 +2369,7 @@ const Game: React.FC = () => {
         });
       }
 
-      // Draw player with isometric Qbit (with immunity effect)
+      // Draw player with isometric Qbit
       drawQbitIsometric(
         ctx,
         game.player.x,
@@ -2548,7 +2378,6 @@ const Game: React.FC = () => {
         game.player.dirY,
         true,
         isPlayerWalking,
-        game.immunityActive,
         isUnicornRef.current // pass our unicorn status
       );
       
@@ -2685,16 +2514,6 @@ const Game: React.FC = () => {
         }
       });
 
-      // Immunity pickups on minimap
-      minimapCtx.fillStyle = '#00ffff';
-      game.immunityPickups.forEach((p) => {
-        if (!p.collected) {
-          minimapCtx.beginPath();
-          minimapCtx.arc((p.x * sc) / TILE_SIZE, (p.y * sc) / TILE_SIZE, 3, 0, Math.PI * 2);
-          minimapCtx.fill();
-        }
-      });
-
       // Sink collectibles on minimap
       minimapCtx.fillStyle = '#ff6600';
       game.sinkCollectibles.forEach((s) => {
@@ -2771,9 +2590,6 @@ const Game: React.FC = () => {
       if (e.code === 'KeyC' && game.isPlaying) {
         deploySink();
       }
-      if (e.code === 'KeyV' && game.isPlaying) {
-        activateImmunity();
-      }
     };
     const handleKeyUp = (e: KeyboardEvent) => {
       game.keys[e.code] = false;
@@ -2805,25 +2621,17 @@ const Game: React.FC = () => {
       game.map.trees = [];
       game.map.portals = [];
       game.coins = [];
-      game.immunityPickups = [];
       game.sinkCollectibles = [];
       game.deployedSinks = [];
       game.coinSpawnTimer = 0;
-      game.immunityPickupSpawnTimer = 0;
       game.sinkSpawnTimer = 0;
       game.speedBoostApplied = false;
-      game.immunityActive = false;
-      game.immunityEndTime = 0;
       game.coinsCollected = 0;
-      game.immunityInventory = 0;
       game.playerSinkInventory = 0;
       game.gameTime = 0;
       game.player.speed = getSpeedForRole(isUnicornRef.current);
       setSinkInventory(0);
       setCoinsCollected(0);
-      setImmunityInventory(0);
-      setImmunityActive(false);
-      setImmunityTimeLeft(0);
 
       for (let y = 0; y < MAP_HEIGHT; y++) {
         const row: number[] = [];
@@ -3234,15 +3042,6 @@ const Game: React.FC = () => {
             )}
           </div>
 
-          {/* Immunity Indicator */}
-          {immunityActive && (
-            <div className="mt-2 bg-cyan-500/20 border border-cyan-400 rounded-lg px-3 py-2 animate-pulse">
-              <span className="text-cyan-400 font-bold flex items-center gap-2">
-                <Shield size={18} /> IMMUNE! {immunityTimeLeft.toFixed(1)}s
-              </span>
-            </div>
-          )}
-
           {/* Coin Counter */}
           {/* <div className="mt-3 flex items-center gap-2">
             <span className="text-muted-foreground text-sm">Coins:</span>
@@ -3261,28 +3060,6 @@ const Game: React.FC = () => {
               ))}
             </div>
             <span className="text-amber-400 text-xs">({coinsCollected}/5)</span>
-          </div> */}
-
-          {/* Immunity Inventory */}
-          {/* <div className="mt-2 flex items-center gap-2">
-            <span className="text-muted-foreground text-sm">Stored Immunity:</span>
-            <div className="flex gap-1">
-              {[0, 1, 2].map(i => (
-                <div
-                  key={i}
-                  className={`w-6 h-6 rounded border-2 flex items-center justify-center
-                    ${i < immunityInventory 
-                      ? 'bg-cyan-500/30 border-cyan-400 text-cyan-400' 
-                      : 'bg-muted/20 border-muted-foreground/30 text-muted-foreground/30'
-                    }`}
-                >
-                  <Shield size={12} />
-                </div>
-              ))}
-            </div>
-            {immunityInventory > 0 && (
-              <span className="text-cyan-400 text-xs">(Press V)</span>
-            )}
           </div> */}
 
           {/* Energy Bar */}
@@ -3333,9 +3110,6 @@ const Game: React.FC = () => {
             <p className="text-sm text-muted-foreground">
               <span className="text-orange-400">C</span>: Deploy Sink Trap
             </p>
-            {/* <p className="text-sm text-muted-foreground">
-              <span className="text-cyan-400">V</span>: Use Stored Immunity
-            </p> */}
           </div>
 
           {/* Collectibles info - only before 30 seconds */}

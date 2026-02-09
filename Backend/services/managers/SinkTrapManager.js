@@ -181,19 +181,39 @@ class SinkTrapManager {
             newInventoryCount: currentCount - 1
         });
 
-        log.debug(`[SinkTrapManager] Player ${playerName} deployed trap at (${position.row}, ${position.col})`);
+        log.info(`[SinkTrap] DEPLOYED room=${roomCode} trapId=${trapId} at grid (${position.row}, ${position.col}) by ${playerName}`);
 
         return { trapId, row: position.row, col: position.col };
     }
 
-    checkTrapTrigger(roomCode, unicornPosition) {
+    checkTrapTrigger(roomCode, unicornPosition, verboseLog = false) {
         const deployedTraps = this.roomDeployedTraps.get(roomCode);
-        if (!deployedTraps) return null;
+        if (!deployedTraps) {
+            if (verboseLog) log.info(`[SinkTrap] checkTrapTrigger room=${roomCode}: no deployedTraps map`);
+            return null;
+        }
+        const trapCount = deployedTraps.size;
+        if (trapCount === 0 && verboseLog) {
+            log.info(`[SinkTrap] checkTrapTrigger room=${roomCode}: 0 deployed traps`);
+            return null;
+        }
+
+        const row = unicornPosition?.row;
+        const col = unicornPosition?.col;
+        if (typeof row !== 'number' || typeof col !== 'number' || Number.isNaN(row) || Number.isNaN(col)) {
+            log.info(`[SinkTrap] checkTrapTrigger skipped: invalid unicorn position row=${row}, col=${col} (room=${roomCode})`);
+            return null;
+        }
 
         for (const [trapId, trap] of deployedTraps) {
-            const rowDiff = Math.abs(unicornPosition.row - trap.row);
-            const colDiff = Math.abs(unicornPosition.col - trap.col);
-            if (rowDiff <= SINK_TRAP_CONFIG.TRIGGER_RADIUS && colDiff <= SINK_TRAP_CONFIG.TRIGGER_RADIUS) {
+            const rowDiff = Math.abs(row - trap.row);
+            const colDiff = Math.abs(col - trap.col);
+            const inRange = rowDiff <= SINK_TRAP_CONFIG.TRIGGER_RADIUS && colDiff <= SINK_TRAP_CONFIG.TRIGGER_RADIUS;
+            if (verboseLog) {
+                log.info(`[SinkTrap] trap ${trapId} at (${trap.row},${trap.col}) unicorn at (${row},${col}) rowDiff=${rowDiff} colDiff=${colDiff} TRIGGER_RADIUS=${SINK_TRAP_CONFIG.TRIGGER_RADIUS} inRange=${inRange}`);
+            }
+            if (inRange) {
+                log.info(`[SinkTrap] TRIGGERED: ${trapId} at (${trap.row},${trap.col}) by unicorn at (${row},${col})`);
                 return trapId;
             }
         }
@@ -240,7 +260,7 @@ class SinkTrapManager {
         };
 
         if (updatePlayerPosition) {
-            if(updateLastMoveWasTeleport) updateLastMoveWasTeleport(roomCode, playerId);
+            if(updateLastMoveWasTeleport) updateLastMoveWasTeleport(roomCode, unicornId);
             updatePlayerPosition(roomCode, unicornId, toPosition);
         }
 

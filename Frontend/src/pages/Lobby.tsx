@@ -383,17 +383,6 @@ const Lobby = () => {
                 <p className="text-slate-500 text-xs mt-1">Place a sink trap (need sink in inventory)</p>
               </div>
 
-              {/* Activate Immunity */}
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center text-white text-sm font-bold">V</div>
-                  <span className="font-bold text-emerald-400">IMMUNITY</span>
-                </div>
-                <div className="flex gap-2 flex-wrap items-center">
-                  <kbd className="px-3 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">V</kbd>
-                </div>
-                <p className="text-slate-500 text-xs mt-1">Activate immunity (need immunity in inventory)</p>
-              </div>
             </CardContent>
           </Card>
         ) : (
@@ -547,16 +536,6 @@ const Lobby = () => {
                 <kbd className="px-3 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">C</kbd>
               </div>
               <p className="text-slate-500 text-xs mt-1">Place a sink trap (need sink in inventory)</p>
-            </div>
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center text-white text-sm font-bold">V</div>
-                <span className="font-bold text-emerald-400">IMMUNITY</span>
-              </div>
-              <div className="flex gap-2 flex-wrap items-center">
-                <kbd className="px-3 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">V</kbd>
-              </div>
-              <p className="text-slate-500 text-xs mt-1">Activate immunity (need immunity in inventory)</p>
             </div>
           </CardContent>
         </Card>

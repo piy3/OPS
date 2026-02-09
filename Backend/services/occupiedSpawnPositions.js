@@ -8,7 +8,6 @@
 import coinManager from './managers/CoinManager.js';
 import sinkholeManager from './managers/SinkholeManager.js';
 import sinkTrapManager from './managers/SinkTrapManager.js';
-import powerupManager from './managers/PowerupManager.js';
 
 /**
  * Get the set of occupied spawn positions for a room (all collectibles + deployed traps).
@@ -30,9 +29,6 @@ export function getOccupiedSpawnPositions(roomCode) {
 
         const deployedTraps = sinkTrapManager.getDeployedTraps(roomCode);
         deployedTraps.forEach(t => occupied.add(`${t.row},${t.col}`));
-
-        const powerups = powerupManager.getActivePowerups(roomCode);
-        powerups.forEach(p => occupied.add(`${p.row},${p.col}`));
     } catch (_) {
         // Missing room or manager error: return current set (may be empty)
     }
