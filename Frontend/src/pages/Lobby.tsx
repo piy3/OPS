@@ -32,6 +32,7 @@ const Lobby = () => {
   const [error, setError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
+  const [showHowToPlay, setShowHowToPlay] = useState(true);
 
   // Get current player
   const getCurrentPlayer = useCallback((): Player | null => {
@@ -224,10 +225,10 @@ const Lobby = () => {
     );
   }
 
-  // In a room - show lobby
+  // In a room - show lobby and How to Play
   if (room) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex items-center justify-center p-4 flex-wrap gap-6">
         <Card className="w-[500px] bg-slate-800 border-slate-700">
           <CardHeader>
             <div className="flex justify-between items-center">
@@ -316,13 +317,101 @@ const Lobby = () => {
             )}
           </CardContent>
         </Card>
+
+        {/* How to Play panel */}
+        {showHowToPlay ? (
+          <Card className="w-[380px] bg-slate-800 border-slate-700 rounded-xl relative">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="absolute top-2 right-2 text-slate-400 hover:text-white h-8 w-8 p-0"
+              onClick={() => setShowHowToPlay(false)}
+              aria-label="Close"
+            >
+              ✕
+            </Button>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-xl font-bold text-center text-blue-400">
+                HOW TO PLAY
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-5 pt-2">
+              {/* Movement */}
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-sm">
+                    ⌃
+                  </div>
+                  <span className="font-bold text-blue-400">MOVEMENT</span>
+                </div>
+                <div className="flex gap-1.5 mb-1.5 flex-wrap">
+                  <kbd className="px-2.5 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">↑</kbd>
+                  <kbd className="px-2.5 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">↓</kbd>
+                  <kbd className="px-2.5 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">←</kbd>
+                  <kbd className="px-2.5 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">→</kbd>
+                </div>
+                <p className="text-slate-500 text-xs mb-1">or</p>
+                <div className="flex gap-1.5 flex-wrap">
+                  <kbd className="px-2.5 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">W</kbd>
+                  <kbd className="px-2.5 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">A</kbd>
+                  <kbd className="px-2.5 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">S</kbd>
+                  <kbd className="px-2.5 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">D</kbd>
+                </div>
+              </div>
+
+              {/* Create Portal */}
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-8 h-8 rounded-lg bg-fuchsia-600 flex items-center justify-center text-white text-lg">◇</div>
+                  <span className="font-bold text-fuchsia-400">CREATE PORTAL</span>
+                </div>
+                <div className="flex gap-2 flex-wrap items-center">
+                  <kbd className="px-3 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">SPACE</kbd>
+                </div>
+                <p className="text-slate-500 text-xs mt-1">Place a portal ahead (requires full energy)</p>
+              </div>
+
+              {/* Deploy Sink */}
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-8 h-8 rounded-lg bg-amber-600 flex items-center justify-center text-white text-sm font-bold">C</div>
+                  <span className="font-bold text-amber-400">DEPLOY SINK</span>
+                </div>
+                <div className="flex gap-2 flex-wrap items-center">
+                  <kbd className="px-3 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">C</kbd>
+                </div>
+                <p className="text-slate-500 text-xs mt-1">Place a sink trap (need sink in inventory)</p>
+              </div>
+
+              {/* Activate Immunity */}
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center text-white text-sm font-bold">V</div>
+                  <span className="font-bold text-emerald-400">IMMUNITY</span>
+                </div>
+                <div className="flex gap-2 flex-wrap items-center">
+                  <kbd className="px-3 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">V</kbd>
+                </div>
+                <p className="text-slate-500 text-xs mt-1">Activate immunity (need immunity in inventory)</p>
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
+          <Button
+            variant="outline"
+            className="border-slate-600 text-slate-400 hover:text-white hover:bg-slate-700"
+            onClick={() => setShowHowToPlay(true)}
+          >
+            Show How to Play
+          </Button>
+        )}
       </div>
     );
   }
 
-  // Not in a room - show create/join options
+  // Not in a room - show create/join options and How to Play
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex items-center justify-center p-4 flex-wrap gap-6">
       <Card className="w-[450px] bg-slate-800 border-slate-700">
         <CardHeader className="text-center">
           <CardTitle className="text-3xl text-white">Qbitrig Multiplayer</CardTitle>
@@ -401,6 +490,85 @@ const Lobby = () => {
           </div>
         </CardContent>
       </Card>
+
+      {/* How to Play panel - same as in-room view */}
+      {showHowToPlay ? (
+        <Card className="w-[380px] bg-slate-800 border-slate-700 rounded-xl relative">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="absolute top-2 right-2 text-slate-400 hover:text-white h-8 w-8 p-0"
+            onClick={() => setShowHowToPlay(false)}
+            aria-label="Close"
+          >
+            ✕
+          </Button>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xl font-bold text-center text-blue-400">
+              HOW TO PLAY
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-5 pt-2">
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-sm">⌃</div>
+                <span className="font-bold text-blue-400">MOVEMENT</span>
+              </div>
+              <div className="flex gap-1.5 mb-1.5 flex-wrap">
+                <kbd className="px-2.5 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">↑</kbd>
+                <kbd className="px-2.5 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">↓</kbd>
+                <kbd className="px-2.5 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">←</kbd>
+                <kbd className="px-2.5 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">→</kbd>
+              </div>
+              <p className="text-slate-500 text-xs mb-1">or</p>
+              <div className="flex gap-1.5 flex-wrap">
+                <kbd className="px-2.5 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">W</kbd>
+                <kbd className="px-2.5 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">A</kbd>
+                <kbd className="px-2.5 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">S</kbd>
+                <kbd className="px-2.5 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">D</kbd>
+              </div>
+            </div>
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-8 h-8 rounded-lg bg-fuchsia-600 flex items-center justify-center text-white text-lg">◇</div>
+                <span className="font-bold text-fuchsia-400">CREATE PORTAL</span>
+              </div>
+              <div className="flex gap-2 flex-wrap items-center">
+                <kbd className="px-3 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">SPACE</kbd>
+              </div>
+              <p className="text-slate-500 text-xs mt-1">Place a portal ahead (requires full energy)</p>
+            </div>
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-8 h-8 rounded-lg bg-amber-600 flex items-center justify-center text-white text-sm font-bold">C</div>
+                <span className="font-bold text-amber-400">DEPLOY SINK</span>
+              </div>
+              <div className="flex gap-2 flex-wrap items-center">
+                <kbd className="px-3 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">C</kbd>
+              </div>
+              <p className="text-slate-500 text-xs mt-1">Place a sink trap (need sink in inventory)</p>
+            </div>
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center text-white text-sm font-bold">V</div>
+                <span className="font-bold text-emerald-400">IMMUNITY</span>
+              </div>
+              <div className="flex gap-2 flex-wrap items-center">
+                <kbd className="px-3 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">V</kbd>
+              </div>
+              <p className="text-slate-500 text-xs mt-1">Activate immunity (need immunity in inventory)</p>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <Button
+          variant="outline"
+          className="border-slate-600 text-slate-400 hover:text-white hover:bg-slate-700"
+          onClick={() => setShowHowToPlay(true)}
+        >
+          Show How to Play
+        </Button>
+      )}
     </div>
   );
 };
