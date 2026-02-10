@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeft, RefreshCw, Trophy, X, Users } from 'lucide-react';
+import { ArrowLeft, Trophy, X, Users } from 'lucide-react';
 import socketService, { SOCKET_EVENTS, toGrid, toPixel, Room, Player as SocketPlayer, GameState as SocketGameState, Coin as SocketCoin, MapConfig } from '@/services/SocketService';
 import BlitzQuiz from '@/components/BlitzQuiz';
 import UnfreezeQuiz from '@/components/UnfreezeQuiz';
@@ -215,7 +215,6 @@ const Game: React.FC = () => {
   const locationState = location.state as LocationState | null;
   
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const minimapRef = useRef<HTMLCanvasElement>(null);
   const [status, setStatus] = useState('');
   const [statusColor, setStatusColor] = useState('#fff');
   const [rewardPopup, setRewardPopup] = useState<{ text: string; color: string } | null>(null);
@@ -1684,12 +1683,10 @@ const Game: React.FC = () => {
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    const minimapCanvas = minimapRef.current;
-    if (!canvas || !minimapCanvas) return;
+    if (!canvas) return;
 
     const ctx = canvas.getContext('2d', { alpha: false });
-    const minimapCtx = minimapCanvas.getContext('2d');
-    if (!ctx || !minimapCtx) return;
+    if (!ctx) return;
 
     // Set roomCodeRef immediately from locationState for seeded map generation
     // This needs to happen before generateCity() is called
@@ -2588,93 +2585,6 @@ const Game: React.FC = () => {
 
       ctx.restore();
 
-      // Minimap
-      minimapCtx.fillStyle = '#000';
-      minimapCtx.fillRect(0, 0, 150, 150);
-      const sc = 150 / game.map.width;
-
-      for (let y = 0; y < MAP_H; y++) {
-        for (let x = 0; x < MAP_W; x++) {
-          const t = game.map.tiles[y][x];
-          if (t === 0) minimapCtx.fillStyle = '#444';
-          else if (t === 2) minimapCtx.fillStyle = '#242';
-          else if (t === 3) minimapCtx.fillStyle = '#00f';
-          else if (t === 4) minimapCtx.fillStyle = '#f00';
-          else continue;
-          minimapCtx.fillRect(
-            x * TILE_SIZE * sc,
-            y * TILE_SIZE * sc,
-            TILE_SIZE * sc,
-            TILE_SIZE * sc
-          );
-        }
-      }
-
-      // Coins on minimap
-      minimapCtx.fillStyle = '#ffd700';
-      game.coins.forEach((c) => {
-        if (!c.collected) {
-          minimapCtx.beginPath();
-          minimapCtx.arc((c.x * sc) / TILE_SIZE, (c.y * sc) / TILE_SIZE, 2, 0, Math.PI * 2);
-          minimapCtx.fill();
-        }
-      });
-
-      // Sink collectibles on minimap
-      minimapCtx.fillStyle = '#ff6600';
-      game.sinkCollectibles.forEach((s) => {
-        if (!s.collected) {
-          minimapCtx.beginPath();
-          minimapCtx.arc((s.x * sc) / TILE_SIZE, (s.y * sc) / TILE_SIZE, 3, 0, Math.PI * 2);
-          minimapCtx.fill();
-        }
-      });
-
-      // Deployed sinks on minimap
-      minimapCtx.fillStyle = '#ff0000';
-      game.deployedSinks.forEach((s) => {
-        minimapCtx.beginPath();
-        minimapCtx.arc((s.x * sc) / TILE_SIZE, (s.y * sc) / TILE_SIZE, 4, 0, Math.PI * 2);
-        minimapCtx.fill();
-      });
-
-      game.map.portals.forEach((p) => {
-        minimapCtx.fillStyle = '#fff';
-        minimapCtx.beginPath();
-        minimapCtx.arc((p.x * sc) / TILE_SIZE, (p.y * sc) / TILE_SIZE, 3, 0, Math.PI * 2);
-        minimapCtx.fill();
-      });
-
-      // Remote players on minimap (multiplayer mode)
-      if (isMultiplayerRef.current) {
-        remotePlayersRef.current.forEach((remotePlayer) => {
-          if (remotePlayer.isEliminated) return;
-          // Color based on state: unicorn=purple, frozen=cyan, normal=blue
-          minimapCtx.fillStyle = remotePlayer.isUnicorn 
-            ? '#ff00ff' 
-            : remotePlayer.isFrozen 
-              ? '#00ffff' 
-              : '#4488ff';
-          minimapCtx.beginPath();
-          minimapCtx.arc(
-            (remotePlayer.x * sc) / TILE_SIZE,
-            (remotePlayer.y * sc) / TILE_SIZE,
-            remotePlayer.isUnicorn ? 4 : 3,
-            0,
-            Math.PI * 2
-          );
-          minimapCtx.fill();
-        });
-      }
-
-      // Local player on minimap
-      minimapCtx.fillStyle = isUnicornRef.current ? '#ff00ff' : '#0ff';
-      minimapCtx.fillRect(
-        (game.player.x * sc) / TILE_SIZE - 2,
-        (game.player.y * sc) / TILE_SIZE - 2,
-        4,
-        4
-      );
     };
 
     const gameLoop = (timestamp: number) => {
@@ -2711,128 +2621,6 @@ const Game: React.FC = () => {
       if (game.animationId) cancelAnimationFrame(game.animationId);
     };
   }, []);
-
-  const handleRestart = () => {
-    if (gameRef.current) {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      
-      const game = gameRef.current;
-      game.keys = {};
-      game.map.tiles = [];
-      game.map.buildings = [];
-      game.map.trees = [];
-      game.map.portals = [];
-      game.coins = [];
-      game.sinkCollectibles = [];
-      game.deployedSinks = [];
-      game.coinSpawnTimer = 0;
-      game.sinkSpawnTimer = 0;
-      game.speedBoostApplied = false;
-      game.coinsCollected = 0;
-      game.playerSinkInventory = 0;
-      game.gameTime = 0;
-      game.player.speed = getSpeedForRole(isUnicornRef.current);
-      setSinkInventory(0);
-      setCoinsCollected(0);
-
-      for (let y = 0; y < MAP_HEIGHT; y++) {
-        const row: number[] = [];
-        for (let x = 0; x < MAP_WIDTH; x++) row.push(1);
-        game.map.tiles.push(row);
-      }
-
-      const blockSize = 4;
-      for (let y = 0; y < MAP_HEIGHT; y++) {
-        for (let x = 0; x < MAP_WIDTH; x++) {
-          const isRoadRow = y % blockSize === 0;
-          const isRoadCol = x % blockSize === 0;
-          if (isRoadRow || isRoadCol) game.map.tiles[y][x] = 0;
-          else {
-            const rand = Math.random();
-            if (rand < 0.05) {
-              for (let ly = y - 1; ly <= y + 1; ly++) {
-                for (let lx = x - 1; lx <= x + 1; lx++) {
-                  if (ly >= 0 && ly < MAP_HEIGHT && lx >= 0 && lx < MAP_WIDTH) {
-                    if (game.map.tiles[ly][lx] !== 0) game.map.tiles[ly][lx] = 3;
-                  }
-                }
-              }
-            } else if (rand < 0.15) game.map.tiles[y][x] = 2;
-          }
-        }
-      }
-
-      for (let y = 0; y < MAP_HEIGHT; y++) {
-        for (let x = 0; x < MAP_WIDTH; x++) {
-          if (x === 0 || x === MAP_WIDTH - 1 || y === 0 || y === MAP_HEIGHT - 1) {
-            game.map.tiles[y][x] = 4;
-            continue;
-          }
-          const tile = game.map.tiles[y][x];
-          const px = x * TILE_SIZE, py = y * TILE_SIZE;
-          if (tile === 1) {
-            const rand = Math.random();
-            let type = TYPE_RESIDENTIAL, height = 40 + Math.random() * 60, color = '#252525', wallColor = '#151515';
-            if (rand > 0.9) { type = TYPE_SHOP; height = 30 + Math.random() * 20; color = '#331133'; wallColor = '#220022'; }
-            else if (rand > 0.8) { type = TYPE_CAFE; height = 25 + Math.random() * 15; color = '#2e3b2e'; wallColor = '#1a221a'; }
-            game.map.buildings.push({ gridX: x, gridY: y, x: px, y: py, w: TILE_SIZE, h: TILE_SIZE, height, color, wallColor, type });
-          } else if (tile === 2 && Math.random() > 0.3) {
-            game.map.trees.push({ x: px + TILE_SIZE / 2 + (Math.random() * 20 - 10), y: py + TILE_SIZE / 2 + (Math.random() * 20 - 10), r: 10 + Math.random() * 10 });
-          }
-        }
-      }
-
-      let portalsCreated = 0;
-      while (portalsCreated < 4) {
-        const px = Math.floor(Math.random() * (MAP_WIDTH - 2)) + 1;
-        const py = Math.floor(Math.random() * (MAP_HEIGHT - 2)) + 1;
-        if (game.map.tiles[py][px] === 0) {
-          game.map.portals.push({ x: px * TILE_SIZE + TILE_SIZE / 2, y: py * TILE_SIZE + TILE_SIZE / 2, color: `hsl(${portalsCreated * 90}, 100%, 50%)`, angle: 0 });
-          portalsCreated++;
-        }
-      }
-
-      let spawnFound = false;
-      while (!spawnFound) {
-        const x = Math.floor(Math.random() * (MAP_WIDTH - 2)) + 1;
-        const y = Math.floor(Math.random() * (MAP_HEIGHT - 2)) + 1;
-        if (game.map.tiles[y][x] === 0) {
-          game.player.x = x * TILE_SIZE + TILE_SIZE / 2;
-          game.player.y = y * TILE_SIZE + TILE_SIZE / 2;
-          spawnFound = true;
-        }
-      }
-
-      game.player.trail = [];
-      game.player.portalCooldown = 0;
-      game.player.dirX = 0;
-      game.player.dirY = 1;
-
-      game.enemies = [];
-      game.enemySpawnTimer = 0;
-      for (let i = 0; i < 3; i++) {
-        let ex = 0, ey = 0, valid = false, attempts = 0;
-        while (!valid && attempts < 100) {
-          attempts++;
-          const rx = Math.floor(Math.random() * (MAP_WIDTH - 2)) + 1;
-          const ry = Math.floor(Math.random() * (MAP_HEIGHT - 2)) + 1;
-          if (game.map.tiles[ry][rx] === 0) {
-            const candidateX = rx * TILE_SIZE + TILE_SIZE / 2;
-            const candidateY = ry * TILE_SIZE + TILE_SIZE / 2;
-            const d = Math.hypot(candidateX - game.player.x, candidateY - game.player.y);
-            if (d > 800) { ex = candidateX; ey = candidateY; valid = true; }
-          }
-        }
-        if (valid) game.enemies.push({ x: ex, y: ey, width: 24, height: 24, speed: BASE_ENEMY_SPEED + Math.random() * 30, trail: [], stuckTime: 0, flankTimer: 0, flankDir: { x: 0, y: 0 } });
-      }
-
-      game.camera.x = game.player.x - canvas.width / 2;
-      game.camera.y = game.player.y - canvas.height / 2;
-      
-      game.isPlaying = true;
-    }
-  };
 
   return (
     <div className="relative w-full h-screen bg-background overflow-hidden">
@@ -3222,16 +3010,6 @@ const Game: React.FC = () => {
         </div>
       )}
 
-      {/* Minimap - Always render but hide when not playing */}
-      <canvas
-        ref={minimapRef}
-        width={150}
-        height={150}
-        className={`absolute top-5 right-5 border-2 border-border bg-black/80 rounded ${
-          gameState !== 'playing' ? 'hidden' : ''
-        }`}
-      />
-
       {/* Back Button */}
       <Link
         to="/"
@@ -3241,16 +3019,6 @@ const Game: React.FC = () => {
         <span>Back to Animator</span>
       </Link>
 
-      {/* Restart Button - Only show when playing */}
-      {/* {gameState === 'playing' && (
-        <button
-          onClick={handleRestart}
-          className="absolute bottom-5 right-5 flex items-center gap-2 px-4 py-2 bg-secondary/90 hover:bg-secondary text-secondary-foreground rounded-lg transition-all pointer-events-auto"
-        >
-          <RefreshCw size={18} />
-          <span>Restart</span>
-        </button>
-      )} */}
     </div>
   );
 };
