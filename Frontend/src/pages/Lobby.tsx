@@ -1,10 +1,10 @@
 /**
- * Lobby page for multiplayer room management
- * Players can create rooms, join with codes, and see player list
+ * Lobby page for players to join a game.
+ * Players join with room code from teacher; see player list and wait for host to start.
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,7 +14,6 @@ import logger from '@/utils/logger';
 
 const Lobby = () => {
   const navigate = useNavigate();
-  const { quizId: quizIdParam } = useParams<{ quizId?: string }>();
 
   // Connection state
   const [isConnected, setIsConnected] = useState(false);
@@ -26,11 +25,9 @@ const Lobby = () => {
     return localStorage.getItem('playerName') || '';
   });
   const [roomCode, setRoomCode] = useState('');
-  const [quizId, setQuizId] = useState('');
-  
+
   // UI state
   const [error, setError] = useState<string | null>(null);
-  const [isCreating, setIsCreating] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
   const [showHowToPlay, setShowHowToPlay] = useState(true);
 
@@ -65,22 +62,9 @@ const Lobby = () => {
     };
   }, []);
 
-  // Pre-fill Quiz ID from route /lobby/:quizId
-  useEffect(() => {
-    if (quizIdParam) setQuizId(quizIdParam);
-  }, [quizIdParam]);
-
   // Set up socket event listeners
   useEffect(() => {
     if (!isConnected) return;
-
-    // Room created successfully
-    const unsubRoomCreated = socketService.on(SOCKET_EVENTS.SERVER.ROOM_CREATED, (data: { roomCode: string; room: Room }) => {
-      logger.game('Room created:', data);
-      setRoom(data.room);
-      setIsCreating(false);
-      setError(null);
-    });
 
     // Room joined successfully
     const unsubRoomJoined = socketService.on(SOCKET_EVENTS.SERVER.ROOM_JOINED, (data: { roomCode: string; room: Room }) => {
@@ -134,7 +118,6 @@ const Lobby = () => {
     });
 
     return () => {
-      unsubRoomCreated();
       unsubRoomJoined();
       unsubPlayerJoined();
       unsubPlayerLeft();
@@ -153,17 +136,6 @@ const Lobby = () => {
       localStorage.setItem('playerName', playerName);
     }
   }, [playerName]);
-
-  // Create a new room
-  const handleCreateRoom = () => {
-    if (!playerName.trim()) {
-      setError('Please enter your name');
-      return;
-    }
-    setError(null);
-    setIsCreating(true);
-    socketService.createRoom(playerName.trim(), 30, quizId.trim() || undefined);
-  };
 
   // Join an existing room
   const handleJoinRoom = () => {
@@ -384,14 +356,14 @@ const Lobby = () => {
     );
   }
 
-  // Not in a room - show create/join options and How to Play
+  // Not in a room - show join form and How to Play
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex items-center justify-center p-4 flex-wrap gap-6">
       <Card className="w-[450px] bg-slate-800 border-slate-700">
         <CardHeader className="text-center">
-          <CardTitle className="text-3xl text-white">Qbitrig Multiplayer</CardTitle>
+          <CardTitle className="text-3xl text-white">Join a game</CardTitle>
           <CardDescription className="text-slate-400">
-            Create or join a game room
+            Enter the room code from your teacher to join the game
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -409,16 +381,17 @@ const Lobby = () => {
             />
           </div>
 
-          {/* Quiz ID - Blitz & unfreeze use Quizizz when set */}
+          {/* Room code */}
           <div>
             <label className="text-sm font-medium text-slate-300 mb-2 block">
-              Quiz ID (optional)
+              Room Code
             </label>
             <Input
-              value={quizId}
-              onChange={(e) => setQuizId(e.target.value)}
-              placeholder="Quizizz quiz ID for blitz/unfreeze"
-              className="bg-slate-700 border-slate-600 text-white font-mono"
+              value={roomCode}
+              onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
+              placeholder="Enter room code"
+              className="bg-slate-700 border-slate-600 text-white text-center font-mono tracking-widest"
+              maxLength={6}
             />
           </div>
 
@@ -427,42 +400,13 @@ const Lobby = () => {
             <p className="text-center text-red-400 text-sm">{error}</p>
           )}
 
-          {/* Create Room */}
           <Button
-            onClick={handleCreateRoom}
-            disabled={isCreating || !playerName.trim()}
+            onClick={handleJoinRoom}
+            disabled={isJoining || !playerName.trim() || !roomCode.trim()}
             className="w-full bg-blue-600 hover:bg-blue-700"
           >
-            {isCreating ? 'Creating...' : 'Create New Room'}
+            {isJoining ? 'Joining...' : 'Join Room'}
           </Button>
-
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t border-slate-600" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-slate-800 px-2 text-slate-400">Or</span>
-            </div>
-          </div>
-
-          {/* Join Room */}
-          <div className="space-y-3">
-            <Input
-              value={roomCode}
-              onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
-              placeholder="Enter room code"
-              className="bg-slate-700 border-slate-600 text-white text-center font-mono tracking-widest"
-              maxLength={6}
-            />
-            <Button
-              onClick={handleJoinRoom}
-              disabled={isJoining || !playerName.trim() || !roomCode.trim()}
-              variant="outline"
-              className="w-full"
-            >
-              {isJoining ? 'Joining...' : 'Join Room'}
-            </Button>
-          </div>
         </CardContent>
       </Card>
 

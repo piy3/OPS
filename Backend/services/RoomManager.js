@@ -24,12 +24,14 @@ class RoomManager {
      */
     createRoom(socketId, playerData = {}) {
         const roomCode = generateRoomCode(this.rooms);
+        const isTeacher = playerData?.isTeacher === true;
         // Initialize map config for 1 player (host)
         const mapConfig = getMapConfigForPlayerCount(1);
         const room = {
             code: roomCode,
             hostId: socketId,
-            players: [{
+            teacherId: isTeacher ? socketId : null,
+            players: isTeacher ? [] : [{
                 id: socketId,
                 name: playerData?.name || generateDefaultPlayerName(socketId),
                 isHost: true,
@@ -261,8 +263,8 @@ class RoomManager {
         if (!room) {
             return { valid: false, error: 'Room not found' };
         }
-
-        if (room.hostId !== socketId) {
+        const isTeacher = room.teacherId === socketId;
+        if (room.hostId !== socketId && !isTeacher) {
             return { valid: false, error: 'Only host can start the game' };
         }
 

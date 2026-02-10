@@ -82,6 +82,11 @@ export const ROLE_CONFIG = {
     }
 };
 
+export const PLAYER_ROLE = {
+    PLAYER: 'player',
+    TEACHER: 'teacher'  // Spectator who created the room
+};
+
 /**
  * Combat System Configuration
  */

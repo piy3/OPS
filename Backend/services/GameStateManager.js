@@ -96,7 +96,7 @@ class GameStateManager {
      * Get full game state for synchronization
      * Includes player states (frozen/active) and unfreeze quiz data for reconnection recovery
      */
-    getGameState(roomCode) {
+    getGameState(roomCode, requesterId = null) {
         const room = roomManager.getRoom(roomCode);
         if (!room) return null;
 
@@ -117,6 +117,8 @@ class GameStateManager {
 
         return {
             roomCode: roomCode,
+            teacherId: room.teacherId,
+            isTeacher: requesterId == room.teacherId,
             players: room.players.map(player => ({
                 id: player.id,
                 name: player.name,

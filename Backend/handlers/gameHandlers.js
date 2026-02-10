@@ -47,7 +47,7 @@ export function registerGameHandlers(socket, io) {
 
 
             // Get game state with spawn positions
-            const gameState = gameStateManager.getGameState(roomCode);
+            const gameState = gameStateManager.getGameState(roomCode, socket.id);
 
             // Get round info (may be null if not initialized yet, use safe default)
             const roundInfo = gameLoopManager.getRoomRounds(roomCode) || {
@@ -178,7 +178,7 @@ export function registerGameHandlers(socket, io) {
                 return;
             }
 
-            const gameState = gameStateManager.getGameState(roomCode);
+            const gameState = gameStateManager.getGameState(roomCode, socket.id);
             const roundInfo = gameLoopManager.getRoomRounds(roomCode);
             const currentPhase = gameStateManager.getGamePhase(roomCode);
             

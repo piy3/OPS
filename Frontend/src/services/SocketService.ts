@@ -159,6 +159,8 @@ export interface Room {
   mapConfig?: MapConfig;
   /** Optional Quizizz quiz ID; when set, blitz and unfreeze use questions from Quizizz */
   quizId?: string | null;
+  /** Teacher ID when room created by teacher (teacher is not in players array) */
+  teacherId?: string | null;
 }
 
 export interface Coin {
@@ -341,9 +343,10 @@ class SocketService {
   }
 
   // Room operations
-  createRoom(name: string, maxPlayers: number = 30, quizId?: string) {
-    const payload: { name: string; maxPlayers: number; quizId?: string } = { name, maxPlayers };
+  createRoom(name: string, maxPlayers: number = 30, quizId?: string, isTeacher?: boolean) {
+    const payload: { name: string; maxPlayers: number; quizId?: string; isTeacher?: boolean } = { name, maxPlayers };
     if (quizId?.trim()) payload.quizId = quizId.trim();
+    if (isTeacher) payload.isTeacher = true;
     this.emit(SOCKET_EVENTS.CLIENT.CREATE_ROOM, payload);
   }
 

@@ -378,23 +378,27 @@ class PositionManager {
             }
         }
         
-        // Try each spawn position
-        for (const spawnPos of spawnPositions) {
+        // Collect all free predefined spawn positions, then pick one at random
+        const freeSpawns = spawnPositions.filter(spawnPos => {
             const posKey = `${spawnPos.row},${spawnPos.col}`;
-            if (!occupiedPositions.has(posKey)) {
-                return spawnPos;
-            }
+            return !occupiedPositions.has(posKey);
+        });
+        if (freeSpawns.length > 0) {
+            return freeSpawns[Math.floor(Math.random() * freeSpawns.length)];
         }
         
-        // Fallback: generate positions dynamically based on map size
-        // Use road intersections (multiples of 4) within the map bounds
+        // Fallback: collect all free grid positions (road intersections), then pick one at random
+        const freeGridPositions = [];
         for (let r = 8; r <= maxCoord; r += 4) {
             for (let c = 8; c <= maxCoord; c += 4) {
                 const posKey = `${r},${c}`;
                 if (!occupiedPositions.has(posKey)) {
-                    return { row: r, col: c };
+                    freeGridPositions.push({ row: r, col: c });
                 }
             }
+        }
+        if (freeGridPositions.length > 0) {
+            return freeGridPositions[Math.floor(Math.random() * freeGridPositions.length)];
         }
         
         // Last resort: random predefined spawn
