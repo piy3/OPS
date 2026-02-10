@@ -367,7 +367,7 @@ const Lobby = () => {
               </div>
               <div className='border border-slate-600 p-2 rounded-xl'>
                 <span className='italic text-sm text-slate-400'>Look at top left corner for game information in hunt phase!</span>
-                <img className='' src="/infoCard.png" alt="info_card" />
+                <img className='' src={`${import.meta.env.BASE_URL}infoCard.png`} alt="info_card" />
               </div>
             </CardContent>
           </Card>
