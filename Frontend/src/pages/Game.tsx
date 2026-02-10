@@ -1003,6 +1003,12 @@ const Game: React.FC = () => {
         setSinkInventory(data.newInventoryCount ?? game.playerSinkInventory);
         showStatus('SINK TRAP COLLECTED!', '#ff6600', 1500);
         soundService.playSfx('sink_trap');
+        game.floatingRewards.push({
+          text: 'Press C to deploy',
+          x: game.player.x,
+          y: game.player.y,
+          createdAt: Date.now(),
+        });
       }
     });
 
@@ -2372,9 +2378,12 @@ const Game: React.FC = () => {
       }
 
       // Floating rewards above local player (world space)
+      // Floating rewards above local player (world space)
       const floatDuration = 1.5;
       const tNow = Date.now();
       ctx.save();
+      // Responsive font size (scale with canvas width, clamp for readability)
+      const rewardFontSize = Math.round(Math.max(14, Math.min(30, 20 * (canvas.width / 800))));
       game.floatingRewards.forEach((r) => {
         const elapsed = (tNow - r.createdAt) / 1000;
         if (elapsed > floatDuration) return;
@@ -2382,12 +2391,9 @@ const Game: React.FC = () => {
         const yOffsetPx = elapsed * 50;
         const drawY = game.player.y - 30 - yOffsetPx;
         ctx.globalAlpha = alpha;
-        ctx.font = 'bold 20px Arial';
+        ctx.font = `bold ${rewardFontSize}px Arial`;
         ctx.textAlign = 'center';
-        ctx.strokeStyle = '#000';
-        ctx.lineWidth = 3;
-        ctx.strokeText(r.text, game.player.x, drawY);
-        ctx.fillStyle = r.text === '+15💰' ? '#ff00ff' : '#ffd700';
+        ctx.fillStyle = r.text === '+15💰' ? '#ff00ff' : r.text === 'Press C to deploy' ? '#ff6600' : '#ffd700';
         ctx.fillText(r.text, game.player.x, drawY);
       });
       ctx.restore();

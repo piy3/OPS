@@ -336,12 +336,12 @@ const Lobby = () => {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-5 pt-2">
-              {/* Movement */}
               <div>
+                <div className='text-center mb-2'>
+                  <span className='uppercase text-yellow-400 text-xl font-bold'>Collect most coins to win!</span> <br />
+                  <span className='uppercase text-amber-500 text-lg font-bold'>Unicorns get coins on tagging!</span>
+                </div>
                 <div className="flex items-center gap-2 mb-2">
-                  <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-sm">
-                    ⌃
-                  </div>
                   <span className="font-bold text-blue-400">MOVEMENT</span>
                 </div>
                 <div className="flex gap-1.5 mb-1.5 flex-wrap">
@@ -358,19 +358,17 @@ const Lobby = () => {
                   <kbd className="px-2.5 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">D</kbd>
                 </div>
               </div>
-
-              {/* Deploy Sink */}
               <div>
                 <div className="flex items-center gap-2 mb-2">
-                  <div className="w-8 h-8 rounded-lg bg-amber-600 flex items-center justify-center text-white text-sm font-bold">C</div>
+                  <div className="w-8 h-8 rounded-lg bg-amber-600 flex items-center justify-center text-white text-lg font-bold">C</div>
                   <span className="font-bold text-amber-400">DEPLOY SINK</span>
-                </div>
-                <div className="flex gap-2 flex-wrap items-center">
-                  <kbd className="px-3 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">C</kbd>
                 </div>
                 <p className="text-slate-500 text-xs mt-1">Place a sink trap (need sink in inventory)</p>
               </div>
-
+              <div className='border border-slate-600 p-2 rounded-xl'>
+                <span className='italic text-sm text-slate-400'>Look at top left corner for game information in hunt phase!</span>
+                <img className='' src="/infoCard.png" alt="info_card" />
+              </div>
             </CardContent>
           </Card>
         ) : (
@@ -487,8 +485,12 @@ const Lobby = () => {
           </CardHeader>
           <CardContent className="space-y-5 pt-2">
             <div>
+              <div className='text-center mb-2'>
+                <span className='uppercase text-yellow-400 text-xl font-bold'>Collect most coins to win!</span> <br />
+                <span className='uppercase text-amber-500 text-lg font-bold'>Unicorns get coins on tagging!</span>
+              </div>
               <div className="flex items-center gap-2 mb-2">
-                <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-sm">⌃</div>
+                {/* <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-sm">⌃</div> */}
                 <span className="font-bold text-blue-400">MOVEMENT</span>
               </div>
               <div className="flex gap-1.5 mb-1.5 flex-wrap">
@@ -507,13 +509,14 @@ const Lobby = () => {
             </div>
             <div>
               <div className="flex items-center gap-2 mb-2">
-                <div className="w-8 h-8 rounded-lg bg-amber-600 flex items-center justify-center text-white text-sm font-bold">C</div>
+                <div className="w-8 h-8 rounded-lg bg-amber-600 flex items-center justify-center text-white text-lg font-bold">C</div>
                 <span className="font-bold text-amber-400">DEPLOY SINK</span>
               </div>
-              <div className="flex gap-2 flex-wrap items-center">
-                <kbd className="px-3 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">C</kbd>
-              </div>
               <p className="text-slate-500 text-xs mt-1">Place a sink trap (need sink in inventory)</p>
+            </div>
+            <div className='border border-slate-600 p-2 rounded-xl'>
+              <span className='italic text-sm text-slate-400'>Look at top left corner for game information in hunt phase!</span>
+              <img className='' src="/infoCard.png" alt="info_card" />
             </div>
           </CardContent>
         </Card>
