@@ -130,7 +130,7 @@ class PositionManager {
         const respawnTime = this.respawnedPlayers.get(playerId);
         if (respawnTime) {
             const timeSinceRespawn = now - respawnTime;
-            if (timeSinceRespawn < 500) {
+            if (timeSinceRespawn < 100) {
                 return true;
             }
         }
@@ -161,7 +161,7 @@ class PositionManager {
         const respawnTime = this.respawnedPlayers.get(playerId);
         if (respawnTime) {
             const timeSinceRespawn = now - respawnTime;
-            if (timeSinceRespawn < 500) {
+            if (timeSinceRespawn < 100) {
                 return null;
             }
             this.respawnedPlayers.delete(playerId);

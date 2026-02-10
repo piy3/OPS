@@ -721,6 +721,8 @@ class GameStateManager {
             return;
         }
 
+        combatManager.setCollisionCooldown(unicornId, survivorId);
+
         // FREEZE + UNFREEZE QUIZ MODE
         // Award points to unicorn
         roomManager.updatePlayerCoins(roomCode, unicornId, GAME_LOOP_CONFIG.TAG_SCORE_STEAL);

@@ -37,8 +37,6 @@ class CombatManager {
             return false;
         }
         
-        this.collisionCooldowns.set(collisionKey, now);
-        
         // Cleanup old cooldowns
         if (this.collisionCooldowns.size > 100) {
             const cutoff = now - 5000;
@@ -50,6 +48,16 @@ class CombatManager {
         }
         
         return true;
+    }
+
+    /**
+     * Set collision cooldown for a pair (call after a successful tag)
+     * @param {string} attackerId - Attacker player ID
+     * @param {string} victimId - Victim player ID
+     */
+    setCollisionCooldown(attackerId, victimId) {
+        const collisionKey = `${attackerId}-${victimId}`;
+        this.collisionCooldowns.set(collisionKey, Date.now());
     }
 
     /**
