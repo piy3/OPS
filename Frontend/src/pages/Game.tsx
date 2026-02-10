@@ -138,8 +138,11 @@ interface RemotePlayer {
   isUnicorn: boolean;
   isEliminated: boolean;
   isFrozen: boolean;
+  inIFrames: boolean;
   lastUpdate: number;
 }
+
+const IFRAME_DURATION_MS = 3000;
 
 // Unfreeze quiz question from server
 interface UnfreezeQuestion {
@@ -219,6 +222,11 @@ const Game: React.FC = () => {
   const [sinkInventory, setSinkInventory] = useState(0);
   const [coinsCollected, setCoinsCollected] = useState(0);
   const [gameTime, setGameTime] = useState(0);
+  const [localInIFrames, setLocalInIFrames] = useState(false);
+  const [localIFramesEndTime, setLocalIFramesEndTime] = useState(0);
+  const [, setLocalIFramesTick] = useState(0);
+  const localIFramesTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const remoteIFramesTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const [screenFlash, setScreenFlash] = useState<{ color: string; opacity: number } | null>(null);
   
   // Game state management
@@ -267,6 +275,14 @@ const Game: React.FC = () => {
   useEffect(() => {
     mapConfigRef.current = mapConfig;
   }, [mapConfig]);
+
+  // Tick every 100ms while in i-frames so countdown UI updates
+  useEffect(() => {
+    if (!localInIFrames) return;
+    const interval = setInterval(() => setLocalIFramesTick((t) => t + 1), 100);
+    return () => clearInterval(interval);
+  }, [localInIFrames]);
+
   const [huntTimeLeft, setHuntTimeLeft] = useState(0);
   const [currentRound, setCurrentRound] = useState(1);
   const [totalRounds, setTotalRounds] = useState(4);
@@ -431,6 +447,7 @@ const Game: React.FC = () => {
           isUnicorn: unicornIds.includes(playerId),
           isEliminated: false,
           isFrozen: false,
+          inIFrames: false,
           lastUpdate: Date.now()
         });
       }
@@ -503,6 +520,7 @@ const Game: React.FC = () => {
             isUnicorn: ids.includes(p.id),
             isEliminated: false,
             isFrozen: p.state === 'frozen',
+            inIFrames: !!p.inIFrames,
             lastUpdate: Date.now()
           });
         });
@@ -700,9 +718,28 @@ const Game: React.FC = () => {
 
     // Player state change (frozen, active, etc.)
     const unsubStateChange = socketService.on(SOCKET_EVENTS.SERVER.PLAYER_STATE_CHANGE, (data: any) => {
-      const { playerId, state, playerName } = data;
-      
-      if (playerId === socketService.getSocketId()) {
+      const { playerId, state, playerName, inIFrames } = data;
+      const myId = socketService.getSocketId();
+
+      if (inIFrames === false) {
+        if (playerId === myId) {
+          if (localIFramesTimeoutRef.current) {
+            clearTimeout(localIFramesTimeoutRef.current);
+            localIFramesTimeoutRef.current = null;
+          }
+          setLocalInIFrames(false);
+        } else {
+          const t = remoteIFramesTimeoutsRef.current.get(playerId);
+          if (t) {
+            clearTimeout(t);
+            remoteIFramesTimeoutsRef.current.delete(playerId);
+          }
+          const remotePlayer = remotePlayersRef.current.get(playerId);
+          if (remotePlayer) remotePlayer.inIFrames = false;
+        }
+      }
+
+      if (playerId === myId) {
         // Our state changed
         if (state === 'frozen') {
           soundService.playSfx('frozen');
@@ -789,6 +826,17 @@ const Game: React.FC = () => {
         showStatus('UNFROZEN! Back in the game!', '#00ff00', 2000);
         setScreenFlash({ color: '#00ff00', opacity: 0.3 });
         setTimeout(() => setScreenFlash(null), 300);
+        // Start local i-frames immediately (server will send PLAYER_RESPAWN with inIFrames; this ensures UI shows even if event order differs)
+        if (localIFramesTimeoutRef.current) {
+          clearTimeout(localIFramesTimeoutRef.current);
+          localIFramesTimeoutRef.current = null;
+        }
+        setLocalInIFrames(true);
+        setLocalIFramesEndTime(Date.now() + IFRAME_DURATION_MS);
+        localIFramesTimeoutRef.current = setTimeout(() => {
+          setLocalInIFrames(false);
+          localIFramesTimeoutRef.current = null;
+        }, IFRAME_DURATION_MS);
       } else if (data.retry) {
         // Failed - new questions will arrive via UNFREEZE_QUIZ_START
         showStatus('Wrong! Try again...', '#ff4400', 1500);
@@ -806,9 +854,10 @@ const Game: React.FC = () => {
 
     // Player respawn (after unfreeze quiz passed)
     const unsubPlayerRespawn = socketService.on(SOCKET_EVENTS.SERVER.PLAYER_RESPAWN, (data: any) => {
-      const { playerId, position } = data;
-      
-      if (playerId === socketService.getSocketId()) {
+      const { playerId, position, inIFrames } = data;
+      const myId = socketService.getSocketId();
+
+      if (playerId === myId) {
         // We respawned - update our position
         isFrozenRef.current = false;
         lavaDeathReportedRef.current = false; // Reset so lava death can be reported again
@@ -816,6 +865,19 @@ const Game: React.FC = () => {
           gameRef.current.player.x = position.x || toPixel(position.row, position.col).x;
           gameRef.current.player.y = position.y || toPixel(position.row, position.col).y;
           gameRef.current.player.trail = [];
+        }
+        // Server always grants i-frames on respawn; show Protected (use payload or fallback to true)
+        if (inIFrames !== false) {
+          if (localIFramesTimeoutRef.current) {
+            clearTimeout(localIFramesTimeoutRef.current);
+            localIFramesTimeoutRef.current = null;
+          }
+          setLocalInIFrames(true);
+          setLocalIFramesEndTime(Date.now() + IFRAME_DURATION_MS);
+          localIFramesTimeoutRef.current = setTimeout(() => {
+            setLocalInIFrames(false);
+            localIFramesTimeoutRef.current = null;
+          }, IFRAME_DURATION_MS);
         }
       } else {
         // Remote player respawned
@@ -827,6 +889,16 @@ const Game: React.FC = () => {
           remotePlayer.targetX = pixel.x;
           remotePlayer.targetY = pixel.y;
           remotePlayer.isFrozen = false;
+        }
+        if (inIFrames === true && remotePlayer) {
+          const prev = remoteIFramesTimeoutsRef.current.get(playerId);
+          if (prev) clearTimeout(prev);
+          remotePlayer.inIFrames = true;
+          remoteIFramesTimeoutsRef.current.set(playerId, setTimeout(() => {
+            const r = remotePlayersRef.current.get(playerId);
+            if (r) r.inIFrames = false;
+            remoteIFramesTimeoutsRef.current.delete(playerId);
+          }, IFRAME_DURATION_MS));
         }
       }
     });
@@ -1109,6 +1181,7 @@ const Game: React.FC = () => {
             existing.targetY = pixel.y;
             existing.isFrozen = p.state === 'frozen';
             existing.isUnicorn = unicornIdsSync.includes(p.id);
+            if (p.inIFrames !== undefined) existing.inIFrames = !!p.inIFrames;
           } else {
             remotePlayers.set(p.id, {
               id: p.id,
@@ -1122,6 +1195,7 @@ const Game: React.FC = () => {
               isUnicorn: unicornIdsSync.includes(p.id),
               isEliminated: false,
               isFrozen: p.state === 'frozen',
+              inIFrames: !!p.inIFrames,
               lastUpdate: Date.now()
             });
           }
@@ -2300,6 +2374,27 @@ const Game: React.FC = () => {
             }
             ctx.restore();
           }
+
+          // Draw i-frames (protected) indicator – soft gold shield ring
+          if (remotePlayer.inIFrames) {
+            ctx.save();
+            const shieldTime = Date.now() * 0.003;
+            const pulse = 0.6 + 0.2 * Math.sin(shieldTime);
+            ctx.strokeStyle = `rgba(255, 200, 80, ${pulse})`;
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.arc(remotePlayer.x, remotePlayer.y, 28, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.shadowColor = '#ffd700';
+            ctx.shadowBlur = 12;
+            ctx.strokeStyle = 'rgba(255, 215, 0, 0.5)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(remotePlayer.x, remotePlayer.y, 32, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+            ctx.restore();
+          }
           
           // Draw remote player with isometric Qbit
           // Use different colors for unicorn or frozen
@@ -2343,6 +2438,14 @@ const Game: React.FC = () => {
             ctx.font = 'bold 14px Arial';
             ctx.fillStyle = '#00ffff';
             ctx.fillText('❄️ FROZEN', remotePlayer.x, remotePlayer.y - 55);
+          }
+          // Protected (i-frames) indicator (below name/unicorn)
+          if (remotePlayer.inIFrames) {
+            ctx.font = 'bold 12px Arial';
+            ctx.fillStyle = '#ffd700';
+            const protectedY = remotePlayer.isUnicorn ? remotePlayer.y - 68 : remotePlayer.y - 55;
+            ctx.strokeText('🛡️ Protected', remotePlayer.x, protectedY);
+            ctx.fillText('🛡️ Protected', remotePlayer.x, protectedY);
           }
           ctx.restore();
         });
@@ -3061,6 +3164,16 @@ const Game: React.FC = () => {
             </div>
             <span className="text-amber-400 text-xs">({coinsCollected}/5)</span>
           </div> */}
+
+          {/* Protected (i-frames) indicator */}
+          {localInIFrames && (
+            <div className="mt-3 flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-amber-500/20 border border-amber-400/50">
+              <span className="text-amber-400 font-bold text-sm">🛡️ Protected</span>
+              <span className="text-amber-300/90 text-xs tabular-nums">
+                {Math.max(0, (localIFramesEndTime - Date.now()) / 1000).toFixed(1)}s
+              </span>
+            </div>
+          )}
 
           {/* Sink Inventory */}
           <div className="mt-3 flex items-center gap-2">
