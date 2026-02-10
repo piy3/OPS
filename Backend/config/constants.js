@@ -38,7 +38,7 @@ export const GAME_LOOP_CONFIG = {
     BLITZ_QUESTION_COUNT: 1,        // Single question per Blitz Quiz
     
     // Hunt Phase
-    HUNT_DURATION: 60000,           // 60 seconds of active gameplay
+    HUNT_DURATION: 30000,           // 30 seconds of active gameplay
     
     // Round End Phase
     ROUND_END_DURATION: 3000,       // 3 seconds to show results
