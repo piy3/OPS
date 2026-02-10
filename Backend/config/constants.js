@@ -44,7 +44,7 @@ export const GAME_LOOP_CONFIG = {
     ROUND_END_DURATION: 3000,       // 3 seconds to show results
     
     // Game Loop
-    GAME_LOOP_INTERVAL: 60000,      // Blitz Quiz every 60 seconds during hunt
+    GAME_LOOP_INTERVAL: 30000,      // Blitz Quiz every 60 seconds during hunt
     
     // Game Length
     TOTAL_GAME_ROUNDS: 4,           // Number of rounds before game ends (1 round = Blitz + Hunt)
