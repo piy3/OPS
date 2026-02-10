@@ -118,11 +118,24 @@ interface LeaderboardEntry {
   date: string;
 }
 
-// Multiplayer game-end leaderboard (from server GAME_END)
-interface GameEndLeaderboardEntry {
+// Multiplayer leaderboard entry (used for both game-end and live leaderboard)
+interface LeaderboardEntryMP {
   id: string;
   name: string;
   coins: number;
+  questionsAttempted: number;
+  questionsCorrect: number;
+}
+
+/** Map raw server leaderboard array to typed entries */
+function mapLeaderboard(raw: any[]): LeaderboardEntryMP[] {
+  return raw.map((p: any) => ({
+    id: p?.id ?? '',
+    name: typeof p?.name === 'string' ? p.name : 'Player',
+    coins: typeof p?.coins === 'number' ? p.coins : 0,
+    questionsAttempted: typeof p?.questions_attempted === 'number' ? p.questions_attempted : 0,
+    questionsCorrect: typeof p?.questions_correctly_answered === 'number' ? p.questions_correctly_answered : 0,
+  }));
 }
 
 // Remote player for multiplayer
@@ -235,7 +248,8 @@ const Game: React.FC = () => {
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [finalStats, setFinalStats] = useState({ time: 0 });
-  const [gameEndLeaderboard, setGameEndLeaderboard] = useState<GameEndLeaderboardEntry[]>([]);
+  const [gameEndLeaderboard, setGameEndLeaderboard] = useState<LeaderboardEntryMP[]>([]);
+  const [liveLeaderboard, setLiveLeaderboard] = useState<LeaderboardEntryMP[]>([]);
 
   // Multiplayer state
   const [isMultiplayer, setIsMultiplayer] = useState(false);
@@ -614,6 +628,11 @@ const Game: React.FC = () => {
         gameRef.current.playerSinkInventory = 0;
         gameRef.current.isPlaying = true;
       }
+      // Populate live leaderboard at hunt start if available
+      if (Array.isArray(data?.leaderboard)) {
+        setLiveLeaderboard(mapLeaderboard(data.leaderboard));
+      }
+
       showStatus(`HUNT PHASE - Round ${data.roundInfo?.currentRound || 1}!`, '#ff4400', 2000);
 
       // Last round: show red banner for 3s
@@ -958,6 +977,10 @@ const Game: React.FC = () => {
           createdAt: Date.now(),
         });
       }
+      // Update live leaderboard from coin collect payload
+      if (Array.isArray(data?.leaderboard)) {
+        setLiveLeaderboard(mapLeaderboard(data.leaderboard));
+      }
     });
 
     // Game ended
@@ -968,17 +991,18 @@ const Game: React.FC = () => {
       setGameState('game-over');
       setFinalStats({ time: gameRef.current?.gameTime || 0 });
       if (Array.isArray(data?.leaderboard)) {
-        setGameEndLeaderboard(
-          data.leaderboard.map((p: { id?: string; name?: string; coins?: number }) => ({
-            id: p?.id ?? '',
-            name: typeof p?.name === 'string' ? p.name : 'Player',
-            coins: typeof p?.coins === 'number' ? p.coins : 0,
-          }))
-        );
+        setGameEndLeaderboard(mapLeaderboard(data.leaderboard));
       } else {
         setGameEndLeaderboard([]);
       }
       showStatus('GAME OVER!', '#ff0000', 3000);
+    });
+
+    // Score update (e.g. on tag) — update live leaderboard
+    const unsubScoreUpdate = socketService.on(SOCKET_EVENTS.SERVER.SCORE_UPDATE, (data: any) => {
+      if (Array.isArray(data?.leaderboard)) {
+        setLiveLeaderboard(mapLeaderboard(data.leaderboard));
+      }
     });
 
     // Room closed (kicked from room after game ended)
@@ -1154,6 +1178,11 @@ const Game: React.FC = () => {
       if (data.mapConfig) {
         setMapConfig(data.mapConfig);
       }
+
+      // Update live leaderboard from game state sync
+      if (Array.isArray(data.gameState?.leaderboard)) {
+        setLiveLeaderboard(mapLeaderboard(data.gameState.leaderboard));
+      }
       
       const myId = socketService.getSocketId();
       const myPlayer = data.gameState.players?.find((p: any) => p.id === myId);
@@ -1296,6 +1325,7 @@ const Game: React.FC = () => {
       unsubCoinSpawned();
       unsubCoinCollected();
       unsubGameEnd();
+      unsubScoreUpdate();
       unsubRoomLeft();
       unsubSinkholeSpawned();
       unsubPlayerTeleported();
@@ -2807,6 +2837,7 @@ const Game: React.FC = () => {
                           <th className="py-2 px-3 text-left">#</th>
                           <th className="py-2 px-3 text-left">Name</th>
                           <th className="py-2 px-3 text-right">Coins</th>
+                          <th className="py-2 px-3 text-right">Questions</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -2815,6 +2846,7 @@ const Game: React.FC = () => {
                           return (
                             <tr
                               key={entry.id || i}
+                              ref={isYou ? (el) => el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }) : undefined}
                               className={`border-b border-border/50 last:border-0 ${isYou ? 'bg-cyan-500/20 text-cyan-400' : 'text-foreground'}`}
                             >
                               <td className="py-2 px-3 font-mono">{i + 1}</td>
@@ -2823,6 +2855,9 @@ const Game: React.FC = () => {
                                 {isYou && <span className="ml-1 text-muted-foreground">(You)</span>}
                               </td>
                               <td className="py-2 px-3 text-right font-mono">{entry.coins}</td>
+                              <td className="py-2 px-3 text-right font-mono text-emerald-400">
+                                {entry.questionsCorrect}/{entry.questionsAttempted}
+                              </td>
                             </tr>
                           );
                         })}
@@ -3007,6 +3042,52 @@ const Game: React.FC = () => {
               {status}
             </p>
           )}
+        </div>
+      )}
+
+      {/* Live Leaderboard Panel — top right, multiplayer + playing only */}
+      {gameState === 'playing' && isMultiplayer && liveLeaderboard.length > 0 && (
+        <div className="absolute top-5 right-5 pointer-events-none z-30 w-56">
+          <div className="bg-black/60 backdrop-blur-sm rounded-lg border border-border/60 overflow-hidden">
+            <div className="px-3 py-1.5 border-b border-border/40 flex items-center gap-1.5">
+              <Trophy size={14} className="text-amber-400" />
+              <span className="text-xs font-semibold text-amber-400 uppercase tracking-wider">Leaderboard</span>
+            </div>
+            <div className="max-h-52 overflow-y-auto">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-black/80">
+                  <tr className="text-muted-foreground">
+                    <th className="py-1 px-2 text-left">#</th>
+                    <th className="py-1 px-2 text-left">Name</th>
+                    <th className="py-1 px-2 text-right">💰</th>
+                    <th className="py-1 px-2 text-right">📝</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {liveLeaderboard.map((entry, i) => {
+                    const isYou = entry.id === socketService.getSocketId();
+                    return (
+                      <tr
+                        key={entry.id || i}
+                        ref={isYou ? (el) => el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }) : undefined}
+                        className={`border-b border-border/20 last:border-0 ${isYou ? 'bg-cyan-500/15 text-cyan-400' : 'text-slate-300'}`}
+                      >
+                        <td className="py-1 px-2 font-mono">{i + 1}</td>
+                        <td className="py-1 px-2 truncate max-w-[5rem]">
+                          {entry.name}
+                          {isYou && <span className="text-muted-foreground text-[10px]"> (You)</span>}
+                        </td>
+                        <td className="py-1 px-2 text-right font-mono">{entry.coins}</td>
+                        <td className="py-1 px-2 text-right font-mono text-emerald-400">
+                          {entry.questionsCorrect}/{entry.questionsAttempted}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       )}
 
