@@ -3103,11 +3103,11 @@ const Game: React.FC = () => {
 
       {/* Back Button */}
       <Link
-        to="/"
+        to={room?.code ? `/lobby?code=${encodeURIComponent(room.code)}` : '/lobby'}
         className="absolute bottom-5 left-5 flex items-center gap-2 px-4 py-2 bg-secondary/90 hover:bg-secondary text-secondary-foreground rounded-lg transition-all pointer-events-auto"
       >
         <ArrowLeft size={18} />
-        <span>Back to Animator</span>
+        <span>Back to Lobby</span>
       </Link>
 
     </div>
