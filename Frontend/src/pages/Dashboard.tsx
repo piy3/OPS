@@ -261,7 +261,7 @@ const Dashboard = () => {
         <div className="space-y-2">
         <label className="text-sm font-medium text-slate-300 block">Game length</label>
         <div className="flex gap-2 flex-wrap">
-            {([6, 9, 12] as const).map((min) => {
+            {([1, 6, 9, 12, 15, 18] as const).map((min) => {
             const isSelected = selectedMinutes === min;
             return (
                 <Button

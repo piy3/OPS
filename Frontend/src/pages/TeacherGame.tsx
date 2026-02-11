@@ -31,7 +31,7 @@ const TeacherGame: React.FC = () => {
   const locationState = location.state as LocationState | null;
   
   // Room state
-  const [room] = useState<Room | null>(locationState?.room || null);
+  const [room, setRoom] = useState<Room | null>(locationState?.room || null);
   const [mapConfig, setMapConfig] = useState<MapConfig | null>(locationState?.room?.mapConfig || null);
   
   // Game phase state
@@ -47,6 +47,9 @@ const TeacherGame: React.FC = () => {
   // Game end state
   const [isGameOver, setIsGameOver] = useState(false);
   const [finalLeaderboard, setFinalLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [isRestarting, setIsRestarting] = useState(false);
+  const isGameOverRef = useRef(false);
+  isGameOverRef.current = isGameOver;
 
   // Redirect if no room
   useEffect(() => {
@@ -178,6 +181,33 @@ const TeacherGame: React.FC = () => {
       }
     });
 
+    // Game started (initial start or restart after game over)
+    const unsubGameStarted = socketService.on(SOCKET_EVENTS.SERVER.GAME_STARTED, (data: any) => {
+      if (isGameOverRef.current) {
+        // Restart: leave game-over screen and restore in-game view
+        setIsGameOver(false);
+        setIsRestarting(false);
+        setGamePhase(data.phase ?? 'blitz_quiz');
+        setCurrentRound(data.roundInfo?.currentRound ?? 1);
+        setTotalRounds(data.roundInfo?.totalRounds ?? 4);
+        if (data.room) setRoom(data.room);
+        if (data.mapConfig) setMapConfig(data.mapConfig);
+        const unicornIdsNew = data.gameState?.unicornIds ?? (data.gameState?.unicornId ? [data.gameState.unicornId] : []);
+        setUnicornIds(unicornIdsNew);
+        if (data.gameState?.players) {
+          const leaderboardData: LeaderboardEntry[] = data.gameState.players.map((p: any) => ({
+            id: p.id,
+            name: p.name || 'Player',
+            coins: p.coins ?? 0,
+            isUnicorn: unicornIdsNew.includes(p.id),
+            questionsAttempted: p.questions_attempted ?? 0,
+            questionsCorrect: p.questions_correctly_answered ?? 0,
+          })).sort((a: LeaderboardEntry, b: LeaderboardEntry) => b.coins - a.coins);
+          setLeaderboard(leaderboardData);
+        }
+      }
+    });
+
     // Request initial game state
     socketService.getGameState();
 
@@ -190,6 +220,7 @@ const TeacherGame: React.FC = () => {
       unsubCoinCollected();
       unsubScoreUpdate();
       unsubGameEnd();
+      unsubGameStarted();
     };
   }, [unicornIds]);
 
@@ -239,12 +270,27 @@ const TeacherGame: React.FC = () => {
             </div>
           </div>
 
-          <button
-            onClick={() => navigate('/dashboard')}
-            className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors"
-          >
-            Return to Dashboard
-          </button>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <button
+              onClick={() => {
+                setIsRestarting(true);
+                socketService.startGame();
+              }}
+              disabled={isRestarting}
+              className="flex-1 py-4 bg-green-600 hover:bg-green-700 disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-colors"
+            >
+              {isRestarting ? 'Starting…' : 'Restart Game'}
+            </button>
+            <button
+              onClick={() => navigate('/dashboard')}
+              className="flex-1 py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors"
+            >
+              Return to Dashboard
+            </button>
+          </div>
+          {isRestarting && (
+            <p className="text-center text-slate-400 text-sm mt-3">Restarting game with same quiz and players…</p>
+          )}
         </div>
       </div>
     );

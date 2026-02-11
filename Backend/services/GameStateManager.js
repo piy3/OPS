@@ -566,12 +566,8 @@ class GameStateManager {
         this.unfreezeQuizzes.delete(roomCode);
         
         log.info(`🏆 Room ${roomCode}: === GAME ENDED ===`);
-        
-        // 8. Schedule room deletion after a delay (give clients time to see results)
-        // After 30 seconds, the room will be deleted
-        setTimeout(() => {
-            this._deleteRoomAfterGameEnd(roomCode, io);
-        }, 30000);
+        // Room is not deleted on game end; it stays so the teacher can restart with same quiz and players.
+        // Room is removed only when the last person leaves (existing leave logic).
     }
 
     /**

@@ -494,7 +494,7 @@ const Game: React.FC = () => {
       }
     });
 
-    // Game started
+    // Game started (initial start or teacher restart; applies even when gameState === 'game-over')
     const unsubGameStarted = socketService.on(SOCKET_EVENTS.SERVER.GAME_STARTED, (data: any) => {
       setGameState('playing');
       setRoom(data.room);
