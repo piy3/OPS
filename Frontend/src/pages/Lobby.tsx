@@ -4,19 +4,18 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import socketService, { SOCKET_EVENTS, Room, Player } from '@/services/SocketService';
 import logger from '@/utils/logger';
-import { useParams } from 'react-router-dom';
 
 const Lobby = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { code: codeFromUrl } = useParams<{ code: string }>();
+  const [searchParams] = useSearchParams();
 
   // Connection state
   const [isConnected, setIsConnected] = useState(false);
@@ -29,12 +28,13 @@ const Lobby = () => {
   });
   const [roomCode, setRoomCode] = useState('');
 
-  // Pre-fill join code from URL when students open /lobby/:code
+  // Pre-fill join code from URL query param: ?code=MAZABCD
   useEffect(() => {
+    const codeFromUrl = searchParams.get('code');
     if (codeFromUrl?.trim()) {
       setRoomCode(codeFromUrl.trim().toUpperCase());
     }
-  }, [codeFromUrl]);
+  }, [searchParams]);
 
   // UI state
   const [error, setError] = useState<string | null>(null);
