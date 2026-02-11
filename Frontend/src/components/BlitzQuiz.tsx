@@ -45,11 +45,11 @@ const BlitzQuiz: React.FC<BlitzQuizProps> = ({ question, options, timeLeft, onAn
         <div className="flex items-center justify-between mb-4 gap-4">
           <div className="flex-1">
             <h2 className="text-2xl md:text-3xl font-bold text-white">
-              Answer fast to become the Unicorn!
+              Answer correct for 10 bonus coins
             </h2>
-            <p className="mt-1 text-white/80 text-sm">
-              Fastest correct answer becomes the Unicorn this round.
-            </p>
+            {/* <p className="mt-1 text-white/80 text-sm">
+              Get it right to earn bonus coins!
+            </p> */}
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             <span className="text-3xl" aria-hidden>🦄</span>

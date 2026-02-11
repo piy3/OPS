@@ -330,6 +330,9 @@ const Game: React.FC = () => {
   
   // Track if we've already reported lava death (to prevent multiple reports per frame)
   const lavaDeathReportedRef = useRef(false);
+
+  // When true, unmount will not call leaveRoom (user chose "Return to Lobby" after game over)
+  const returningToLobbyRef = useRef(false);
   
   // Teleport effects ref for animation
   const teleportEffectsRef = useRef<Array<{
@@ -420,8 +423,8 @@ const Game: React.FC = () => {
     return () => {
       // Stop any playing music when leaving the game
       soundService.stopMusic();
-      // Only leave room if we're in multiplayer mode
-      if (isMultiplayer && socketService.isConnected()) {
+      // Do not leave room when returning to lobby after game over (user stays in room)
+      if (isMultiplayer && socketService.isConnected() && !returningToLobbyRef.current) {
         logger.game('Leaving room on game component unmount');
         socketService.leaveRoom();
       }
@@ -689,6 +692,15 @@ const Game: React.FC = () => {
         setTimeout(() => setBlitzShowObjective(false), 3000);
       } else {
         setBlitzShowObjective(false);
+      }
+    });
+
+    // Blitz answer result (correct = +10 bonus coins; show popup)
+    const unsubBlitzAnswerResult = socketService.on(SOCKET_EVENTS.SERVER.BLITZ_ANSWER_RESULT, (data: any) => {
+      if (data.isCorrect) {
+        const bonus = data.bonusCoins ?? 10;
+        setRewardPopup({ text: `+${bonus} coins!`, color: '#ffd700' });
+        setTimeout(() => setRewardPopup(null), 1500);
       }
     });
 
@@ -1314,6 +1326,7 @@ const Game: React.FC = () => {
       unsubHuntStart();
       unsubHuntEnd();
       unsubBlitzStart();
+      unsubBlitzAnswerResult();
       unsubBlitzResult();
       unsubEliminated();
       unsubStateChange();
@@ -2691,10 +2704,10 @@ const Game: React.FC = () => {
             <div className="bg-slate-800 border-2 border-purple-500 rounded-xl p-8 max-w-lg w-full mx-4 shadow-2xl shadow-purple-500/20 text-center">
               <span className="text-5xl mb-4 block" aria-hidden>🦄</span>
               <h2 className="text-2xl md:text-3xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent mb-2">
-                Answer fast to become the Unicorn!
+                Answer correct for 10 bonus coins
               </h2>
               <p className="text-slate-400 text-sm mb-4">
-                Fastest correct answer becomes the Unicorn this round.
+                Get it right to earn bonus coins!
               </p>
               <p className="text-purple-400/80 text-sm animate-pulse">Get ready!</p>
             </div>
@@ -2866,14 +2879,18 @@ const Game: React.FC = () => {
               ) : (
                 <p className="text-muted-foreground text-center py-4 mb-2">No standings data.</p>
               )}
-              <Link
-                to="/lobby"
+              <button
+                type="button"
+                onClick={() => {
+                  returningToLobbyRef.current = true;
+                  navigate('/lobby', { state: { returnFromGameOver: true } });
+                }}
                 className="flex-shrink-0 w-full py-3 bg-gradient-to-r from-cyan-500 to-blue-600 
                            text-white font-bold rounded-lg hover:from-cyan-400 hover:to-blue-500
                            transition-all text-center"
               >
                 Return to Lobby
-              </Link>
+              </button>
             </>
           </div>
         </div>

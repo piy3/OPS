@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,6 +14,7 @@ import logger from '@/utils/logger';
 
 const Lobby = () => {
   const navigate = useNavigate();
+  const location = useLocation();
 
   // Connection state
   const [isConnected, setIsConnected] = useState(false);
@@ -62,9 +63,23 @@ const Lobby = () => {
     };
   }, []);
 
+  // When returning from game over, request current room so we show in-room UI without having left the room
+  useEffect(() => {
+    if (!isConnected) return;
+    const returnFromGameOver = (location.state as { returnFromGameOver?: boolean } | null)?.returnFromGameOver;
+    if (returnFromGameOver) {
+      socketService.requestRoomInfo();
+    }
+  }, [isConnected, location.state]);
+
   // Set up socket event listeners
   useEffect(() => {
     if (!isConnected) return;
+
+    // Room info (response to requestRoomInfo; e.g. after return from game over)
+    const unsubRoomInfo = socketService.on(SOCKET_EVENTS.SERVER.ROOM_INFO, (data: { room: Room | null }) => {
+      setRoom(data.room ?? null);
+    });
 
     // Room joined successfully
     const unsubRoomJoined = socketService.on(SOCKET_EVENTS.SERVER.ROOM_JOINED, (data: { roomCode: string; room: Room }) => {
@@ -118,6 +133,7 @@ const Lobby = () => {
     });
 
     return () => {
+      unsubRoomInfo();
       unsubRoomJoined();
       unsubPlayerJoined();
       unsubPlayerLeft();

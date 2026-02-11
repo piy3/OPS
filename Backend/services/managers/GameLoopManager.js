@@ -265,12 +265,16 @@ class GameLoopManager {
         // handle questions record for the player.
         roomManager.handlePlayerQuestionsAttempt(roomCode, playerId, isCorrect);
         // Send individual feedback
-        io.to(playerId).emit(SOCKET_EVENTS.SERVER.BLITZ_ANSWER_RESULT, {
+        const payload = {
             isCorrect: isCorrect,
             responseTime: responseTime,
             answersReceived: blitz.answers.size,
             totalPlayers: blitz.playerCount
-        });
+        };
+        if (isCorrect) {
+            payload.bonusCoins = GAME_LOOP_CONFIG.BLITZ_WINNER_BONUS;
+        }
+        io.to(playerId).emit(SOCKET_EVENTS.SERVER.BLITZ_ANSWER_RESULT, payload);
 
         // Check if all answered
         if (blitz.answers.size >= blitz.playerCount) {

@@ -360,6 +360,11 @@ class SocketService {
     this.emit(SOCKET_EVENTS.CLIENT.LEAVE_ROOM, {});
   }
 
+  /** Request current room info from server (e.g. after returning to Lobby from game over without leaving room). */
+  requestRoomInfo() {
+    this.emit(SOCKET_EVENTS.CLIENT.GET_ROOM_INFO, {});
+  }
+
   startGame() {
     this.emit(SOCKET_EVENTS.CLIENT.START_GAME, {});
   }
