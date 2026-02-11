@@ -11,10 +11,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import socketService, { SOCKET_EVENTS, Room, Player } from '@/services/SocketService';
 import logger from '@/utils/logger';
+import { useParams } from 'react-router-dom';
 
 const Lobby = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { code: codeFromUrl } = useParams<{ code: string }>();
 
   // Connection state
   const [isConnected, setIsConnected] = useState(false);
@@ -26,6 +28,13 @@ const Lobby = () => {
     return localStorage.getItem('playerName') || '';
   });
   const [roomCode, setRoomCode] = useState('');
+
+  // Pre-fill join code from URL when students open /lobby/:code
+  useEffect(() => {
+    if (codeFromUrl?.trim()) {
+      setRoomCode(codeFromUrl.trim().toUpperCase());
+    }
+  }, [codeFromUrl]);
 
   // UI state
   const [error, setError] = useState<string | null>(null);
