@@ -6,17 +6,22 @@ import { ROOM_CONFIG } from '../config/constants.js';
 
 /**
  * Generate a unique room code
+ * Format: "MAZ" prefix + 4 random uppercase letters (A-Z)
+ * Example: MAZABCD, MAZXKQM
  * @param {Map} rooms - Map of existing rooms
  * @returns {string} Unique room code
  */
 export function generateRoomCode(rooms) {
-    const chars = ROOM_CONFIG.ROOM_CODE_CHARS;
+    const prefix = ROOM_CONFIG.ROOM_CODE_PREFIX;
+    const chars = ROOM_CONFIG.ROOM_CODE_RANDOM_CHARS;
+    const randomLength = ROOM_CONFIG.ROOM_CODE_RANDOM_LENGTH;
     let code = '';
     do {
-        code = '';
-        for (let i = 0; i < ROOM_CONFIG.ROOM_CODE_LENGTH; i++) {
-            code += chars.charAt(Math.floor(Math.random() * chars.length));
+        let randomPart = '';
+        for (let i = 0; i < randomLength; i++) {
+            randomPart += chars.charAt(Math.floor(Math.random() * chars.length));
         }
+        code = prefix + randomPart;
     } while (rooms.has(code)); // Ensure uniqueness
     return code;
 }

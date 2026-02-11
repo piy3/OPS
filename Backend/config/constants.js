@@ -4,8 +4,9 @@
 
 export const ROOM_CONFIG = {
     DEFAULT_MAX_PLAYERS: 30,
-    ROOM_CODE_LENGTH: 6,
-    ROOM_CODE_CHARS: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
+    ROOM_CODE_PREFIX: 'MAZ',                              // Fixed prefix for all room codes
+    ROOM_CODE_RANDOM_LENGTH: 4,                           // Number of random characters after prefix
+    ROOM_CODE_RANDOM_CHARS: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', // A-Z only for random part (no digits)
     MIN_PLAYERS_TO_START: 2,
     STARTING_COINS: 0,  // Starting coins for each player when a new game starts
     STARTING_QUESTIONS_ATTEMPTED: 0,

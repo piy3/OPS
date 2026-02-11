@@ -414,9 +414,9 @@ const Lobby = () => {
             <Input
               value={roomCode}
               onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
-              placeholder="Enter room code"
+              placeholder="e.g. MAZABCD"
               className="bg-slate-700 border-slate-600 text-white text-center font-mono tracking-widest"
-              maxLength={6}
+              maxLength={7}
             />
           </div>
 
