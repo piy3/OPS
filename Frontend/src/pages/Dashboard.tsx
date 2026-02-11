@@ -11,6 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import socketService, { SOCKET_EVENTS, Room, Player } from '@/services/SocketService';
 import logger from '@/utils/logger';
+import { useParams } from 'react-router-dom';
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -27,6 +28,26 @@ const Dashboard = () => {
   // UI state
   const [error, setError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  
+  const { quizId: quizIdParam } = useParams<{ quizId?: string }>();
+  
+  useEffect(() => {
+    if (quizIdParam) {
+      // Build full quiz URL
+      const baseURI = window.location.hostname === 'wayground.com'
+        ? 'https://wayground.com/_quizserver/main'
+        : 'https://dev.quizizz.com/_quizserver/main';
+      const quizPath = `/v2/quiz/${quizIdParam}?convertQuestions=false&includeFsFeatures=true&sanitize=read&questionMetadata=true`;
+      const fullQuizUrl = `${baseURI}${quizPath}`;
+      
+      // Store in localStorage
+      localStorage.setItem('QUIZ_URL', fullQuizUrl);
+      localStorage.setItem('QUIZ_ID', quizIdParam);
+      
+      // Set state
+      setQuizId(quizIdParam);
+    }
+  }, [quizIdParam]);
 
   // Connect to server on mount
   useEffect(() => {
@@ -247,7 +268,7 @@ const Dashboard = () => {
 
   // Not in a room - show create room form
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-b from-[#331124] to-[#1d0914] flex items-center justify-center p-4">
       <Card className="w-[450px] bg-slate-800 border-slate-700">
         <CardHeader className="text-center">
           <CardTitle className="text-3xl text-white">Teacher Dashboard</CardTitle>
@@ -280,7 +301,7 @@ const Dashboard = () => {
         </div>
         </div>
 
-          {/* Quiz ID - Optional */}
+          {/* Quiz ID - Optional
           <div>
             <label className="text-sm font-medium text-slate-300 mb-2 block">
               Quiz ID (optional)
@@ -294,7 +315,7 @@ const Dashboard = () => {
             <p className="text-slate-500 text-xs mt-1">
               Leave empty to use default questions
             </p>
-          </div>
+          </div> */}
 
           {/* Error message */}
           {error && (

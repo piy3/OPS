@@ -374,7 +374,7 @@ const Lobby = () => {
 
   // Not in a room - show join form and How to Play
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex items-center justify-center p-4 flex-wrap gap-6">
+    <div className="min-h-screen bg-gradient-to-b from-[#331124] to-[#1d0914] flex items-center justify-center p-4 flex-wrap gap-6">
       <Card className="w-[450px] bg-slate-800 border-slate-700">
         <CardHeader className="text-center">
           <CardTitle className="text-3xl text-white">Join a game</CardTitle>
