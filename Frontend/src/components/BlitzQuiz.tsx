@@ -44,7 +44,7 @@ const BlitzQuiz: React.FC<BlitzQuizProps> = ({ question, options, timeLeft, onAn
         {/* Header */}
         <div className="flex items-center justify-between mb-4 gap-4">
           <div className="flex-1">
-            <h2 className="text-2xl md:text-3xl font-bold text-white">
+            <h2 className="text-2xl md:text-3xl font-bold text-cream">
               Answer correct for 10 bonus coins
             </h2>
             {/* <p className="mt-1 text-white/80 text-sm">
@@ -74,7 +74,7 @@ const BlitzQuiz: React.FC<BlitzQuizProps> = ({ question, options, timeLeft, onAn
               <img src={questionImage} alt="" className="max-h-32 max-w-full object-contain rounded" />
             </div>
           )}
-          <p className="text-white text-lg font-bold text-center">{question}</p>
+          <p className="text-cream text-lg font-bold text-center">{question}</p>
         </div>
 
         {/* Options: 2x2 grid */}
@@ -84,15 +84,15 @@ const BlitzQuiz: React.FC<BlitzQuizProps> = ({ question, options, timeLeft, onAn
               key={index}
               onClick={() => handleAnswer(index)}
               disabled={hasAnswered}
-              className={`relative p-4 rounded-xl text-center font-bold transition-all min-h-[80px] flex flex-col items-center justify-center text-white ${
+              className={`relative p-4 rounded-xl text-center font-bold transition-all min-h-[80px] flex flex-col items-center justify-center text-cream ${
                 hasAnswered
                   ? selectedAnswer === index
-                    ? 'ring-2 ring-white ring-offset-2 ring-offset-game-card ' + ANSWER_COLORS[index % 4]
+                    ? 'ring-2 ring-cream ring-offset-2 ring-offset-game-card ' + ANSWER_COLORS[index % 4]
                     : ANSWER_COLORS[index % 4] + ' opacity-60'
                   : ANSWER_COLORS[index % 4] + ' hover:brightness-110'
               }`}
             >
-              <span className="absolute top-2 right-2 w-6 h-6 rounded-md bg-black/40 flex items-center justify-center text-white text-xs font-mono">
+              <span className="absolute top-2 right-2 w-6 h-6 rounded-md bg-black/40 flex items-center justify-center text-cream text-xs font-mono">
                 {index + 1}
               </span>
               {optionImages?.[index] ? (

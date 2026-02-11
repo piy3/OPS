@@ -195,11 +195,11 @@ const Lobby = () => {
   // Connection screen
   if (isConnecting) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex items-center justify-center">
-        <Card className="w-[400px] bg-slate-800 border-slate-700">
+      <div className="min-h-screen bg-gradient-to-b from-wine-900 to-wine-800 flex items-center justify-center">
+        <Card className="w-[400px] bg-card border-border">
           <CardContent className="pt-6 text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-            <p className="text-slate-300">Connecting to server...</p>
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cream mx-auto mb-4"></div>
+            <p className="text-muted-foreground">Connecting to server...</p>
           </CardContent>
         </Card>
       </div>
@@ -209,10 +209,10 @@ const Lobby = () => {
   // Not connected screen
   if (!isConnected) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex items-center justify-center">
-        <Card className="w-[400px] bg-slate-800 border-slate-700">
+      <div className="min-h-screen bg-gradient-to-b from-wine-900 to-wine-800 flex items-center justify-center">
+        <Card className="w-[400px] bg-card border-border">
           <CardContent className="pt-6 text-center">
-            <p className="text-red-400 mb-4">Failed to connect to server</p>
+            <p className="text-destructive mb-4">Failed to connect to server</p>
             <Button onClick={() => socketService.connect()} variant="outline">
               Retry Connection
             </Button>
@@ -225,14 +225,14 @@ const Lobby = () => {
   // In a room - show lobby and How to Play
   if (room) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex items-center justify-center p-4 flex-wrap gap-6">
-        <Card className="w-[500px] bg-slate-800 border-slate-700">
+      <div className="min-h-screen bg-gradient-to-b from-wine-900 to-wine-800 flex items-center justify-center p-4 flex-wrap gap-6">
+        <Card className="w-[500px] bg-card border-border shadow-xl shadow-black/20">
           <CardHeader>
             <div className="flex justify-between items-center">
               <div>
-                <CardTitle className="text-2xl text-white">Game Lobby</CardTitle>
-                <CardDescription className="text-slate-400">
-                  Room Code: <span className="text-blue-400 font-mono text-lg">{room.code}</span>
+                <CardTitle className="text-2xl text-foreground">Game Lobby</CardTitle>
+                <CardDescription className="text-muted-foreground">
+                  Room Code: <span className="text-cream font-mono text-lg font-semibold">{room.code}</span>
                 </CardDescription>
               </div>
               <Badge variant={room.status === 'waiting' ? 'secondary' : 'default'}>
@@ -243,7 +243,7 @@ const Lobby = () => {
           <CardContent className="space-y-6">
             {/* Player List */}
             <div>
-              <h3 className="text-sm font-medium text-slate-400 mb-3">
+              <h3 className="text-sm font-medium text-muted-foreground mb-3">
                 Players ({room.players.length}/{room.maxPlayers})
               </h3>
               <div className="space-y-2">
@@ -252,22 +252,22 @@ const Lobby = () => {
                     key={player.id}
                     className={`flex items-center justify-between p-3 rounded-lg ${
                       player.id === socketService.getSocketId()
-                        ? 'bg-blue-900/30 border border-blue-700'
-                        : 'bg-slate-700/50'
+                        ? 'bg-wine-600/40 border border-cream/30'
+                        : 'bg-muted/60'
                     }`}
                   >
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-bold">
+                      <div className="w-8 h-8 rounded-full bg-wine-600 flex items-center justify-center text-cream font-bold">
                         {player.name.charAt(0).toUpperCase()}
                       </div>
-                      <span className="text-white font-medium">{player.name}</span>
+                      <span className="text-foreground font-medium">{player.name}</span>
                       {player.id === socketService.getSocketId() && (
-                        <Badge variant="outline" className="text-xs">You</Badge>
+                        <Badge variant="outline" className="text-xs border-cream/50 text-cream">You</Badge>
                       )}
                     </div>
                     <div className="flex gap-2">
                       {player.isHost && (
-                        <Badge className="bg-yellow-600">Host</Badge>
+                        <Badge className="bg-cream text-wine-800">Host</Badge>
                       )}
                     </div>
                   </div>
@@ -277,14 +277,14 @@ const Lobby = () => {
 
             {/* Waiting message */}
             {!canStart && (
-              <p className="text-center text-slate-400 text-sm">
+              <p className="text-center text-muted-foreground text-sm">
                 Waiting for more players... (minimum 2 required)
               </p>
             )}
 
             {/* Error message */}
             {error && (
-              <p className="text-center text-red-400 text-sm">{error}</p>
+              <p className="text-center text-destructive text-sm">{error}</p>
             )}
 
             {/* Action buttons */}
@@ -292,7 +292,7 @@ const Lobby = () => {
               <Button
                 onClick={handleLeaveRoom}
                 variant="outline"
-                className="flex-1"
+                className="flex-1 border-cream/40 text-cream hover:bg-wine-600"
               >
                 Leave Room
               </Button>
@@ -300,7 +300,7 @@ const Lobby = () => {
                 <Button
                   onClick={handleStartGame}
                   disabled={!canStart}
-                  className="flex-1 bg-green-600 hover:bg-green-700"
+                  className="flex-1 bg-cream text-wine-800 hover:bg-cream-muted font-semibold"
                 >
                   Start Game
                 </Button>
@@ -308,7 +308,7 @@ const Lobby = () => {
             </div>
 
             {!isHost && (
-              <p className="text-center text-slate-500 text-sm">
+              <p className="text-center text-muted-foreground text-sm">
                 Waiting for host to start the game...
               </p>
             )}
@@ -317,53 +317,53 @@ const Lobby = () => {
 
         {/* How to Play panel */}
         {showHowToPlay ? (
-          <Card className="w-[380px] bg-slate-800 border-slate-700 rounded-xl relative">
+          <Card className="w-[380px] bg-card border-border rounded-xl relative shadow-xl shadow-black/20">
             <Button
               variant="ghost"
               size="sm"
-              className="absolute top-2 right-2 text-slate-400 hover:text-white h-8 w-8 p-0"
+              className="absolute top-2 right-2 text-muted-foreground hover:text-cream h-8 w-8 p-0"
               onClick={() => setShowHowToPlay(false)}
               aria-label="Close"
             >
               ✕
             </Button>
             <CardHeader className="pb-2">
-              <CardTitle className="text-xl font-bold text-center text-blue-400">
+              <CardTitle className="text-xl font-bold text-center text-cream">
                 HOW TO PLAY
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-5 pt-2">
               <div>
                 <div className='text-center mb-2'>
-                  <span className='uppercase text-yellow-400 text-xl font-bold'>Collect most coins to win!</span> <br />
-                  <span className='uppercase text-amber-500 text-lg font-bold'>Unicorns get coins on tagging!</span>
+                  <span className='uppercase text-cream text-xl font-bold'>Collect most coins to win!</span> <br />
+                  <span className='uppercase text-cream-muted text-lg font-bold'>Unicorns get coins on tagging!</span>
                 </div>
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="font-bold text-blue-400">MOVEMENT</span>
+                  <span className="font-bold text-cream">MOVEMENT</span>
                 </div>
                 <div className="flex gap-1.5 mb-1.5 flex-wrap">
-                  <kbd className="px-2.5 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">↑</kbd>
-                  <kbd className="px-2.5 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">↓</kbd>
-                  <kbd className="px-2.5 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">←</kbd>
-                  <kbd className="px-2.5 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">→</kbd>
+                  <kbd className="px-2.5 py-1.5 rounded-md bg-wine-600 text-cream text-xs font-medium shadow">↑</kbd>
+                  <kbd className="px-2.5 py-1.5 rounded-md bg-wine-600 text-cream text-xs font-medium shadow">↓</kbd>
+                  <kbd className="px-2.5 py-1.5 rounded-md bg-wine-600 text-cream text-xs font-medium shadow">←</kbd>
+                  <kbd className="px-2.5 py-1.5 rounded-md bg-wine-600 text-cream text-xs font-medium shadow">→</kbd>
                 </div>
-                <p className="text-slate-500 text-xs mb-1">or</p>
+                <p className="text-muted-foreground text-xs mb-1">or</p>
                 <div className="flex gap-1.5 flex-wrap">
-                  <kbd className="px-2.5 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">W</kbd>
-                  <kbd className="px-2.5 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">A</kbd>
-                  <kbd className="px-2.5 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">S</kbd>
-                  <kbd className="px-2.5 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">D</kbd>
+                  <kbd className="px-2.5 py-1.5 rounded-md bg-wine-600 text-cream text-xs font-medium shadow">W</kbd>
+                  <kbd className="px-2.5 py-1.5 rounded-md bg-wine-600 text-cream text-xs font-medium shadow">A</kbd>
+                  <kbd className="px-2.5 py-1.5 rounded-md bg-wine-600 text-cream text-xs font-medium shadow">S</kbd>
+                  <kbd className="px-2.5 py-1.5 rounded-md bg-wine-600 text-cream text-xs font-medium shadow">D</kbd>
                 </div>
               </div>
               <div>
                 <div className="flex items-center gap-2 mb-2">
-                  <div className="w-8 h-8 rounded-lg bg-amber-600 flex items-center justify-center text-white text-lg font-bold">C</div>
-                  <span className="font-bold text-amber-400">DEPLOY SINK</span>
+                  <div className="w-8 h-8 rounded-lg bg-wine-600 flex items-center justify-center text-cream text-lg font-bold">C</div>
+                  <span className="font-bold text-cream">DEPLOY SINK</span>
                 </div>
-                <p className="text-slate-500 text-xs mt-1">Place a sink trap (need sink in inventory)</p>
+                <p className="text-muted-foreground text-xs mt-1">Place a sink trap (need sink in inventory)</p>
               </div>
-              <div className='border border-slate-600 p-2 rounded-xl'>
-                <span className='italic text-sm text-slate-400'>Look at top left corner for game information in hunt phase!</span>
+              <div className='border border-border p-2 rounded-xl'>
+                <span className='italic text-sm text-muted-foreground'>Look at top left corner for game information in hunt phase!</span>
                 <img className='' src={`${import.meta.env.BASE_URL}infoCard.png`} alt="info_card" />
               </div>
             </CardContent>
@@ -371,7 +371,7 @@ const Lobby = () => {
         ) : (
           <Button
             variant="outline"
-            className="border-slate-600 text-slate-400 hover:text-white hover:bg-slate-700"
+            className="border-cream/40 text-muted-foreground hover:text-cream hover:bg-wine-600"
             onClick={() => setShowHowToPlay(true)}
           >
             Show How to Play
@@ -383,52 +383,52 @@ const Lobby = () => {
 
   // Not in a room - show join form and How to Play
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#331124] to-[#1d0914] flex items-center justify-center p-4 flex-wrap gap-6">
-      <Card className="w-[450px] bg-slate-800 border-slate-700">
+    <div className="min-h-screen bg-gradient-to-b from-wine-950 to-wine-800 flex items-center justify-center p-4 flex-wrap gap-6">
+      <Card className="w-[450px] bg-card border-border shadow-xl shadow-black/20">
         <CardHeader className="text-center">
-          <CardTitle className="text-3xl text-white">Join a game</CardTitle>
-          <CardDescription className="text-slate-400">
+          <CardTitle className="text-3xl text-foreground">Join a game</CardTitle>
+          <CardDescription className="text-muted-foreground">
             Enter the room code from your teacher to join the game
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           {/* Player Name */}
           <div>
-            <label className="text-sm font-medium text-slate-300 mb-2 block">
+            <label className="text-sm font-medium text-muted-foreground mb-2 block">
               Your Name
             </label>
             <Input
               value={playerName}
               onChange={(e) => setPlayerName(e.target.value)}
               placeholder="Enter your name"
-              className="bg-slate-700 border-slate-600 text-white"
+              className="bg-muted border-border text-foreground placeholder:text-muted-foreground"
               maxLength={20}
             />
           </div>
 
           {/* Room code */}
           <div>
-            <label className="text-sm font-medium text-slate-300 mb-2 block">
+            <label className="text-sm font-medium text-muted-foreground mb-2 block">
               Room Code
             </label>
             <Input
               value={roomCode}
               onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
               placeholder="e.g. MAZABCD"
-              className="bg-slate-700 border-slate-600 text-white text-center font-mono tracking-widest"
+              className="bg-muted border-border text-foreground text-center font-mono tracking-widest placeholder:text-muted-foreground"
               maxLength={7}
             />
           </div>
 
           {/* Error message */}
           {error && (
-            <p className="text-center text-red-400 text-sm">{error}</p>
+            <p className="text-center text-destructive text-sm">{error}</p>
           )}
 
           <Button
             onClick={handleJoinRoom}
             disabled={isJoining || !playerName.trim() || !roomCode.trim()}
-            className="w-full bg-blue-600 hover:bg-blue-700"
+            className="w-full bg-cream text-wine-800 hover:bg-cream-muted font-semibold"
           >
             {isJoining ? 'Joining...' : 'Join Room'}
           </Button>
@@ -437,54 +437,53 @@ const Lobby = () => {
 
       {/* How to Play panel - same as in-room view */}
       {showHowToPlay ? (
-        <Card className="w-[380px] bg-slate-800 border-slate-700 rounded-xl relative">
+        <Card className="w-[380px] bg-card border-border rounded-xl relative shadow-xl shadow-black/20">
           <Button
             variant="ghost"
             size="sm"
-            className="absolute top-2 right-2 text-slate-400 hover:text-white h-8 w-8 p-0"
+            className="absolute top-2 right-2 text-muted-foreground hover:text-cream h-8 w-8 p-0"
             onClick={() => setShowHowToPlay(false)}
             aria-label="Close"
           >
             ✕
           </Button>
           <CardHeader className="pb-2">
-            <CardTitle className="text-xl font-bold text-center text-blue-400">
+            <CardTitle className="text-xl font-bold text-center text-cream">
               HOW TO PLAY
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-5 pt-2">
             <div>
               <div className='text-center mb-2'>
-                <span className='uppercase text-yellow-400 text-xl font-bold'>Collect most coins to win!</span> <br />
-                <span className='uppercase text-amber-500 text-lg font-bold'>Unicorns get coins on tagging!</span>
+                <span className='uppercase text-cream text-xl font-bold'>Collect most coins to win!</span> <br />
+                <span className='uppercase text-cream-muted text-lg font-bold'>Unicorns get coins on tagging!</span>
               </div>
               <div className="flex items-center gap-2 mb-2">
-                {/* <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-sm">⌃</div> */}
-                <span className="font-bold text-blue-400">MOVEMENT</span>
+                <span className="font-bold text-cream">MOVEMENT</span>
               </div>
               <div className="flex gap-1.5 mb-1.5 flex-wrap">
-                <kbd className="px-2.5 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">↑</kbd>
-                <kbd className="px-2.5 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">↓</kbd>
-                <kbd className="px-2.5 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">←</kbd>
-                <kbd className="px-2.5 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">→</kbd>
+                <kbd className="px-2.5 py-1.5 rounded-md bg-wine-600 text-cream text-xs font-medium shadow">↑</kbd>
+                <kbd className="px-2.5 py-1.5 rounded-md bg-wine-600 text-cream text-xs font-medium shadow">↓</kbd>
+                <kbd className="px-2.5 py-1.5 rounded-md bg-wine-600 text-cream text-xs font-medium shadow">←</kbd>
+                <kbd className="px-2.5 py-1.5 rounded-md bg-wine-600 text-cream text-xs font-medium shadow">→</kbd>
               </div>
-              <p className="text-slate-500 text-xs mb-1">or</p>
+              <p className="text-muted-foreground text-xs mb-1">or</p>
               <div className="flex gap-1.5 flex-wrap">
-                <kbd className="px-2.5 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">W</kbd>
-                <kbd className="px-2.5 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">A</kbd>
-                <kbd className="px-2.5 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">S</kbd>
-                <kbd className="px-2.5 py-1.5 rounded-md bg-sky-600/80 text-white text-xs font-medium shadow">D</kbd>
+                <kbd className="px-2.5 py-1.5 rounded-md bg-wine-600 text-cream text-xs font-medium shadow">W</kbd>
+                <kbd className="px-2.5 py-1.5 rounded-md bg-wine-600 text-cream text-xs font-medium shadow">A</kbd>
+                <kbd className="px-2.5 py-1.5 rounded-md bg-wine-600 text-cream text-xs font-medium shadow">S</kbd>
+                <kbd className="px-2.5 py-1.5 rounded-md bg-wine-600 text-cream text-xs font-medium shadow">D</kbd>
               </div>
             </div>
             <div>
               <div className="flex items-center gap-2 mb-2">
-                <div className="w-8 h-8 rounded-lg bg-amber-600 flex items-center justify-center text-white text-lg font-bold">C</div>
-                <span className="font-bold text-amber-400">DEPLOY SINK</span>
+                <div className="w-8 h-8 rounded-lg bg-wine-600 flex items-center justify-center text-cream text-lg font-bold">C</div>
+                <span className="font-bold text-cream">DEPLOY SINK</span>
               </div>
-              <p className="text-slate-500 text-xs mt-1">Place a sink trap (need sink in inventory)</p>
+              <p className="text-muted-foreground text-xs mt-1">Place a sink trap (need sink in inventory)</p>
             </div>
-            <div className='border border-slate-600 p-2 rounded-xl'>
-              <span className='italic text-sm text-slate-400'>Look at top left corner for game information in hunt phase!</span>
+            <div className='border border-border p-2 rounded-xl'>
+              <span className='italic text-sm text-muted-foreground'>Look at top left corner for game information in hunt phase!</span>
               <img className='' src={`${import.meta.env.BASE_URL}infoCard.png`} alt="info_card" />
             </div>
           </CardContent>
@@ -492,7 +491,7 @@ const Lobby = () => {
       ) : (
         <Button
           variant="outline"
-          className="border-slate-600 text-slate-400 hover:text-white hover:bg-slate-700"
+          className="border-cream/40 text-muted-foreground hover:text-cream hover:bg-wine-600"
           onClick={() => setShowHowToPlay(true)}
         >
           Show How to Play

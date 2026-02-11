@@ -147,11 +147,11 @@ const Dashboard = () => {
   // Connection screen
   if (isConnecting) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex items-center justify-center">
-        <Card className="w-[400px] bg-slate-800 border-slate-700">
+      <div className="min-h-screen bg-gradient-to-b from-wine-900 to-wine-800 flex items-center justify-center">
+        <Card className="w-[400px] bg-card border-border">
           <CardContent className="pt-6 text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-            <p className="text-slate-300">Connecting to server...</p>
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cream mx-auto mb-4"></div>
+            <p className="text-muted-foreground">Connecting to server...</p>
           </CardContent>
         </Card>
       </div>
@@ -161,10 +161,10 @@ const Dashboard = () => {
   // Not connected screen
   if (!isConnected) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex items-center justify-center">
-        <Card className="w-[400px] bg-slate-800 border-slate-700">
+      <div className="min-h-screen bg-gradient-to-b from-wine-900 to-wine-800 flex items-center justify-center">
+        <Card className="w-[400px] bg-card border-border">
           <CardContent className="pt-6 text-center">
-            <p className="text-red-400 mb-4">Failed to connect to server</p>
+            <p className="text-destructive mb-4">Failed to connect to server</p>
             <Button onClick={() => socketService.connect()} variant="outline">
               Retry Connection
             </Button>
@@ -177,46 +177,46 @@ const Dashboard = () => {
   // Room created - show waiting room with prominent room code
   if (room) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex items-center justify-center p-4">
-        <Card className="w-[600px] bg-slate-800 border-slate-700">
+      <div className="min-h-screen bg-gradient-to-b from-wine-900 to-wine-800 flex items-center justify-center p-4">
+        <Card className="w-[600px] bg-card border-border shadow-xl shadow-black/20">
           <CardHeader className="text-center">
-            <CardTitle className="text-2xl text-white">Teacher Dashboard</CardTitle>
-            <CardDescription className="text-slate-400">
+            <CardTitle className="text-2xl text-foreground">Teacher Dashboard</CardTitle>
+            <CardDescription className="text-muted-foreground">
               Share the room code with your students
             </CardDescription>
             {(room as Room & { totalRounds?: number }).totalRounds != null && (
-            <p className="text-slate-500 text-sm">
+            <p className="text-muted-foreground text-sm">
                 Game: {(room as Room & { totalRounds?: number }).totalRounds} rounds
             </p>
             )}
           </CardHeader>
           <CardContent className="space-y-6">
             {/* Prominent Room Code Display */}
-            <div className="text-center py-6 bg-slate-700/50 rounded-xl border border-slate-600">
-              <p className="text-slate-400 text-sm uppercase tracking-wider mb-2">Room Code</p>
-              <p className="text-6xl font-mono font-bold text-blue-400 tracking-[0.3em]">
+            <div className="text-center py-6 bg-muted/50 rounded-xl border border-border">
+              <p className="text-muted-foreground text-sm uppercase tracking-wider mb-2">Room Code</p>
+              <p className="text-6xl font-mono font-bold text-cream tracking-[0.3em]">
                 {room.code}
               </p>
-              <p className="text-slate-500 text-sm mt-3">
-                Students can join at <span className="text-cyan-400">/lobby</span>
+              <p className="text-muted-foreground text-sm mt-3">
+                Students can join at <span className="text-cream">/lobby</span>
               </p>
             </div>
 
             {/* Player Count */}
-            <div className="flex items-center justify-between px-4 py-3 bg-slate-700/30 rounded-lg">
-              <span className="text-slate-300 font-medium">Players Joined</span>
-              <Badge variant="secondary" className="text-lg px-4 py-1">
+            <div className="flex items-center justify-between px-4 py-3 bg-muted/30 rounded-lg">
+              <span className="text-foreground font-medium">Players Joined</span>
+              <Badge variant="secondary" className="text-lg px-4 py-1 bg-cream/20 text-cream border border-cream/30">
                 {room.players.length}
               </Badge>
             </div>
 
             {/* Player List */}
             <div>
-              <h3 className="text-sm font-medium text-slate-400 mb-3">
+              <h3 className="text-sm font-medium text-muted-foreground mb-3">
                 Student List
               </h3>
               {room.players.length === 0 ? (
-                <div className="text-center py-8 text-slate-500 bg-slate-700/20 rounded-lg border border-dashed border-slate-600">
+                <div className="text-center py-8 text-muted-foreground bg-muted/20 rounded-lg border border-dashed border-border">
                   <p>Waiting for students to join...</p>
                   <p className="text-sm mt-1">Share the room code above</p>
                 </div>
@@ -225,14 +225,14 @@ const Dashboard = () => {
                   {room.players.map((player, index) => (
                     <div
                       key={player.id}
-                      className="flex items-center justify-between p-3 rounded-lg bg-slate-700/50"
+                      className="flex items-center justify-between p-3 rounded-lg bg-muted/50"
                     >
                       <div className="flex items-center gap-3">
-                        <span className="text-slate-500 font-mono w-6">{index + 1}.</span>
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-bold">
+                        <span className="text-muted-foreground font-mono w-6">{index + 1}.</span>
+                        <div className="w-8 h-8 rounded-full bg-wine-600 flex items-center justify-center text-cream font-bold">
                           {player.name.charAt(0).toUpperCase()}
                         </div>
-                        <span className="text-white font-medium">{player.name}</span>
+                        <span className="text-foreground font-medium">{player.name}</span>
                       </div>
                     </div>
                   ))}
@@ -242,21 +242,21 @@ const Dashboard = () => {
 
             {/* Waiting message */}
             {!canStart && (
-              <p className="text-center text-amber-400 text-sm">
+              <p className="text-center text-cream-muted text-sm">
                 Need at least 2 players to start the game
               </p>
             )}
 
             {/* Error message */}
             {error && (
-              <p className="text-center text-red-400 text-sm">{error}</p>
+              <p className="text-center text-destructive text-sm">{error}</p>
             )}
 
             {/* Start Game Button */}
             <Button
               onClick={handleStartGame}
               disabled={!canStart}
-              className="w-full py-6 text-xl bg-green-600 hover:bg-green-700 disabled:bg-slate-600"
+              className="w-full py-6 text-xl bg-cream text-wine-800 hover:bg-cream-muted font-semibold disabled:opacity-50 disabled:bg-muted"
             >
               {canStart ? 'Start Game' : 'Waiting for Players...'}
             </Button>
@@ -268,11 +268,11 @@ const Dashboard = () => {
 
   // Not in a room - show create room form
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#331124] to-[#1d0914] flex items-center justify-center p-4">
-      <Card className="w-[450px] bg-slate-800 border-slate-700">
+    <div className="min-h-screen bg-gradient-to-b from-wine-950 to-wine-800 flex items-center justify-center p-4">
+      <Card className="w-[450px] bg-card border-border shadow-xl shadow-black/20">
         <CardHeader className="text-center">
-          <CardTitle className="text-3xl text-white">Teacher Dashboard</CardTitle>
-          <CardDescription className="text-slate-400">
+          <CardTitle className="text-3xl text-foreground">Teacher Dashboard</CardTitle>
+          <CardDescription className="text-muted-foreground">
             Create a room for your class
           </CardDescription>
         </CardHeader>
@@ -280,9 +280,9 @@ const Dashboard = () => {
 
         {/* Game length: minutes → rounds = minutes * (4/3) */}
         <div className="space-y-2">
-        <label className="text-sm font-medium text-slate-300 block">Game length</label>
+        <label className="text-sm font-medium text-muted-foreground block">Game length</label>
         <div className="flex gap-2 flex-wrap">
-            {([1, 6, 9, 12, 15, 18] as const).map((min) => {
+            {([6, 9, 12, 15, 18] as const).map((min) => {
             const isSelected = selectedMinutes === min;
             return (
                 <Button
@@ -290,7 +290,7 @@ const Dashboard = () => {
                 type="button"
                 variant={isSelected ? "default" : "outline"}
                 className={`rounded-full px-4 py-2 ${
-                    isSelected ? "bg-blue-600 hover:bg-blue-700 text-white" : "border-slate-200 text-slate-300"
+                    isSelected ? "bg-cream text-wine-800 hover:bg-cream-muted" : "border-cream/40 text-muted-foreground hover:text-cream"
                 }`}
                 onClick={() => handleGameRounds(min)}
                 >
@@ -303,35 +303,35 @@ const Dashboard = () => {
 
           {/* Quiz ID - Optional
           <div>
-            <label className="text-sm font-medium text-slate-300 mb-2 block">
+            <label className="text-sm font-medium text-muted-foreground mb-2 block">
               Quiz ID (optional)
             </label>
             <Input
               value={quizId}
               onChange={(e) => setQuizId(e.target.value)}
               placeholder="Quizizz quiz ID for blitz/unfreeze"
-              className="bg-slate-700 border-slate-600 text-white font-mono"
+              className="bg-muted border-border text-foreground font-mono"
             />
-            <p className="text-slate-500 text-xs mt-1">
+            <p className="text-muted-foreground text-xs mt-1">
               Leave empty to use default questions
             </p>
           </div> */}
 
           {/* Error message */}
           {error && (
-            <p className="text-center text-red-400 text-sm">{error}</p>
+            <p className="text-center text-destructive text-sm">{error}</p>
           )}
 
           {/* Create Room Button */}
           <Button
             onClick={handleCreateRoom}
             disabled={isCreating}
-            className="w-full py-6 text-lg bg-blue-600 hover:bg-blue-700"
+            className="w-full py-6 text-lg bg-cream text-wine-800 hover:bg-cream-muted font-semibold"
           >
             {isCreating ? 'Creating Room...' : 'Create Room'}
           </Button>
 
-          <p className="text-center text-slate-500 text-sm">
+          <p className="text-center text-muted-foreground text-sm">
             You will spectate while students play
           </p>
         </CardContent>

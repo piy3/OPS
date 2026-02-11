@@ -236,18 +236,18 @@ const TeacherGame: React.FC = () => {
   // Game over screen
   if (isGameOver) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex items-center justify-center p-4">
-        <div className="bg-slate-800 border border-slate-700 rounded-xl p-8 max-w-2xl w-full">
-          <h1 className="text-4xl font-bold text-center text-red-500 mb-6">GAME OVER</h1>
+      <div className="min-h-screen bg-gradient-to-b from-wine-900 to-wine-800 flex items-center justify-center p-4">
+        <div className="bg-card border border-border rounded-xl p-8 max-w-2xl w-full shadow-xl shadow-black/20">
+          <h1 className="text-4xl font-bold text-center text-cream mb-6">GAME OVER</h1>
           
           <div className="mb-6">
-            <h2 className="text-xl font-semibold text-amber-400 mb-4 flex items-center gap-2">
+            <h2 className="text-xl font-semibold text-cream mb-4 flex items-center gap-2">
               <Trophy size={24} /> Final Standings
             </h2>
-            <div className="bg-slate-700/50 rounded-lg overflow-hidden max-h-96 overflow-y-auto">
+            <div className="bg-muted/50 rounded-lg overflow-hidden max-h-96 overflow-y-auto">
               <table className="w-full">
-                <thead className="bg-slate-700 sticky top-0">
-                  <tr className="text-slate-300 text-sm">
+                <thead className="bg-muted sticky top-0">
+                  <tr className="text-muted-foreground text-sm">
                     <th className="py-3 px-4 text-left">#</th>
                     <th className="py-3 px-4 text-left">Name</th>
                     <th className="py-3 px-4 text-right">Coins</th>
@@ -256,11 +256,11 @@ const TeacherGame: React.FC = () => {
                 </thead>
                 <tbody>
                   {finalLeaderboard.map((entry, i) => (
-                    <tr key={entry.id} className="border-t border-slate-600">
-                      <td className="py-3 px-4 font-mono text-slate-400">{i + 1}</td>
-                      <td className="py-3 px-4 text-white">{entry.name}</td>
-                      <td className="py-3 px-4 text-right font-mono text-amber-400">{entry.coins}</td>
-                      <td className="py-3 px-4 text-right font-mono text-emerald-400">
+                    <tr key={entry.id} className="border-t border-border">
+                      <td className="py-3 px-4 font-mono text-muted-foreground">{i + 1}</td>
+                      <td className="py-3 px-4 text-foreground">{entry.name}</td>
+                      <td className="py-3 px-4 text-right font-mono text-cream">{entry.coins}</td>
+                      <td className="py-3 px-4 text-right font-mono text-cream-muted">
                         {entry.questionsCorrect}/{entry.questionsAttempted}
                       </td>
                     </tr>
@@ -277,19 +277,19 @@ const TeacherGame: React.FC = () => {
                 socketService.startGame();
               }}
               disabled={isRestarting}
-              className="flex-1 py-4 bg-green-600 hover:bg-green-700 disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-colors"
+              className="flex-1 py-4 bg-cream text-wine-800 hover:bg-cream-muted disabled:opacity-50 disabled:cursor-not-allowed font-bold rounded-lg transition-colors"
             >
               {isRestarting ? 'Starting…' : 'Restart Game'}
             </button>
             <button
               onClick={() => navigate('/dashboard')}
-              className="flex-1 py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors"
+              className="flex-1 py-4 bg-wine-600 text-cream hover:bg-wine-700 font-bold rounded-lg transition-colors border border-cream/30"
             >
               Return to Dashboard
             </button>
           </div>
           {isRestarting && (
-            <p className="text-center text-slate-400 text-sm mt-3">Restarting game with same quiz and players…</p>
+            <p className="text-center text-muted-foreground text-sm mt-3">Restarting game with same quiz and players…</p>
           )}
         </div>
       </div>
@@ -297,18 +297,18 @@ const TeacherGame: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 p-6">
+    <div className="min-h-screen bg-gradient-to-b from-wine-900 to-wine-800 p-6">
       <div className="max-w-4xl mx-auto space-y-6">
         
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-white">Teacher Dashboard</h1>
-            <p className="text-slate-400">Game in progress</p>
+            <h1 className="text-3xl font-bold text-foreground">Teacher Dashboard</h1>
+            <p className="text-muted-foreground">Game in progress</p>
           </div>
-          <div className="bg-slate-800 px-6 py-3 rounded-lg border border-slate-600">
-            <span className="text-slate-400 text-sm">Room Code: </span>
-            <span className="text-blue-400 font-mono font-bold text-2xl">{room?.code}</span>
+          <div className="bg-card px-6 py-3 rounded-lg border border-border">
+            <span className="text-muted-foreground text-sm">Room Code: </span>
+            <span className="text-cream font-mono font-bold text-2xl">{room?.code}</span>
           </div>
         </div>
 
@@ -317,16 +317,16 @@ const TeacherGame: React.FC = () => {
           {/* Phase Card */}
           <div className={`p-6 rounded-xl border ${
             gamePhase === 'blitz_quiz' 
-              ? 'bg-purple-900/50 border-purple-500'
+              ? 'bg-wine-700/80 border-cream/40'
               : gamePhase === 'hunt'
-                ? 'bg-red-900/50 border-red-500'
-                : 'bg-slate-800 border-slate-600'
+                ? 'bg-wine-600/80 border-cream/30'
+                : 'bg-card border-border'
           }`}>
             <div className="flex items-center gap-3 mb-2">
-              <Zap size={24} className={gamePhase === 'blitz_quiz' ? 'text-purple-400' : 'text-red-400'} />
-              <span className="text-slate-300 font-medium">Current Phase</span>
+              <Zap size={24} className="text-cream" />
+              <span className="text-muted-foreground font-medium">Current Phase</span>
             </div>
-            <p className="text-2xl font-bold text-white">
+            <p className="text-2xl font-bold text-foreground">
               {gamePhase === 'blitz_quiz' && 'Blitz Quiz'}
               {gamePhase === 'hunt' && 'Hunt Phase'}
               {gamePhase === 'round_end' && 'Round End'}
@@ -335,42 +335,42 @@ const TeacherGame: React.FC = () => {
           </div>
 
           {/* Round Card */}
-          <div className="bg-slate-800 p-6 rounded-xl border border-slate-600">
+          <div className="bg-card p-6 rounded-xl border border-border">
             <div className="flex items-center gap-3 mb-2">
-              <Users size={24} className="text-cyan-400" />
-              <span className="text-slate-300 font-medium">Round</span>
+              <Users size={24} className="text-cream" />
+              <span className="text-muted-foreground font-medium">Round</span>
             </div>
-            <p className="text-2xl font-bold text-white">
-              {currentRound} <span className="text-slate-500">/ {totalRounds}</span>
+            <p className="text-2xl font-bold text-foreground">
+              {currentRound} <span className="text-muted-foreground">/ {totalRounds}</span>
             </p>
           </div>
 
           {/* Timer Card */}
-          <div className="bg-slate-800 p-6 rounded-xl border border-slate-600">
+          <div className="bg-card p-6 rounded-xl border border-border">
             <div className="flex items-center gap-3 mb-2">
-              <Clock size={24} className="text-amber-400" />
-              <span className="text-slate-300 font-medium">Time Left</span>
+              <Clock size={24} className="text-cream" />
+              <span className="text-muted-foreground font-medium">Time Left</span>
             </div>
-            <p className={`text-4xl font-mono font-bold ${huntTimeLeft <= 10 ? 'text-red-400' : 'text-white'}`}>
+            <p className={`text-4xl font-mono font-bold ${huntTimeLeft <= 10 ? 'text-destructive' : 'text-foreground'}`}>
               {gamePhase === 'hunt' ? `${Math.ceil(huntTimeLeft)}s` : '--'}
             </p>
           </div>
         </div>
 
         {/* Leaderboard */}
-        <div className="bg-slate-800 rounded-xl border border-slate-600 overflow-hidden">
-          <div className="flex items-center gap-3 px-6 py-4 border-b border-slate-600">
-            <Trophy size={24} className="text-amber-400" />
-            <h2 className="text-xl font-semibold text-amber-400">Live Leaderboard</h2>
-            <span className="ml-auto text-slate-400 flex items-center gap-2">
+        <div className="bg-card rounded-xl border border-border overflow-hidden">
+          <div className="flex items-center gap-3 px-6 py-4 border-b border-border">
+            <Trophy size={24} className="text-cream" />
+            <h2 className="text-xl font-semibold text-cream">Live Leaderboard</h2>
+            <span className="ml-auto text-muted-foreground flex items-center gap-2">
               <Users size={18} /> {leaderboard.length} players
             </span>
           </div>
           
           <div className="overflow-y-auto max-h-[50vh]">
             <table className="w-full">
-              <thead className="bg-slate-700/50 sticky top-0">
-                <tr className="text-slate-400 text-sm">
+              <thead className="bg-muted/50 sticky top-0">
+                <tr className="text-muted-foreground text-sm">
                   <th className="py-3 px-4 text-left">Rank</th>
                   <th className="py-3 px-4 text-left">Player</th>
                   <th className="py-3 px-4 text-center">Role</th>
@@ -381,7 +381,7 @@ const TeacherGame: React.FC = () => {
               <tbody>
                 {leaderboard.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="py-8 text-center text-slate-500">
+                    <td colSpan={5} className="py-8 text-center text-muted-foreground">
                       Waiting for game data...
                     </td>
                   </tr>
@@ -389,36 +389,36 @@ const TeacherGame: React.FC = () => {
                   leaderboard.map((entry, i) => (
                     <tr 
                       key={entry.id} 
-                      className={`border-t border-slate-700/50 ${
-                        entry.isUnicorn ? 'bg-purple-900/20' : ''
-                      } ${i < 3 ? 'bg-amber-900/10' : ''}`}
+                      className={`border-t border-border/50 ${
+                        entry.isUnicorn ? 'bg-wine-600/20' : ''
+                      } ${i < 3 ? 'bg-cream/5' : ''}`}
                     >
                       <td className="py-3 px-4">
                         <span className={`font-mono font-bold ${
-                          i === 0 ? 'text-amber-400 text-lg' :
-                          i === 1 ? 'text-slate-300' :
-                          i === 2 ? 'text-orange-400' :
-                          'text-slate-500'
+                          i === 0 ? 'text-cream text-lg' :
+                          i === 1 ? 'text-cream-muted' :
+                          i === 2 ? 'text-cream-dim' :
+                          'text-muted-foreground'
                         }`}>
                           {i + 1}
                         </span>
                       </td>
-                      <td className="py-3 px-4 text-white font-medium">
+                      <td className="py-3 px-4 text-foreground font-medium">
                         {entry.name}
                       </td>
                       <td className="py-3 px-4 text-center">
                         {entry.isUnicorn ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded bg-purple-600/50 text-purple-300 text-sm">
+                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded bg-wine-600/50 text-cream text-sm">
                             🦄 Unicorn
                           </span>
                         ) : (
-                          <span className="text-slate-500 text-sm">Survivor</span>
+                          <span className="text-muted-foreground text-sm">Survivor</span>
                         )}
                       </td>
-                      <td className="py-3 px-4 text-right font-mono text-amber-400 font-bold">
+                      <td className="py-3 px-4 text-right font-mono text-cream font-bold">
                         {entry.coins}
                       </td>
-                      <td className="py-3 px-4 text-right font-mono text-emerald-400">
+                      <td className="py-3 px-4 text-right font-mono text-cream-muted">
                         {entry.questionsCorrect}/{entry.questionsAttempted}
                       </td>
                     </tr>
@@ -430,7 +430,7 @@ const TeacherGame: React.FC = () => {
         </div>
 
         {/* Footer */}
-        <div className="text-center text-slate-500 text-sm">
+        <div className="text-center text-muted-foreground text-sm">
           Game will end after {totalRounds} rounds
         </div>
       </div>

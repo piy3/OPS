@@ -1391,7 +1391,7 @@ const QbitAnimator = () => {
       {/* Game Entry Point */}
       <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-background via-background/95 to-transparent">
         <Link to="/lobby" className="block">
-          <button className="w-full py-3 px-6 rounded-xl bg-gradient-to-r from-purple-500 to-pink-600 hover:from-purple-400 hover:to-pink-500 text-white font-bold text-lg flex items-center justify-center gap-3 shadow-lg hover:shadow-purple-500/25 transition-all group">
+          <button className="w-full py-3 px-6 rounded-xl bg-cream text-wine-800 hover:bg-cream-muted font-bold text-lg flex items-center justify-center gap-3 shadow-lg transition-all group">
             <Layers size={24} />
             <span>Play Multiplayer</span>
             <ChevronRight size={20} className="group-hover:translate-x-1 transition-transform" />

@@ -2701,15 +2701,15 @@ const Game: React.FC = () => {
       {gameState === 'blitz-quiz' && blitzQuestion && (
         blitzShowObjective ? (
           <div className="absolute inset-0 bg-black/90 flex items-center justify-center z-50">
-            <div className="bg-slate-800 border-2 border-purple-500 rounded-xl p-8 max-w-lg w-full mx-4 shadow-2xl shadow-purple-500/20 text-center">
+            <div className="bg-card border-2 border-cream/50 rounded-xl p-8 max-w-lg w-full mx-4 shadow-2xl shadow-black/30 text-center">
               <span className="text-5xl mb-4 block" aria-hidden>🦄</span>
-              <h2 className="text-2xl md:text-3xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent mb-2">
+              <h2 className="text-2xl md:text-3xl font-bold text-cream mb-2">
                 Answer correct for 10 bonus coins
               </h2>
-              <p className="text-slate-400 text-sm mb-4">
+              <p className="text-muted-foreground text-sm mb-4">
                 Get it right to earn bonus coins!
               </p>
-              <p className="text-purple-400/80 text-sm animate-pulse">Get ready!</p>
+              <p className="text-cream/80 text-sm animate-pulse">Get ready!</p>
             </div>
           </div>
         ) : (
@@ -2738,32 +2738,28 @@ const Game: React.FC = () => {
         <div className="absolute inset-0 bg-black/95 flex items-center justify-center z-50">
           <div className={`text-center p-8 rounded-2xl ${
             roleAnnouncement.isUnicorn 
-              ? 'bg-gradient-to-br from-purple-900/80 to-pink-900/80 border-2 border-purple-400' 
-              : 'bg-gradient-to-br from-cyan-900/80 to-blue-900/80 border-2 border-cyan-400'
+              ? 'bg-wine-800/95 border-2 border-cream/50' 
+              : 'bg-wine-700/95 border-2 border-cream/40'
           }`}>
             {/* Large animated icon */}
-            <div className={`text-8xl mb-6 animate-bounce ${
-              roleAnnouncement.isUnicorn ? 'text-purple-300' : 'text-cyan-300'
-            }`}>
+            <div className="text-8xl mb-6 animate-bounce text-cream">
               {roleAnnouncement.isUnicorn ? '🦄' : '🏃'}
             </div>
             
             {/* Role title */}
-            <h1 className={`text-5xl font-bold mb-4 ${
-              roleAnnouncement.isUnicorn ? 'text-purple-300' : 'text-cyan-300'
-            }`}>
+            <h1 className="text-5xl font-bold mb-4 text-cream">
               {roleAnnouncement.isUnicorn ? 'You are the UNICORN!' : 'You are a SURVIVOR!'}
             </h1>
             
             {/* Role instruction */}
-            <p className="text-2xl text-white/90">
+            <p className="text-2xl text-cream/90">
               {roleAnnouncement.isUnicorn 
                 ? 'Catch Survivors for coins! 💰' 
                 : 'Evade Unicorns and collect coins! 💰'}
             </p>
             
             {/* Pulsing "Get Ready" text */}
-            <p className="text-lg text-white/60 mt-6 animate-pulse">
+            <p className="text-lg text-cream/60 mt-6 animate-pulse">
               Hunt begins soon...
             </p>
           </div>
@@ -2782,11 +2778,11 @@ const Game: React.FC = () => {
       {gameState === 'frozen' && !unfreezeQuizData && (
         <div className="absolute inset-0 bg-game-bg flex items-center justify-center z-50">
           <div className="bg-game-card border-2 border-game-accent rounded-2xl p-8 max-w-lg w-full mx-4 shadow-2xl">
-            <h2 className="text-2xl font-bold text-white text-center mb-2 animate-pulse uppercase">
+            <h2 className="text-2xl font-bold text-cream text-center mb-2 animate-pulse uppercase">
               YOU GOT TAGGED!
             </h2>
-            <p className="text-white/80 text-center text-sm mb-6">Answer correctly to unfreeze</p>
-            <p className="text-white text-center text-lg mb-4">Loading quiz questions...</p>
+            <p className="text-cream/80 text-center text-sm mb-6">Answer correctly to unfreeze</p>
+            <p className="text-cream text-center text-lg mb-4">Loading quiz questions...</p>
             <div className="flex justify-center">
               <div className="animate-spin rounded-full h-10 w-10 border-2 border-game-accent border-t-game-icon"></div>
             </div>
@@ -2806,25 +2802,25 @@ const Game: React.FC = () => {
       {/* Waiting for start screen (Multiplayer) */}
       {gameState === 'waiting-for-start' && room && (
         <div className="absolute inset-0 bg-black/90 flex items-center justify-center z-50">
-          <div className="bg-slate-800 p-8 rounded-xl border border-slate-700 max-w-md w-full mx-4 text-center">
-            <h2 className="text-3xl font-bold text-cyan-400 mb-4">Waiting for Game</h2>
-            <p className="text-slate-400 mb-6">
-              Room: <span className="text-white font-mono">{room.code}</span>
+          <div className="bg-card p-8 rounded-xl border border-border max-w-md w-full mx-4 text-center">
+            <h2 className="text-3xl font-bold text-cream mb-4">Waiting for Game</h2>
+            <p className="text-muted-foreground mb-6">
+              Room: <span className="text-cream font-mono">{room.code}</span>
             </p>
-            <p className="text-slate-400">
+            <p className="text-muted-foreground">
               {room.players.length} player{room.players.length !== 1 ? 's' : ''} connected
             </p>
             <div className="mt-6 flex justify-center gap-2">
               {room.players.map((p, i) => (
                 <div
                   key={p.id}
-                  className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-bold"
+                  className="w-10 h-10 rounded-full bg-wine-600 flex items-center justify-center text-cream font-bold"
                 >
                   {p.name.charAt(0).toUpperCase()}
                 </div>
               ))}
             </div>
-            <p className="mt-6 text-slate-500 text-sm animate-pulse">
+            <p className="mt-6 text-muted-foreground text-sm animate-pulse">
               Waiting for host to start...
             </p>
           </div>
@@ -2835,7 +2831,7 @@ const Game: React.FC = () => {
       {gameState === 'game-over' && (
         <div className="absolute inset-0 bg-black/90 flex items-center justify-center z-50">
           <div className="bg-card p-8 rounded-xl border border-border max-w-md w-full mx-4 max-h-[90vh] overflow-hidden flex flex-col">
-            <h2 className="text-3xl font-bold text-red-500 mb-4 text-center">GAME OVER</h2>
+            <h2 className="text-3xl font-bold text-cream mb-4 text-center">GAME OVER</h2>
 
             <>
               {gameEndLeaderboard.length > 0 ? (
@@ -2858,7 +2854,7 @@ const Game: React.FC = () => {
                             <tr
                               key={entry.id || i}
                               ref={isYou ? (el) => el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }) : undefined}
-                              className={`border-b border-border/50 last:border-0 ${isYou ? 'bg-cyan-500/20 text-cyan-400' : 'text-foreground'}`}
+                              className={`border-b border-border/50 last:border-0 ${isYou ? 'bg-cream/20 text-cream' : 'text-foreground'}`}
                             >
                               <td className="py-2 px-3 font-mono">{i + 1}</td>
                               <td className="py-2 px-3">
@@ -2866,7 +2862,7 @@ const Game: React.FC = () => {
                                 {isYou && <span className="ml-1 text-muted-foreground">(You)</span>}
                               </td>
                               <td className="py-2 px-3 text-right font-mono">{entry.coins}</td>
-                              <td className="py-2 px-3 text-right font-mono text-emerald-400">
+                              <td className="py-2 px-3 text-right font-mono text-cream-muted">
                                 {entry.questionsCorrect}/{entry.questionsAttempted}
                               </td>
                             </tr>
@@ -2885,8 +2881,7 @@ const Game: React.FC = () => {
                   returningToLobbyRef.current = true;
                   navigate('/lobby', { state: { returnFromGameOver: true } });
                 }}
-                className="flex-shrink-0 w-full py-3 bg-gradient-to-r from-cyan-500 to-blue-600 
-                           text-white font-bold rounded-lg hover:from-cyan-400 hover:to-blue-500
+                className="flex-shrink-0 w-full py-3 bg-cream text-wine-800 font-bold rounded-lg hover:bg-cream-muted
                            transition-all text-center"
               >
                 Return to Lobby
@@ -2901,7 +2896,7 @@ const Game: React.FC = () => {
         <div className="absolute inset-0 bg-black/90 flex items-center justify-center z-50">
           <div className="bg-card p-6 rounded-xl border border-border max-w-lg w-full mx-4 max-h-[80vh]">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-2xl font-bold text-amber-400 flex items-center gap-2">
+              <h2 className="text-2xl font-bold text-cream flex items-center gap-2">
                 <Trophy size={28} /> Leaderboard
               </h2>
               <button 
@@ -2929,7 +2924,7 @@ const Game: React.FC = () => {
                       <tr key={i} className="border-b border-border/50">
                         <td className="py-2 text-muted-foreground">{i + 1}</td>
                         <td className="py-2 text-foreground">{entry.name}</td>
-                        <td className="py-2 text-right text-cyan-400">{formatTime(entry.timeSurvived)}</td>
+                        <td className="py-2 text-right text-cream">{formatTime(entry.timeSurvived)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -2944,7 +2939,7 @@ const Game: React.FC = () => {
       {gameState === 'playing' && (
         <div className="absolute top-5 left-5 text-foreground pointer-events-none w-80">
           <div className="flex items-center justify-between">
-            <h1 className="m-0 text-2xl text-cyan-400 uppercase tracking-widest font-bold drop-shadow-lg">
+            <h1 className="m-0 text-2xl text-cream uppercase tracking-widest font-bold drop-shadow-lg">
               WayMaze
             </h1>
             {/* <button
@@ -2962,7 +2957,7 @@ const Game: React.FC = () => {
                 ⏱ {formatTime(gameTime)}
               </span> */}
               {isMultiplayer && huntTimeLeft > 0 && (
-                <span className="text-cyan-400 font-mono text-xl">
+                <span className="text-cream font-mono text-xl">
                   Hunt ⏱: <span className=" ">{Math.ceil(huntTimeLeft)}s</span>
                 </span>
               )}
@@ -2971,13 +2966,13 @@ const Game: React.FC = () => {
               <div className="flex flex-wrap items-center gap-2">
                 <div className={`px-3 py-1.5 rounded-lg text-sm font-bold ${
                   isUnicorn
-                    ? 'bg-purple-600/80 border border-purple-400 text-white'
-                    : 'bg-blue-600/80 border border-blue-400 text-white'
+                    ? 'bg-wine-600/90 border border-cream/50 text-cream'
+                    : 'bg-wine-700/90 border border-cream/40 text-cream'
                 }`}>
                   {isUnicorn ? '🦄 Unicorn' : '🏃 Survivor'}
                 </div>
-                <div className="bg-slate-800/80 rounded-lg px-3 py-1.5 text-sm text-slate-300">
-                  Round <span className="text-yellow-400 font-bold">{currentRound}</span> / {totalRounds}
+                <div className="bg-card/80 rounded-lg px-3 py-1.5 text-sm text-muted-foreground">
+                  Round <span className="text-cream font-bold">{currentRound}</span> / {totalRounds}
                 </div>
               </div>
             )}
@@ -3085,7 +3080,7 @@ const Game: React.FC = () => {
                       <tr
                         key={entry.id || i}
                         ref={isYou ? (el) => el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }) : undefined}
-                        className={`border-b border-border/20 last:border-0 ${isYou ? 'bg-cyan-500/15 text-cyan-400' : 'text-slate-300'}`}
+                        className={`border-b border-border/20 last:border-0 ${isYou ? 'bg-cream/15 text-cream' : 'text-muted-foreground'}`}
                       >
                         <td className="py-1 px-2 font-mono">{i + 1}</td>
                         <td className="py-1 px-2 truncate max-w-[5rem]">
@@ -3093,7 +3088,7 @@ const Game: React.FC = () => {
                           {isYou && <span className="text-muted-foreground text-[10px]"> (You)</span>}
                         </td>
                         <td className="py-1 px-2 text-right font-mono">{entry.coins}</td>
-                        <td className="py-1 px-2 text-right font-mono text-emerald-400">
+                        <td className="py-1 px-2 text-right font-mono text-cream-muted">
                           {entry.questionsCorrect}/{entry.questionsAttempted}
                         </td>
                       </tr>
