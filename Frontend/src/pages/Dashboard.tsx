@@ -18,12 +18,10 @@ const Dashboard = () => {
   // Connection state
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [selectedMinutes, setSelectedMinutes] = useState<number>(6);
 
   // Room state
   const [room, setRoom] = useState<Room | null>(null);
-  const [teacherName, setTeacherName] = useState(() => {
-    return localStorage.getItem('teacherName') || '';
-  });
   const [quizId, setQuizId] = useState('');
   
   // UI state
@@ -104,29 +102,24 @@ const Dashboard = () => {
     };
   }, [isConnected, navigate]);
 
-  // Save teacher name to localStorage
-  useEffect(() => {
-    if (teacherName) {
-      localStorage.setItem('teacherName', teacherName);
-    }
-  }, [teacherName]);
 
   // Create a new room as teacher
   const handleCreateRoom = () => {
-    if (!teacherName.trim()) {
-      setError('Please enter your name');
-      return;
-    }
     setError(null);
     setIsCreating(true);
+    const totalRounds = Math.round(selectedMinutes * (4/3));
     // Pass isTeacher: true to create room as teacher
-    socketService.createRoom(teacherName.trim(), 30, quizId.trim() || undefined, true);
+    socketService.createRoom('', 30, quizId.trim() || undefined, true, totalRounds);
   };
 
   // Start the game (teacher is host)
   const handleStartGame = () => {
     socketService.startGame();
   };
+
+  const handleGameRounds = (minutes: number) => {
+    setSelectedMinutes(minutes);
+  }
 
   const canStart = room && room.players.length >= 2;
 
@@ -170,6 +163,11 @@ const Dashboard = () => {
             <CardDescription className="text-slate-400">
               Share the room code with your students
             </CardDescription>
+            {(room as Room & { totalRounds?: number }).totalRounds != null && (
+            <p className="text-slate-500 text-sm">
+                Game: {(room as Room & { totalRounds?: number }).totalRounds} rounds
+            </p>
+            )}
           </CardHeader>
           <CardContent className="space-y-6">
             {/* Prominent Room Code Display */}
@@ -258,19 +256,29 @@ const Dashboard = () => {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          {/* Teacher Name */}
-          <div>
-            <label className="text-sm font-medium text-slate-300 mb-2 block">
-              Your Name
-            </label>
-            <Input
-              value={teacherName}
-              onChange={(e) => setTeacherName(e.target.value)}
-              placeholder="Enter your name"
-              className="bg-slate-700 border-slate-600 text-white"
-              maxLength={20}
-            />
-          </div>
+
+        {/* Game length: minutes → rounds = minutes * (4/3) */}
+        <div className="space-y-2">
+        <label className="text-sm font-medium text-slate-300 block">Game length</label>
+        <div className="flex gap-2 flex-wrap">
+            {([6, 9, 12] as const).map((min) => {
+            const isSelected = selectedMinutes === min;
+            return (
+                <Button
+                key={min}
+                type="button"
+                variant={isSelected ? "default" : "outline"}
+                className={`rounded-full px-4 py-2 ${
+                    isSelected ? "bg-blue-600 hover:bg-blue-700 text-white" : "border-slate-200 text-slate-300"
+                }`}
+                onClick={() => handleGameRounds(min)}
+                >
+                {min} min
+                </Button>
+            );
+            })}
+        </div>
+        </div>
 
           {/* Quiz ID - Optional */}
           <div>
@@ -296,10 +304,10 @@ const Dashboard = () => {
           {/* Create Room Button */}
           <Button
             onClick={handleCreateRoom}
-            disabled={isCreating || !teacherName.trim()}
+            disabled={isCreating}
             className="w-full py-6 text-lg bg-blue-600 hover:bg-blue-700"
           >
-            {isCreating ? 'Creating Room...' : 'Create Room as Teacher'}
+            {isCreating ? 'Creating Room...' : 'Create Room'}
           </Button>
 
           <p className="text-center text-slate-500 text-sm">

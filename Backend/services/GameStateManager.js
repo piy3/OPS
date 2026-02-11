@@ -119,6 +119,7 @@ class GameStateManager {
             roomCode: roomCode,
             teacherId: room.teacherId,
             isTeacher: requesterId == room.teacherId,
+            totalRounds: room?.totalRounds ?? GAME_LOOP_CONFIG.TOTAL_GAME_ROUNDS,
             players: room.players.map(player => ({
                 id: player.id,
                 name: player.name,
@@ -143,13 +144,13 @@ class GameStateManager {
      */
     async startGameLoop(roomCode, io) {
         // Initialize round tracking for this game
-        gameLoopManager.initRoomRounds(roomCode);
+        const room = roomManager.getRoom(roomCode);
+        gameLoopManager.initRoomRounds(roomCode, room?.totalRounds ?? GAME_LOOP_CONFIG.TOTAL_GAME_ROUNDS);
 
         await gameLoopManager.startGameLoop(roomCode, io, (code) => {
             quizManager.freezeRoom(code);
         });
 
-        const room = roomManager.getRoom(roomCode);
         if (room) {
             gameLoopManager.sendBlitzQuiz(
                 roomCode,

@@ -4,7 +4,8 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import socketService from '@/services/SocketService';
+
+const ANSWER_COLORS = ['bg-game-answer0', 'bg-game-answer1', 'bg-game-answer2', 'bg-game-answer3'] as const;
 
 interface BlitzQuizProps {
   question: string;
@@ -38,85 +39,73 @@ const BlitzQuiz: React.FC<BlitzQuizProps> = ({ question, options, timeLeft, onAn
   const timePercentage = Math.max(0, (timeLeft / 15) * 100);
 
   return (
-    <div className="absolute inset-0 bg-black/90 flex items-center justify-center z-50">
-      <div className="bg-slate-800 border-2 border-purple-500 rounded-xl p-8 max-w-lg w-full mx-4 shadow-2xl shadow-purple-500/20">
-        {/* Header – objective: answer fast to become Unicorn */}
+    <div className="absolute inset-0 bg-game-bg flex items-center justify-center z-50">
+      <div className="bg-game-card rounded-2xl p-8 max-w-lg w-full mx-4 shadow-2xl border border-game-accent/30">
+        {/* Header */}
         <div className="flex items-center justify-between mb-4 gap-4">
           <div className="flex-1">
-            <h2 className="text-2xl md:text-3xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
+            <h2 className="text-2xl md:text-3xl font-bold text-white">
               Answer fast to become the Unicorn!
             </h2>
-            <p className="mt-1 text-slate-400 text-sm">
+            <p className="mt-1 text-white/80 text-sm">
               Fastest correct answer becomes the Unicorn this round.
             </p>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             <span className="text-3xl" aria-hidden>🦄</span>
-            <div className="text-yellow-400 font-mono text-xl">
+            <span className="px-3 py-1.5 rounded-full bg-game-pill border border-game-accent text-game-icon font-mono text-xl font-bold">
               {Math.ceil(timeLeft)}s
-            </div>
+            </span>
           </div>
         </div>
 
         {/* Timer bar */}
-        <div className="h-2 bg-slate-700 rounded-full mb-6 overflow-hidden">
-          <div 
-            className="h-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-1000 ease-linear"
+        <div className="h-2 bg-game-pill rounded-full mb-6 overflow-hidden">
+          <div
+            className="h-full bg-game-accent transition-all duration-1000 ease-linear"
             style={{ width: `${timePercentage}%` }}
           />
         </div>
 
         {/* Question */}
-        <div className="bg-slate-900 rounded-lg p-4 mb-6">
+        <div className="bg-game-pill/60 rounded-xl p-4 mb-5 border border-game-accent/40">
           {questionImage && (
             <div className="flex justify-center mb-3">
               <img src={questionImage} alt="" className="max-h-32 max-w-full object-contain rounded" />
             </div>
           )}
-          <p className="text-white text-lg text-center">{question}</p>
+          <p className="text-white text-lg font-bold text-center">{question}</p>
         </div>
 
-        {/* Options */}
-        <div className="space-y-3">
+        {/* Options: 2x2 grid */}
+        <div className="grid grid-cols-2 gap-3 mb-4">
           {options.map((option, index) => (
             <button
               key={index}
               onClick={() => handleAnswer(index)}
               disabled={hasAnswered}
-              className={`w-full p-4 rounded-lg text-left font-medium transition-all flex items-center gap-3 ${
+              className={`relative p-4 rounded-xl text-center font-bold transition-all min-h-[80px] flex flex-col items-center justify-center text-white ${
                 hasAnswered
                   ? selectedAnswer === index
-                    ? 'bg-purple-600 text-white border-2 border-purple-400'
-                    : 'bg-slate-700 text-slate-400'
-                  : 'bg-slate-700 hover:bg-slate-600 text-white hover:border-purple-400 border-2 border-transparent'
+                    ? 'ring-2 ring-white ring-offset-2 ring-offset-game-card ' + ANSWER_COLORS[index % 4]
+                    : ANSWER_COLORS[index % 4] + ' opacity-60'
+                  : ANSWER_COLORS[index % 4] + ' hover:brightness-110'
               }`}
             >
-              <span className="inline-block w-8 h-8 rounded-full bg-slate-600 text-center leading-8 flex-shrink-0">
-                {String.fromCharCode(65 + index)}
+              <span className="absolute top-2 right-2 w-6 h-6 rounded-md bg-black/40 flex items-center justify-center text-white text-xs font-mono">
+                {index + 1}
               </span>
-              <span className="flex-1 min-w-0 flex flex-col items-start gap-1">
-                {optionImages?.[index] ? (
-                  <img src={optionImages[index]!} alt="" className="max-h-20 max-w-full object-contain rounded" />
-                ) : null}
-                {option ? <span>{option}</span> : null}
-              </span>
+              {optionImages?.[index] ? (
+                <img src={optionImages[index]!} alt="" className="max-h-16 max-w-full object-contain rounded mb-1" />
+              ) : null}
+              {option ? <span className="text-sm md:text-base">{option}</span> : null}
             </button>
           ))}
         </div>
 
-        {/* Waiting message */}
         {hasAnswered && (
-          <div className="mt-6 text-center">
-            <p className="text-purple-400 animate-pulse">
-              Answer submitted! Waiting for others...
-            </p>
-          </div>
-        )}
-
-        {/* Instructions */}
-        {!hasAnswered && (
-          <p className="mt-6 text-center text-slate-400 text-sm">
-            Fastest correct answer becomes the Unicorn this round.
+          <p className="text-center text-game-accent font-medium animate-pulse">
+            Answer submitted! Waiting for others...
           </p>
         )}
       </div>

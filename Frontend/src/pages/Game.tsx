@@ -2767,18 +2767,16 @@ const Game: React.FC = () => {
 
       {/* Frozen - Loading Quiz Overlay (waiting for quiz data from server) */}
       {gameState === 'frozen' && !unfreezeQuizData && (
-        <div className="absolute inset-0 bg-black/90 flex items-center justify-center z-50">
-          <div className="bg-slate-800 border-2 border-cyan-500 rounded-xl p-8 max-w-lg w-full mx-4 shadow-2xl shadow-cyan-500/20">
-            <h2 className="text-2xl font-bold text-cyan-400 text-center mb-6 animate-pulse">
-              YOU'VE BEEN FROZEN!
+        <div className="absolute inset-0 bg-game-bg flex items-center justify-center z-50">
+          <div className="bg-game-card border-2 border-game-accent rounded-2xl p-8 max-w-lg w-full mx-4 shadow-2xl">
+            <h2 className="text-2xl font-bold text-white text-center mb-2 animate-pulse uppercase">
+              YOU GOT TAGGED!
             </h2>
+            <p className="text-white/80 text-center text-sm mb-6">Answer correctly to unfreeze</p>
             <p className="text-white text-center text-lg mb-4">Loading quiz questions...</p>
             <div className="flex justify-center">
-              <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-cyan-400"></div>
+              <div className="animate-spin rounded-full h-10 w-10 border-2 border-game-accent border-t-game-icon"></div>
             </div>
-            <p className="text-cyan-300 text-center text-sm mt-4">
-              Answer correctly to unfreeze!
-            </p>
           </div>
         </div>
       )}

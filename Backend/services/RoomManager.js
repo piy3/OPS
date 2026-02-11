@@ -31,6 +31,7 @@ class RoomManager {
             code: roomCode,
             hostId: socketId,
             teacherId: isTeacher ? socketId : null,
+            totalRounds: playerData?.totalRounds ?? null,
             players: isTeacher ? [] : [{
                 id: socketId,
                 name: playerData?.name || generateDefaultPlayerName(socketId),

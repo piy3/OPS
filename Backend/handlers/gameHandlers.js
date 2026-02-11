@@ -50,10 +50,11 @@ export function registerGameHandlers(socket, io) {
             const gameState = gameStateManager.getGameState(roomCode, socket.id);
 
             // Get round info (may be null if not initialized yet, use safe default)
+            const totalRounds = room?.totalRounds ?? GAME_LOOP_CONFIG.TOTAL_GAME_ROUNDS;
             const roundInfo = gameLoopManager.getRoomRounds(roomCode) || {
                 currentRound: 1,
-                totalRounds: GAME_LOOP_CONFIG.TOTAL_GAME_ROUNDS,
-                roundsRemaining: GAME_LOOP_CONFIG.TOTAL_GAME_ROUNDS
+                totalRounds: totalRounds,
+                roundsRemaining: totalRounds
             };
 
             // Notify all players in the room with initial game state

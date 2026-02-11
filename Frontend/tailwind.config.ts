@@ -57,6 +57,17 @@ export default {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
+        game: {
+          bg: "#331124",
+          card: "#4A2E49",
+          pill: "#5E2D5B",
+          accent: "#F0228B",
+          icon: "#FFD700",
+          answer0: "#8CC63F",
+          answer1: "#7B40D9",
+          answer2: "#F29C35",
+          answer3: "#35B0D1",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",

@@ -33,14 +33,14 @@ class GameLoopManager {
      * Initialize round tracking for a room when a game starts
      * @param {string} roomCode - Room code
      */
-    initRoomRounds(roomCode) {
-        const totalRounds = GAME_LOOP_CONFIG.TOTAL_GAME_ROUNDS;
+    initRoomRounds(roomCode, totalRoundsOverride = null) {
+        if(!totalRoundsOverride) totalRoundsOverride = GAME_LOOP_CONFIG.TOTAL_GAME_ROUNDS;
         this.roomRounds.set(roomCode, {
-            totalRounds: totalRounds,
-            roundsRemaining: totalRounds,
+            totalRounds: totalRoundsOverride,
+            roundsRemaining: totalRoundsOverride,
             currentRound: 1
         });
-        log.info(`🎮 Room ${roomCode}: Initialized rounds - ${totalRounds} total rounds`);
+        log.info(`🎮 Room ${roomCode}: Initialized rounds - ${totalRoundsOverride} total rounds`);
     }
 
     /**
