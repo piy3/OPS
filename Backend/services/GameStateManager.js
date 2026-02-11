@@ -126,7 +126,9 @@ class GameStateManager {
                 isUnicorn: player.isUnicorn,
                 coins: player.coins,
                 state: player.state || PLAYER_STATE.ACTIVE, // Include player state for frozen detection
-                position: positionManager.getPlayerPosition(roomCode, player.id)
+                position: positionManager.getPlayerPosition(roomCode, player.id),
+                questions_attempted: player.questions_attempted ?? 0,
+                questions_correctly_answered: player.questions_correctly_answered ?? 0
             })),
             unicornIds: room.unicornIds ?? (room.unicornId ? [room.unicornId] : []),
             unicornId: room.unicornIds?.[0] ?? room.unicornId ?? null, // not necessary to send it, but kept due to support legacy frontend code

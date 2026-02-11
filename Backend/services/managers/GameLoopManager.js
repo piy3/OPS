@@ -25,6 +25,8 @@ class GameLoopManager {
         
         // Track rounds per room: roomCode -> { totalRounds, roundsRemaining, currentRound }
         this.roomRounds = new Map();
+
+        this.wasUnicorn = new Map(); // roomCode -> {set of Ids}
     }
 
     // ==================== ROUND TRACKING METHODS ====================
@@ -305,7 +307,7 @@ class GameLoopManager {
 
         unicornCount = Math.min(unicornCount, Math.max(1, room.players.length - 1)); // at least one survivor
 
-        // Get correct answers sorted by response time
+        // Get correct answers sorted by response time -- used to give bonus
         const correctAnswers = [];
         blitz.answers.forEach((answerData, playerId) => {
             if (answerData.isCorrect) {
@@ -317,30 +319,40 @@ class GameLoopManager {
                 });
             }
         });
-        correctAnswers.sort((a, b) => a.responseTime - b.responseTime);
+        // correctAnswers.sort((a, b) => a.responseTime - b.responseTime); // not needed anymore
 
-        let newUnicornIds = [];
-        if (correctAnswers.length > 0) {
-            const fromCorrect = correctAnswers.slice(0, unicornCount).map(a => a.playerId);
-            const chosenSet = new Set(fromCorrect);
-            if (fromCorrect.length >= unicornCount) {
-                newUnicornIds = fromCorrect;
-            } else {
-                const remaining = room.players.filter(p => !chosenSet.has(p.id));
-                const shuffled = remaining.sort(() => Math.random() - 0.5);
-                for (const p of shuffled) {
-                    if (newUnicornIds.length + fromCorrect.length >= unicornCount) break;
-                    newUnicornIds.push(p.id);
-                }
-                newUnicornIds = [...fromCorrect, ...newUnicornIds].slice(0, unicornCount);
-            }
-        } else {
-            const shuffled = [...room.players].sort(() => Math.random() - 0.5);
-            newUnicornIds = shuffled.slice(0, unicornCount).map(p => p.id);
+        // Weighted unicorn selection: prefer players who have never been unicorn; then fill from those who have.
+        let wasUnicornSet = this.wasUnicorn.get(roomCode);
+        if (!wasUnicornSet) {
+            wasUnicornSet = new Set();
+            this.wasUnicorn.set(roomCode, wasUnicornSet);
+        }
+
+        let neverUnicorn = room.players.filter(p => !wasUnicornSet.has(p.id));
+        let wasUnicorn = room.players.filter(p => wasUnicornSet.has(p.id));
+        neverUnicorn = [...neverUnicorn].sort(() => Math.random() - 0.5);
+        wasUnicorn = [...wasUnicorn].sort(() => Math.random() - 0.5);
+
+        const newUnicornIds = [];
+        for (const p of neverUnicorn) {
+            if (newUnicornIds.length >= unicornCount) break;
+            newUnicornIds.push(p.id);
+        }
+        for (const p of wasUnicorn) {
+            if (newUnicornIds.length >= unicornCount) break;
+            newUnicornIds.push(p.id);
+        }
+
+        newUnicornIds.forEach(id => wasUnicornSet.add(id));
+        this.wasUnicorn.set(roomCode, wasUnicornSet);
+
+        const allHaveBeenUnicorn = room.players.length > 0 && room.players.every(p => wasUnicornSet.has(p.id));
+        if (allHaveBeenUnicorn) {
+            this.wasUnicorn.set(roomCode, new Set());
         }
 
         setUnicorns(roomCode, newUnicornIds);
-        newUnicornIds.forEach(id => updatePlayerCoins(roomCode, id, GAME_LOOP_CONFIG.BLITZ_WINNER_BONUS));
+        correctAnswers.forEach(a => updatePlayerCoins(roomCode, a.playerId, GAME_LOOP_CONFIG.BLITZ_WINNER_BONUS));
 
         const oldUnicornId = room.unicornId;
         const updatedRoom = roomManager.getRoom(roomCode);
@@ -580,6 +592,7 @@ class GameLoopManager {
         this.blitzQuizzes.delete(roomCode);
         this.reserveUnicorns.delete(roomCode);
         this.roomRounds.delete(roomCode);
+        this.wasUnicorn.delete(roomCode);
         log.info(`🧹 Room ${roomCode}: Game loop state cleaned up`);
     }
 }

@@ -98,8 +98,8 @@ class PositionManager {
 
             // Initialize player position
             const positionState = {
-                x: 0,
-                y: 0,
+                x: null,
+                y: null,
                 row: spawnPos.row,
                 col: spawnPos.col,
                 playerId: player.id,

@@ -9,9 +9,9 @@ import { getOccupiedSpawnPositions } from '../occupiedSpawnPositions.js';
 const log = logger;
 
 const SINK_TRAP_CONFIG = {
-    MAX_COLLECTIBLES: 4,
-    SPAWN_INTERVAL_MIN: 20000,
-    SPAWN_INTERVAL_MAX: 35000,
+    MAX_COLLECTIBLES: 6,
+    SPAWN_INTERVAL_MIN: 10000,
+    SPAWN_INTERVAL_MAX: 25000,
     MAX_INVENTORY: 3,
     COLLECTION_RADIUS: 1,
     TRIGGER_RADIUS: 0,
