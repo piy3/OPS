@@ -12,6 +12,20 @@ import { Badge } from '@/components/ui/badge';
 import socketService, { SOCKET_EVENTS, Room, Player } from '@/services/SocketService';
 import logger from '@/utils/logger';
 
+const LOBBY_BG_IMAGE = `${import.meta.env.BASE_URL}backgroundLobby.png`;
+
+/** Full-screen lobby background: image + overlay for readability */
+const LobbyBackground = () => (
+  <>
+    <div
+      className="absolute inset-0 bg-cover bg-center bg-no-repeat"
+      style={{ backgroundImage: `url(${LOBBY_BG_IMAGE})` }}
+      aria-hidden
+    />
+    <div className="absolute inset-0 bg-black/50" aria-hidden />
+  </>
+);
+
 const Lobby = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -195,8 +209,9 @@ const Lobby = () => {
   // Connection screen
   if (isConnecting) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-wine-900 to-wine-800 flex items-center justify-center">
-        <Card className="w-[400px] bg-card border-border">
+      <div className="relative min-h-screen flex items-center justify-center">
+        <LobbyBackground />
+        <Card className="relative z-10 w-[400px] bg-card border-border">
           <CardContent className="pt-6 text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cream mx-auto mb-4"></div>
             <p className="text-muted-foreground">Connecting to server...</p>
@@ -209,8 +224,9 @@ const Lobby = () => {
   // Not connected screen
   if (!isConnected) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-wine-900 to-wine-800 flex items-center justify-center">
-        <Card className="w-[400px] bg-card border-border">
+      <div className="relative min-h-screen flex items-center justify-center">
+        <LobbyBackground />
+        <Card className="relative z-10 w-[400px] bg-card border-border">
           <CardContent className="pt-6 text-center">
             <p className="text-destructive mb-4">Failed to connect to server</p>
             <Button onClick={() => socketService.connect()} variant="outline">
@@ -225,8 +241,9 @@ const Lobby = () => {
   // In a room - show lobby and How to Play
   if (room) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-wine-900 to-wine-800 flex items-center justify-center p-4 flex-wrap gap-6">
-        <Card className="w-[500px] bg-card border-border shadow-xl shadow-black/20">
+      <div className="relative min-h-screen flex items-center justify-center p-4 flex-wrap gap-6">
+        <LobbyBackground />
+        <Card className="relative z-10 w-[500px] bg-card border-border shadow-xl shadow-black/20">
           <CardHeader>
             <div className="flex justify-between items-center">
               <div>
@@ -317,7 +334,7 @@ const Lobby = () => {
 
         {/* How to Play panel */}
         {showHowToPlay ? (
-          <Card className="w-[380px] bg-card border-border rounded-xl relative shadow-xl shadow-black/20">
+          <Card className="relative z-10 w-[380px] bg-card border-border rounded-xl shadow-xl shadow-black/20">
             <Button
               variant="ghost"
               size="sm"
@@ -336,7 +353,7 @@ const Lobby = () => {
               <div>
                 <div className='text-center mb-2'>
                   <span className='uppercase text-cream text-xl font-bold'>Collect most coins to win!</span> <br />
-                  <span className='uppercase text-cream-muted text-lg font-bold'>Unicorns get coins on tagging!</span>
+                  <span className='uppercase text-cream-muted text-lg font-bold'>Enforcers get coins on tagging!</span>
                 </div>
                 <div className="flex items-center gap-2 mb-2">
                   <span className="font-bold text-cream">MOVEMENT</span>
@@ -371,7 +388,7 @@ const Lobby = () => {
         ) : (
           <Button
             variant="outline"
-            className="border-cream/40 text-muted-foreground hover:text-cream hover:bg-wine-600"
+            className="relative z-10 border-cream/40 text-muted-foreground hover:text-cream hover:bg-wine-600"
             onClick={() => setShowHowToPlay(true)}
           >
             Show How to Play
@@ -383,8 +400,9 @@ const Lobby = () => {
 
   // Not in a room - show join form and How to Play
   return (
-    <div className="min-h-screen bg-gradient-to-b from-wine-950 to-wine-800 flex items-center justify-center p-4 flex-wrap gap-6">
-      <Card className="w-[450px] bg-card border-border shadow-xl shadow-black/20">
+    <div className="relative min-h-screen flex items-center justify-center p-4 flex-wrap gap-6">
+      <LobbyBackground />
+      <Card className="relative z-10 w-[450px] bg-card border-border shadow-xl shadow-black/20">
         <CardHeader className="text-center">
           <CardTitle className="text-3xl text-foreground">Join a game</CardTitle>
           <CardDescription className="text-muted-foreground">
@@ -437,7 +455,7 @@ const Lobby = () => {
 
       {/* How to Play panel - same as in-room view */}
       {showHowToPlay ? (
-        <Card className="w-[380px] bg-card border-border rounded-xl relative shadow-xl shadow-black/20">
+        <Card className="relative z-10 w-[380px] bg-card border-border rounded-xl shadow-xl shadow-black/20">
           <Button
             variant="ghost"
             size="sm"
@@ -456,7 +474,7 @@ const Lobby = () => {
             <div>
               <div className='text-center mb-2'>
                 <span className='uppercase text-cream text-xl font-bold'>Collect most coins to win!</span> <br />
-                <span className='uppercase text-cream-muted text-lg font-bold'>Unicorns get coins on tagging!</span>
+                <span className='uppercase text-cream-muted text-lg font-bold'>Enforcers get coins on tagging!</span>
               </div>
               <div className="flex items-center gap-2 mb-2">
                 <span className="font-bold text-cream">MOVEMENT</span>
@@ -491,7 +509,7 @@ const Lobby = () => {
       ) : (
         <Button
           variant="outline"
-          className="border-cream/40 text-muted-foreground hover:text-cream hover:bg-wine-600"
+          className="relative z-10 border-cream/40 text-muted-foreground hover:text-cream hover:bg-wine-600"
           onClick={() => setShowHowToPlay(true)}
         >
           Show How to Play

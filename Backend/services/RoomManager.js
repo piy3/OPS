@@ -320,22 +320,6 @@ class RoomManager {
             player.questions_correctly_answered = QUESTIONS_CORRECTLY_ANSWERED;
         });
         
-        // Assign 30% of players (min 1) as unicorns when game starts
-        const pct = GAME_LOOP_CONFIG.UNICORN_PERCENTAGE ?? 0.3;
-        const minU = GAME_LOOP_CONFIG.MIN_UNICORNS ?? 1;
-        const maxU = GAME_LOOP_CONFIG.MAX_UNICORNS ?? Infinity;
-        let count = Math.max(minU, Math.min(maxU, Math.ceil(room.players.length * pct)));
-        count = Math.min(count, Math.max(1, room.players.length - 1)); // at least one survivor
-        if (room.players.length > 0 && (room.unicornIds?.length ?? 0) === 0) {
-            const shuffled = [...room.players].sort(() => Math.random() - 0.5);
-            room.unicornIds = shuffled.slice(0, count).map(p => p.id);
-            room.unicornIds.forEach(id => {
-                const p = room.players.find(pl => pl.id === id);
-                if (p) p.isUnicorn = true;
-            });
-            room.unicornId = room.unicornIds[0] ?? null;
-        }
-        
         return room;
     }
 

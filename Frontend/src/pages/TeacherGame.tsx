@@ -446,11 +446,11 @@ const TeacherGame: React.FC = () => {
                       </td>
                       <td className="py-3 px-4 text-center">
                         {entry.isUnicorn ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded bg-wine-600/50 text-cream text-sm">
-                            🦄 Unicorn
+                          <span className="uppercase inline-flex items-center gap-1 px-2 py-1 rounded bg-wine-600/50 text-cream text-sm">
+                            🚔 Enforcer
                           </span>
                         ) : (
-                          <span className="text-muted-foreground text-sm">Survivor</span>
+                          <span className="uppercase text-muted-foreground text-sm">🏃 Bandit</span>
                         )}
                       </td>
                       <td className="py-3 px-4 text-right font-mono text-cream font-bold">

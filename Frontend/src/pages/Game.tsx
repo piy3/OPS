@@ -14,6 +14,8 @@ const DEFAULT_MAP_HEIGHT = 30;
 const PERSPECTIVE_STRENGTH = 0.4;
 const BASE_PLAYER_SPEED = 350;
 const UNICORN_SPEED_MULTIPLIER = 1.2;
+const ROLE_LABEL_CHASER = 'Enforcer';
+const ROLE_LABEL_RUNNER = 'Bandit';
 
 function getSpeedForRole(isUnicorn: boolean): number {
   return isUnicorn ? BASE_PLAYER_SPEED * UNICORN_SPEED_MULTIPLIER : BASE_PLAYER_SPEED;
@@ -575,7 +577,7 @@ const Game: React.FC = () => {
       }
       const socketId = socketService.getSocketId();
       if (ids.includes(socketId)) {
-        showStatus(ids.length > 1 ? 'You are a Unicorn!' : 'YOU ARE THE UNICORN!', '#ff00ff', 3000);
+        showStatus(ids.length > 1 ? `YOU ARE A ${ROLE_LABEL_CHASER}!` : `YOU ARE THE ${ROLE_LABEL_CHASER}!`, '#ff00ff', 3000);
         setScreenFlash({ color: '#ff00ff', opacity: 0.4 });
         setTimeout(() => setScreenFlash(null), 300);
       } else {
@@ -584,8 +586,8 @@ const Game: React.FC = () => {
           .map((p: any) => p.name)
           .filter(Boolean);
         const text = names.length > 1
-          ? `New Unicorns: ${names.join(', ')}`
-          : `${names[0] || 'Someone'} is now the Unicorn!`;
+          ? `New ${ROLE_LABEL_CHASER}: ${names.join(', ')}`
+          : `${names[0] || 'Someone'} is now the ${ROLE_LABEL_CHASER}!`;
         showStatus(text, '#ff00ff', 2000);
       }
     });
@@ -777,7 +779,7 @@ const Game: React.FC = () => {
           // The UNFREEZE_QUIZ_START event should follow shortly with quiz questions
           setGameState('frozen');
           isFrozenRef.current = true;
-          showStatus('YOU\'VE BEEN FROZEN!', '#00ffff', 2000);
+          showStatus('YOU\'VE BEEN JAILED!', '#00ffff', 2000);
           setScreenFlash({ color: '#00ffff', opacity: 0.5 });
           setTimeout(() => setScreenFlash(null), 300);
           
@@ -1174,7 +1176,7 @@ const Game: React.FC = () => {
           remotePlayer.targetX = toPosition.x;
           remotePlayer.targetY = toPosition.y;
         }
-        showStatus('UNICORN TRAPPED!', '#00ff00', 2000);
+        showStatus(`${ROLE_LABEL_CHASER} TRAPPED!`, '#00ff00', 2000);
       }
     });
 
@@ -1617,14 +1619,14 @@ const Game: React.FC = () => {
     // Player (survivor): Blue/Cyan theme
     // Enemy: Red theme (legacy, multiplayer uses unicorn)
     const colors = isUnicornChar ? {
-      shadow: 'rgba(255, 0, 255, 0.4)',
-      coatDark: '#9333ea',
-      coat: '#a855f7',
-      shirt: '#f0abfc',
-      hatBrim: '#f9a8d4',
-      hatTop: '#ec4899',
-      badge: '#f9a8d4',
-      glow: '#ff00ff'
+      shadow: 'rgba(0, 0, 0, 0.5)',
+      coatDark: '#1a1a1a',
+      coat: '#2d2d2d',
+      shirt: '#fbbf24',
+      hatBrim: '#fbbf24',
+      hatTop: '#eab308',
+      badge: '#fde047',
+      glow: '#fbbf24'
     } : isPlayer ? {
       shadow: 'rgba(0, 255, 255, 0.3)',
       coatDark: '#0369a1',
@@ -1635,26 +1637,29 @@ const Game: React.FC = () => {
       badge: '#fbbf24',
       glow: '#00ffff'
     } : {
-      shadow: 'rgba(255, 0, 0, 0.3)',
-      coatDark: '#991b1b',
-      coat: '#dc2626',
-      shirt: '#fca5a5',
-      hatBrim: '#fca5a5',
-      hatTop: '#ef4444',
-      badge: '#fca5a5',
-      glow: '#ff0000'
+      shadow: 'rgba(0, 255, 255, 0.3)',
+      coatDark: '#0369a1',
+      coat: '#0284c7',
+      shirt: '#f97316',
+      hatBrim: '#fbbf24',
+      hatTop: '#0ea5e9',
+      badge: '#fbbf24',
+      glow: '#00ffff'
     };
 
-    // Unicorn glow effect
+    // Unicorn glow effect – alternating red/blue (police-style)
     if (isUnicornChar) {
       ctx.save();
       ctx.rotate(-(angle + Math.PI / 2)); // Counter-rotate for screen-aligned glow
+      const t = Date.now() * 0.004;
+      const redPhase = Math.sin(t) > 0;
+      const glowColor = redPhase ? '#ff0000' : '#0066ff';
       const glowPulse = 0.8 + Math.sin(Date.now() * 0.008) * 0.2;
-      ctx.shadowColor = '#ff00ff';
+      ctx.shadowColor = glowColor;
       ctx.shadowBlur = 20 * glowPulse;
-      ctx.strokeStyle = '#ff00ff';
+      ctx.strokeStyle = glowColor;
       ctx.lineWidth = 3;
-      ctx.globalAlpha = 0.4 + Math.sin(Date.now() * 0.01) * 0.2;
+      ctx.globalAlpha = 0.5 + Math.sin(Date.now() * 0.01) * 0.2;
       ctx.beginPath();
       ctx.arc(0, 0, 30 * glowPulse, 0, Math.PI * 2);
       ctx.stroke();
@@ -1935,7 +1940,22 @@ const Game: React.FC = () => {
 
     const init = () => {
       generateCity();
-      findSafeSpawn(game.player);
+      const inMultiplayer = !!(locationState?.room?.code ?? roomCodeRef.current);
+      const players = locationState?.gameState?.players;
+      if (inMultiplayer && Array.isArray(players)) {
+        const myId = socketService.getSocketId();
+        const me = players.find((p: { id?: string }) => p.id === myId);
+        const pos = me?.position as { x?: number; y?: number; row?: number; col?: number } | undefined;
+        if (pos && ((pos.x != null && pos.y != null) || (pos.row != null && pos.col != null))) {
+          const pixel = (pos.x != null && pos.y != null) ? { x: pos.x, y: pos.y } : toPixel(pos.row!, pos.col!);
+          game.player.x = pixel.x;
+          game.player.y = pixel.y;
+        } else {
+          findSafeSpawn(game.player);
+        }
+      } else {
+        findSafeSpawn(game.player);
+      }
       game.player.trail = [];
       game.player.portalCooldown = 0;
       game.player.dirX = 0;
@@ -2363,8 +2383,9 @@ const Game: React.FC = () => {
       // Player trail; unicorn uses same palette as remote unicorns
       ctx.lineWidth = game.player.width * 0.8;
       ctx.lineCap = 'round';
+      const trailRedPhase = Math.sin(Date.now() * 0.004) > 0;
       ctx.strokeStyle = isUnicornRef.current
-        ? 'rgba(255, 0, 255, 0.3)'
+        ? (trailRedPhase ? 'rgba(255, 0, 0, 0.4)' : 'rgba(0, 102, 255, 0.4)')
         : 'rgba(0, 255, 255, 0.2)';
       ctx.beginPath();
       if (game.player.trail.length > 0) {
@@ -2468,14 +2489,14 @@ const Game: React.FC = () => {
           // Unicorn indicator
           if (remotePlayer.isUnicorn) {
             ctx.font = 'bold 16px Arial';
-            ctx.fillText('🦄', remotePlayer.x, remotePlayer.y - 55);
+            ctx.fillText('🚔', remotePlayer.x, remotePlayer.y - 55);
           }
           
           // Frozen indicator
           if (remotePlayer.isFrozen) {
             ctx.font = 'bold 14px Arial';
             ctx.fillStyle = '#00ffff';
-            ctx.fillText('❄️ FROZEN', remotePlayer.x, remotePlayer.y - 55);
+            ctx.fillText('JAILED', remotePlayer.x, remotePlayer.y - 55);
           }
           // Protected (i-frames) indicator (below name/unicorn)
           if (remotePlayer.inIFrames) {
@@ -2513,7 +2534,7 @@ const Game: React.FC = () => {
         ctx.fillText('YOU', game.player.x, game.player.y - 40);
         if (isUnicornRef.current) {
           ctx.font = 'bold 16px Arial';
-          ctx.fillText('🦄', game.player.x, game.player.y - 55);
+          ctx.fillText('🚔', game.player.x, game.player.y - 55);
         }
         ctx.restore();
       }
@@ -2700,7 +2721,7 @@ const Game: React.FC = () => {
         blitzShowObjective ? (
           <div className="absolute inset-0 bg-black/90 flex items-center justify-center z-50">
             <div className="bg-card border-2 border-cream/50 rounded-xl p-8 max-w-lg w-full mx-4 shadow-2xl shadow-black/30 text-center">
-              <span className="text-5xl mb-4 block" aria-hidden>🦄</span>
+              <span className="text-5xl mb-4 block" aria-hidden>🚔</span>
               <h2 className="text-2xl md:text-3xl font-bold text-cream mb-2">
                 Answer correct for 10 bonus coins
               </h2>
@@ -2741,19 +2762,19 @@ const Game: React.FC = () => {
           }`}>
             {/* Large animated icon */}
             <div className="text-8xl mb-6 animate-bounce text-cream">
-              {roleAnnouncement.isUnicorn ? '🦄' : '🏃'}
+              {roleAnnouncement.isUnicorn ? '🚔' : '🏃'}
             </div>
             
             {/* Role title */}
             <h1 className="text-5xl font-bold mb-4 text-cream">
-              {roleAnnouncement.isUnicorn ? 'You are the UNICORN!' : 'You are a SURVIVOR!'}
+              {roleAnnouncement.isUnicorn ? `You are the ${ROLE_LABEL_CHASER}!` : `You are a ${ROLE_LABEL_RUNNER}!`}
             </h1>
             
             {/* Role instruction */}
             <p className="text-2xl text-cream/90">
               {roleAnnouncement.isUnicorn 
-                ? 'Catch Survivors for coins! 💰' 
-                : 'Evade Unicorns and collect coins! 💰'}
+                ? 'Catch Bandits for coins! 💰' 
+                : 'Evade Enforcers and collect coins! 💰'}
             </p>
             
             {/* Pulsing "Get Ready" text */}
@@ -2967,7 +2988,7 @@ const Game: React.FC = () => {
                     ? 'bg-wine-600/90 border border-cream/50 text-cream'
                     : 'bg-wine-700/90 border border-cream/40 text-cream'
                 }`}>
-                  {isUnicorn ? '🦄 Unicorn' : '🏃 Survivor'}
+                  {isUnicorn ? ` ${ROLE_LABEL_CHASER}` : `${ROLE_LABEL_RUNNER}`}
                 </div>
                 <div className="bg-card/80 rounded-lg px-3 py-1.5 text-sm text-muted-foreground">
                   Round <span className="text-cream font-bold">{currentRound}</span> / {totalRounds}
