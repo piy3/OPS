@@ -12,7 +12,7 @@ const TILE_SIZE = 64;
 const DEFAULT_MAP_WIDTH = 30;
 const DEFAULT_MAP_HEIGHT = 30;
 const PERSPECTIVE_STRENGTH = 0.4;
-const BASE_PLAYER_SPEED = 450;
+const BASE_PLAYER_SPEED = 350;
 const UNICORN_SPEED_MULTIPLIER = 1.2;
 
 function getSpeedForRole(isUnicorn: boolean): number {

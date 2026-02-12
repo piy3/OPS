@@ -145,9 +145,10 @@ export const PLAYER_STATE = {
 export const COIN_CONFIG = {
     VALUE: 5,                      // +20 score per coin
     RESPAWN_TIME: 2000,             // 5 seconds after collection
-    MAX_COINS: 30,                  // Maximum coins on map at once
-    INITIAL_SPAWN_COUNT: 10,        // Coins spawned at Hunt start
+    MAX_COINS: 30,                  // not used yet
+    INITIAL_SPAWN_COUNT: 20,        // Coins spawned at Hunt start
     COLLECTION_RADIUS: 0,
+    MIN_SPAWN_DISTANCE: 3,
     
     // Predefined coin spawn slots (row, col) - all positions on roads (multiples ofF 4) -- fallback
     SPAWN_SLOTS: [
@@ -332,16 +333,17 @@ export function getMapConfigForPlayerCount(playerCount) {
         }
     }
     
-    // Generate coin spawn slots (all road positions that are intersections)
-    const coinSlots = [];
-    for (let r = 4; r <= maxCoord; r += blockSize) {
-        for (let c = 4; c <= maxCoord; c += blockSize) {
-            coinSlots.push({ row: r, col: c });
+    // Single list of all road cells: row % 4 === 0 OR col % 4 === 0 (inner range 4..maxCoord)
+    const roadBlocks = [];
+    for (let r = 4; r <= maxCoord; r++) {
+        for (let c = 4; c <= maxCoord; c++) {
+            if (r % 4 === 0 || c % 4 === 0) {
+                roadBlocks.push({ row: r, col: c });
+            }
         }
     }
-    
-    // Generate powerup spawn slots (subset of road intersections)
-    const powerupSlots = coinSlots.filter((_, i) => i % 3 === 0);
+    const coinSpawnSlots = roadBlocks;
+    const powerupSpawnSlots = roadBlocks.filter((_, i) => i % 3 === 0);
     
     return {
         width: size,
@@ -349,8 +351,9 @@ export function getMapConfigForPlayerCount(playerCount) {
         blockSize: blockSize,
         tileSize: tileSize,
         spawnPositions: spawnPositions.slice(0, Math.max(9, playerCount + 2)),
-        coinSpawnSlots: coinSlots,
-        powerupSpawnSlots: powerupSlots,
+        roadBlocks,
+        coinSpawnSlots,
+        powerupSpawnSlots,
         maxPlayers: spawnPositions.length
     };
 }

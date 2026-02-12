@@ -47,14 +47,13 @@ class SinkholeManager {
         // Store mapConfig for later spawns
         this.roomMapConfigs.set(roomCode, mapConfig);
         
-        // Filter spawn slots to be within map bounds
         const mapWidth = mapConfig?.width ?? 30;
         const mapHeight = mapConfig?.height ?? 30;
-        const validSlots = SINKHOLE_CONFIG.SPAWN_SLOTS.filter(
+        const slotSource = mapConfig ? (mapConfig.roadBlocks ?? mapConfig.coinSpawnSlots) : null;
+        const validSlots = (slotSource ?? SINKHOLE_CONFIG.SPAWN_SLOTS).filter(
             slot => slot.row < mapHeight - 1 && slot.col < mapWidth - 1
         );
         
-        // Exclude positions occupied by coins, sink traps, powerups
         const occupiedSet = getOccupiedSpawnPositions(roomCode);
         const availableSlots = validSlots.filter(
             slot => !occupiedSet.has(`${slot.row},${slot.col}`)
@@ -102,18 +101,16 @@ class SinkholeManager {
             return;
         }
 
-        // Get stored mapConfig for this room
         const mapConfig = this.roomMapConfigs.get(roomCode);
         const mapWidth = mapConfig?.width ?? 30;
         const mapHeight = mapConfig?.height ?? 30;
+        const slotSource = mapConfig ? (mapConfig.roadBlocks ?? mapConfig.coinSpawnSlots) : null;
+        const validSlots = (slotSource ?? SINKHOLE_CONFIG.SPAWN_SLOTS).filter(
+            slot => slot.row < mapHeight - 1 && slot.col < mapWidth - 1
+        );
 
         const usedPositions = new Set(getOccupiedSpawnPositions(roomCode));
         sinkholeMap.forEach(s => usedPositions.add(`${s.row},${s.col}`));
-
-        // Filter slots to be within map bounds
-        const validSlots = SINKHOLE_CONFIG.SPAWN_SLOTS.filter(
-            slot => slot.row < mapHeight - 1 && slot.col < mapWidth - 1
-        );
         
         const availableSlots = validSlots.filter(
             slot => !usedPositions.has(`${slot.row},${slot.col}`)

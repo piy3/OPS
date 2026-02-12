@@ -18,6 +18,21 @@ class CoinManager {
         // Store mapConfig per room for respawn filtering
         this.roomMapConfigs = new Map();
     }
+        /**
+     * Check if slot is at least n blocks (Chebyshev) away from all positions
+     * @param {{ row: number, col: number }} slot
+     * @param {Array<{ row: number, col: number }>} positions
+     * @param {number} n
+     * @returns {boolean}
+     */
+        _isAtLeastNApart(slot, positions, n) {
+            for (const pos of positions) {
+                const dr = Math.abs(slot.row - pos.row);
+                const dc = Math.abs(slot.col - pos.col);
+                if (Math.max(dr, dc) < n) return false;
+            }
+            return true;
+        }
 
     /**
      * Initialize coins for a room at Hunt start
@@ -44,11 +59,19 @@ class CoinManager {
             slot => !occupiedSet.has(`${slot.row},${slot.col}`)
         );
         
-        // Shuffle spawn slots and pick initial coins
+        // Pick initial coins so each is at least MIN_SPAWN_DISTANCE apart
+        const minDist = COIN_CONFIG.MIN_SPAWN_DISTANCE ?? 3;
+        const chosenSlots = [];
         const shuffledSlots = [...availableSlots].sort(() => Math.random() - 0.5);
-        const initialCoins = shuffledSlots.slice(0, COIN_CONFIG.INITIAL_SPAWN_COUNT);
-        
-        initialCoins.forEach((slot, index) => {
+
+        for (const slot of shuffledSlots) {
+            if (chosenSlots.length >= COIN_CONFIG.INITIAL_SPAWN_COUNT) break;
+            if (this._isAtLeastNApart(slot, chosenSlots, minDist)) {
+                chosenSlots.push(slot);
+            }
+        }
+
+        chosenSlots.forEach((slot, index) => {
             const coinId = `coin_${index}`;
             coinMap.set(coinId, {
                 id: coinId,
@@ -192,9 +215,23 @@ class CoinManager {
             slot => slot.row < mapHeight - 1 && slot.col < mapWidth - 1
         );
         
-        const availableSlots = validSlots.filter(
+        let availableSlots = validSlots.filter(
             slot => !usedPositions.has(`${slot.row},${slot.col}`)
         );
+
+        // Only use slots at least MIN_SPAWN_DISTANCE from other coins
+        const minDist = COIN_CONFIG.MIN_SPAWN_DISTANCE ?? 3;
+        const otherCoinPositions = [];
+        coinMap.forEach((c, cid) => {
+            if (cid !== coinId && !c.collected) {
+                otherCoinPositions.push({ row: c.row, col: c.col });
+            }
+        });
+        if (otherCoinPositions.length > 0) {
+            availableSlots = availableSlots.filter(
+                slot => this._isAtLeastNApart(slot, otherCoinPositions, minDist)
+            );
+        }
 
         if (availableSlots.length > 0) {
             const newSlot = availableSlots[Math.floor(Math.random() * availableSlots.length)];

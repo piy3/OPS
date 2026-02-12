@@ -9,9 +9,9 @@ import { getOccupiedSpawnPositions } from '../occupiedSpawnPositions.js';
 const log = logger;
 
 const SINK_TRAP_CONFIG = {
-    MAX_COLLECTIBLES: 6,
-    SPAWN_INTERVAL_MIN: 10000,
-    SPAWN_INTERVAL_MAX: 25000,
+    MAX_COLLECTIBLES: 8,
+    SPAWN_INTERVAL_MIN: 30000,
+    SPAWN_INTERVAL_MAX: 10000,
     MAX_INVENTORY: 3,
     COLLECTION_RADIUS: 1,
     TRIGGER_RADIUS: 0,
@@ -50,7 +50,7 @@ class SinkTrapManager {
         this.roomDeployedTraps.set(roomCode, new Map());
         this.playerInventories.set(roomCode, new Map());
 
-        for (let i = 0; i < 2; i++) {
+        for (let i = 0; i < 4; i++) {
             this.spawnCollectible(roomCode, io);
         }
 
@@ -77,10 +77,13 @@ class SinkTrapManager {
             return;
         }
 
-        // Get stored mapConfig for this room
         const mapConfig = this.roomMapConfigs.get(roomCode);
         const mapWidth = mapConfig?.width ?? 30;
         const mapHeight = mapConfig?.height ?? 30;
+        const slotSource = mapConfig ? (mapConfig.roadBlocks ?? mapConfig.coinSpawnSlots) : null;
+        const validSlots = (slotSource ?? SINK_TRAP_CONFIG.SPAWN_SLOTS).filter(
+            slot => slot.row < mapHeight - 1 && slot.col < mapWidth - 1
+        );
 
         const usedPositions = new Set(getOccupiedSpawnPositions(roomCode));
         collectibles.forEach(c => usedPositions.add(`${c.row},${c.col}`));
@@ -89,11 +92,6 @@ class SinkTrapManager {
         if (deployedTraps) {
             deployedTraps.forEach(t => usedPositions.add(`${t.row},${t.col}`));
         }
-
-        // Filter slots to be within map bounds
-        const validSlots = SINK_TRAP_CONFIG.SPAWN_SLOTS.filter(
-            slot => slot.row < mapHeight - 1 && slot.col < mapWidth - 1
-        );
         
         const availableSlots = validSlots.filter(
             slot => !usedPositions.has(`${slot.row},${slot.col}`)
