@@ -105,7 +105,7 @@ const Dashboard = () => {
     // Game started - navigate to teacher game view
     const unsubGameStarted = socketService.on(SOCKET_EVENTS.SERVER.GAME_STARTED, (data: any) => {
       logger.game('Game started (teacher view):', data);
-      navigate('/dashboard/game', { state: { room: data.room, gameState: data.gameState } });
+      navigate('/dashboard/game', { state: { room: data.room, gameState: data.gameState, quizId: quizIdParam || quizId } });
     });
 
     // Error handling

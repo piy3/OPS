@@ -23,13 +23,16 @@ interface LeaderboardEntry {
 interface LocationState {
   room?: Room;
   gameState?: any;
+  quizId?: string;
 }
 
 const TeacherGame: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const locationState = location.state as LocationState | null;
-  
+  const quizId = locationState?.quizId ?? (typeof localStorage !== 'undefined' ? localStorage.getItem('QUIZ_ID') : null);
+  const dashboardPath = quizId ? `/dashboard/${quizId}` : '/dashboard';
+
   // Room state
   const [room, setRoom] = useState<Room | null>(locationState?.room || null);
   const [mapConfig, setMapConfig] = useState<MapConfig | null>(locationState?.room?.mapConfig || null);
@@ -55,9 +58,9 @@ const TeacherGame: React.FC = () => {
   // Redirect if no room
   useEffect(() => {
     if (!locationState?.room) {
-      navigate('/dashboard');
+      navigate(dashboardPath);
     }
-  }, [locationState, navigate]);
+  }, [locationState, navigate, dashboardPath]);
 
   // Socket event listeners
   useEffect(() => {
@@ -283,7 +286,7 @@ const TeacherGame: React.FC = () => {
               {isRestarting ? 'Starting…' : 'Restart Game'}
             </button>
             <button
-              onClick={() => navigate(`/dashboard`)}
+              onClick={() => navigate(dashboardPath)}
               className="flex-1 py-4 bg-wine-600 text-cream hover:bg-wine-700 font-bold rounded-lg transition-colors border border-cream/30"
             >
               Return to Dashboard
