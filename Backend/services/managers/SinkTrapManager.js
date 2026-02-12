@@ -3,10 +3,8 @@
  * Handles sink trap collectible spawning, collection, deployment, and triggering
  */
 import { SOCKET_EVENTS } from '../../config/constants.js';
-import logger from '../../utils/logger.js';
+import log from '../../utils/logger.js';
 import { getOccupiedSpawnPositions } from '../occupiedSpawnPositions.js';
-
-const log = logger;
 
 const SINK_TRAP_CONFIG = {
     MAX_COLLECTIBLES: 8,
@@ -147,7 +145,7 @@ class SinkTrapManager {
             trapId, playerId, playerName, newInventoryCount: currentCount + 1
         });
 
-        log.debug(`[SinkTrapManager] Player ${playerName} collected trap, inventory: ${currentCount + 1}`);
+        log.debug({ roomCode, playerId, playerName, trapId, inventoryCount: currentCount + 1 }, 'SinkTrap collected');
 
         return true;
     }
@@ -208,10 +206,10 @@ class SinkTrapManager {
             const colDiff = Math.abs(col - trap.col);
             const inRange = rowDiff <= SINK_TRAP_CONFIG.TRIGGER_RADIUS && colDiff <= SINK_TRAP_CONFIG.TRIGGER_RADIUS;
             if (verboseLog) {
-                log.info(`[SinkTrap] trap ${trapId} at (${trap.row},${trap.col}) unicorn at (${row},${col}) rowDiff=${rowDiff} colDiff=${colDiff} TRIGGER_RADIUS=${SINK_TRAP_CONFIG.TRIGGER_RADIUS} inRange=${inRange}`);
+                log.info({ roomCode, trapId, trapRow: trap.row, trapCol: trap.col, row, col, rowDiff, colDiff, triggerRadius: SINK_TRAP_CONFIG.TRIGGER_RADIUS, inRange }, 'SinkTrap position check');
             }
             if (inRange) {
-                log.info(`[SinkTrap] TRIGGERED: ${trapId} at (${trap.row},${trap.col}) by unicorn at (${row},${col})`);
+                log.info({ roomCode, trapId, trapRow: trap.row, trapCol: trap.col, row, col }, 'SinkTrap triggered');
                 return trapId;
             }
         }
@@ -268,7 +266,7 @@ class SinkTrapManager {
             fromPosition, toPosition, timestamp: Date.now()
         });
 
-        log.info(`[SinkTrapManager] Unicorn ${unicornName} triggered trap, teleported from (${trap.row}, ${trap.col}) to (${destRow}, ${destCol})`);
+        log.info({ roomCode, trapId, unicornId, unicornName, fromRow: trap.row, fromCol: trap.col, toRow: destRow, toCol: destCol }, 'Unicorn triggered trap, teleported');
 
         return { fromPosition, toPosition };
     }

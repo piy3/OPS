@@ -75,12 +75,12 @@ async function fetchAndNormalizeQuestions(quizId) {
         response = await fetch(url, { signal: controller.signal });
         clearTimeout(timeoutId);
     } catch (err) {
-        log.warn(`Quizizz fetch failed for quizId=${quizId}: ${err.message}`);
+        log.warn({ quizId, err: err.message }, 'Quizizz fetch failed');
         return null;
     }
 
     if (!response.ok) {
-        log.warn(`Quizizz fetch bad status for quizId=${quizId}: ${response.status}`);
+        log.warn({ quizId, status: response.status }, 'Quizizz fetch bad status');
         return null;
     }
 
@@ -88,14 +88,14 @@ async function fetchAndNormalizeQuestions(quizId) {
     try {
         data = await response.json();
     } catch (err) {
-        log.warn(`Quizizz parse JSON failed for quizId=${quizId}: ${err.message}`);
+        log.warn({ quizId, err: err.message }, 'Quizizz parse JSON failed');
         return null;
     }
 
     const quiz = data?.data?.quiz ?? data?.quiz ?? data;
     const rawQuestions = quiz?.info?.questions ?? quiz?.questions ?? [];
     if (!Array.isArray(rawQuestions) || rawQuestions.length === 0) {
-        log.warn(`Quizizz no questions for quizId=${quizId}`);
+        log.warn({ quizId }, 'Quizizz no questions');
         return null;
     }
 
@@ -121,10 +121,10 @@ async function fetchAndNormalizeQuestions(quizId) {
     }
 
     if (normalized.length === 0) {
-        log.warn(`Quizizz no valid questions after normalize for quizId=${quizId}`);
+        log.warn({ quizId }, 'Quizizz no valid questions after normalize');
         return null;
     }
-    log.info(`Quizizz loaded ${normalized.length} questions for quizId=${quizId}`);
+    log.info({ quizId, count: normalized.length }, 'Quizizz loaded questions');
     return normalized;
 }
 

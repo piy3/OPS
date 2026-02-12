@@ -19,7 +19,7 @@ export function registerGameHandlers(socket, io) {
     /** Create a logger with roomCode + userId context. Pass room to skip a lookup. */
     function roomLog(roomCode, room) {
         room = room || roomManager.getRoom(roomCode);
-        return log.withContext({ roomCode, userId: room?.userId });
+        return log.child({ roomCode, userId: room?.userId });
     }
 
     // START GAME: Host starts the game
@@ -89,7 +89,7 @@ export function registerGameHandlers(socket, io) {
             // Start the game loop (Blitz Quiz + Hunt cycle); may fetch Quizizz if room has quizId
             await gameStateManager.startGameLoop(roomCode, io);
         } catch (error) {
-            log.error(`Error starting game: ${error.message}`);
+            log.error({ err: error }, 'Error starting game');
             socket.emit(SOCKET_EVENTS.SERVER.START_ERROR, { message: 'Failed to start game' });
         }
     });
@@ -111,7 +111,7 @@ export function registerGameHandlers(socket, io) {
 
             gameStateManager.endGameNow(roomCode, io);
         } catch (error) {
-            log.error(`Error ending game: ${error.message}`);
+            log.error({ err: error }, 'Error ending game');
             socket.emit(SOCKET_EVENTS.SERVER.START_ERROR, { message: 'Failed to end game' });
         }
     });
@@ -132,7 +132,7 @@ export function registerGameHandlers(socket, io) {
             // Verify we're in Blitz Quiz phase
             const currentPhase = gameStateManager.getGamePhase(roomCode);
             if (currentPhase !== GAME_PHASE.BLITZ_QUIZ) {
-                roomLog(roomCode, room).warn(`Blitz answer rejected: Not in Blitz Quiz phase (current: ${currentPhase})`);
+                roomLog(roomCode, room).warn({ currentPhase }, 'Blitz answer rejected: Not in Blitz Quiz phase');
                 return;
             }
 
@@ -151,7 +151,7 @@ export function registerGameHandlers(socket, io) {
             }
 
         } catch (error) {
-            log.error(`Error handling Blitz answer: ${error.message}`);
+            log.error({ err: error }, 'Error handling Blitz answer');
         }
     });
 
@@ -186,7 +186,7 @@ export function registerGameHandlers(socket, io) {
                 });
             }
         } catch (error) {
-            log.error(`Error handling position update: ${error.message}`);
+            log.error({ err: error }, 'Error handling position update');
             // Silently fail to avoid disrupting gameplay
         }
     });
@@ -224,7 +224,7 @@ export function registerGameHandlers(socket, io) {
                 mapConfig: room.mapConfig // Include mapConfig for reconnection
             });
         } catch (error) {
-            log.error(`Error getting game state: ${error.message}`);
+            log.error({ err: error }, 'Error getting game state');
             socket.emit(SOCKET_EVENTS.SERVER.GAME_STATE_SYNC, { gameState: null });
         }
     });
@@ -253,7 +253,7 @@ export function registerGameHandlers(socket, io) {
             );
 
             if (!result) {
-                roomLog(roomCode, room).warn(`Invalid quiz answer submission from ${socket.id}`);
+                roomLog(roomCode, room).warn({ socketId: socket.id }, 'Invalid quiz answer submission');
                 return;
             }
 
@@ -268,11 +268,11 @@ export function registerGameHandlers(socket, io) {
 
             // If all questions answered, complete the quiz
             if (result.totalAnswered === result.totalQuestions) {
-                roomLog(roomCode, room).info(`All questions answered, completing quiz`);
+                roomLog(roomCode, room).info({}, 'All questions answered, completing quiz');
                 gameStateManager.completeQuiz(roomCode, io, false);
             }
         } catch (error) {
-            log.error(`Error handling quiz answer: ${error.message}`);
+            log.error({ err: error }, 'Error handling quiz answer');
         }
     });
 
@@ -292,12 +292,12 @@ export function registerGameHandlers(socket, io) {
             // Verify player is frozen and has an active unfreeze quiz
             const player = room.players.find(p => p.id === socket.id);
             if (!player || player.state !== PLAYER_STATE.FROZEN) {
-                roomLog(roomCode, room).warn(`Unfreeze quiz answer rejected: Player not frozen`);
+                roomLog(roomCode, room).warn({ socketId: socket.id }, 'Unfreeze quiz answer rejected: Player not frozen');
                 return;
             }
 
             if (!gameStateManager.hasUnfreezeQuiz(roomCode, socket.id)) {
-                roomLog(roomCode, room).warn(`Unfreeze quiz answer rejected: No active unfreeze quiz for player`);
+                roomLog(roomCode, room).warn({ socketId: socket.id }, 'Unfreeze quiz answer rejected: No active unfreeze quiz for player');
                 return;
             }
 
@@ -313,12 +313,12 @@ export function registerGameHandlers(socket, io) {
             );
 
             if (!result) {
-                roomLog(roomCode, room).warn(`Invalid unfreeze quiz answer submission from ${socket.id}`);
+                roomLog(roomCode, room).warn({ socketId: socket.id }, 'Invalid unfreeze quiz answer submission');
                 return;
             }
 
         } catch (error) {
-            log.error(`Error handling unfreeze quiz answer: ${error.message}`);
+            log.error({ err: error }, 'Error handling unfreeze quiz answer');
         }
     });
 
@@ -393,13 +393,13 @@ export function registerGameHandlers(socket, io) {
 
             // Don't freeze if already frozen or eliminated
             if (player.state === PLAYER_STATE.FROZEN || player.state === 'eliminated') {
-                rlog.warn(`Lava death ignored: Player ${player.name} is already frozen/eliminated`);
+                rlog.warn({ playerName: player.name, socketId: socket.id }, 'Lava death ignored: Player already frozen/eliminated');
                 return;
             }
 
             // Don't freeze if player already has an active unfreeze quiz
             if (gameStateManager.hasUnfreezeQuiz(roomCode, socket.id)) {
-                rlog.warn(`Lava death ignored: Player ${player.name} already has active unfreeze quiz`);
+                rlog.warn({ playerName: player.name, socketId: socket.id }, 'Lava death ignored: Player already has active unfreeze quiz');
                 return;
             }
 
@@ -408,13 +408,14 @@ export function registerGameHandlers(socket, io) {
                 return;
             }
 
-            rlog.info(`🔥 Player ${player.name} fell in lava`);
+            rlog.info({ playerName: player.name, socketId: socket.id }, 'Player fell in lava');
+
 
             // Handle lava death as freeze + unfreeze quiz (same as being tagged)
             gameStateManager.handleLavaDeath(roomCode, socket.id, player.name, io);
 
         } catch (error) {
-            log.error(`Error handling lava death: ${error.message}`);
+            log.error({ err: error }, 'Error handling lava death');
         }
     });
 
@@ -424,25 +425,25 @@ export function registerGameHandlers(socket, io) {
         try {
             const roomCode = roomManager.getRoomCodeForSocket(socket.id);
             if (!roomCode) {
-                log.warn(`Request unfreeze quiz: Player not in room`);
+                log.warn({ socketId: socket.id }, 'Request unfreeze quiz: Player not in room');
                 return;
             }
 
             const room = roomManager.getRoom(roomCode);
-            const rlog = log.withContext({ roomCode, userId: room?.userId });
+            const rlog = log.child({ roomCode, userId: room?.userId });
 
             if (!room || room.status !== ROOM_STATUS.PLAYING) {
-                rlog.warn(`Request unfreeze quiz: Room not playing`);
+                rlog.warn({}, 'Request unfreeze quiz: Room not playing');
                 return;
             }
 
             const player = room.players.find(p => p.id === socket.id);
             if (!player) {
-                rlog.warn(`Request unfreeze quiz: Player not found`);
+                rlog.warn({ socketId: socket.id }, 'Request unfreeze quiz: Player not found');
                 return;
             }
 
-            rlog.info(`🧊 Player ${player.name} requesting unfreeze quiz (recovery)`);
+            rlog.info({ playerName: player.name, socketId: socket.id }, 'Player requesting unfreeze quiz (recovery)');
 
             // Request quiz from game state manager - it will handle all cases:
             // - If frozen with existing quiz: resend quiz data
@@ -451,7 +452,7 @@ export function registerGameHandlers(socket, io) {
             gameStateManager.requestUnfreezeQuiz(roomCode, socket.id, io);
 
         } catch (error) {
-            log.error(`Error handling request unfreeze quiz: ${error.message}`);
+            log.error({ err: error }, 'Error handling request unfreeze quiz');
         }
     });
 }

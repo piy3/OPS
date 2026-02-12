@@ -176,7 +176,7 @@ class GameLoopManager {
             const idx = Math.floor(Math.random() * room.quizQuestionPool.length);
             question = room.quizQuestionPool[idx];
         } else {
-            log.info(`Couldn't get question from quizizz service, using fallback`)
+            log.info({ roomCode }, 'Couldn\'t get question from quizizz service, using fallback');
             question = getBlitzQuestion(); // fallback for play-test: should be removed before shipping
         }
 

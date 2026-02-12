@@ -548,7 +548,7 @@ class GameStateManager {
         // 4. Build final leaderboard
         const leaderboard = roomManager.getLeaderboard(roomCode);
         
-        log.info({ roomCode }, 'Final leaderboard:', leaderboard.map(p => `${p.name}: ${p.coins}`).join(', '));
+        log.info({ roomCode, leaderboard: leaderboard.map(p => ({ name: p.name, coins: p.coins })) }, 'Final leaderboard');
         
         // 5. Set phase to GAME_END
         gameLoopManager.setGamePhase(roomCode, GAME_PHASE.GAME_END, io);
@@ -728,7 +728,7 @@ class GameStateManager {
         // Check if survivor can be hit (not already frozen, not in i-frames)
         const hitCheck = combatManager.canHitPlayer(survivorPlayer, survivorId);
         if (!hitCheck.canHit) {
-            log.debug(`Cannot tag ${survivorPlayer.name}: ${hitCheck.reason}`);
+            log.debug({ roomCode, player: survivorPlayer.name, reason: hitCheck.reason }, 'Cannot tag player');
             return;
         }
 
@@ -763,7 +763,7 @@ class GameStateManager {
             leaderboard: roomManager.getLeaderboard(roomCode)
         });
 
-        log.info({ roomCode }, `Player ${survivorPlayer.name} was frozen by ${unicornPlayer.name}`);
+        log.info({ roomCode, player: survivorPlayer.name, frozenBy: unicornPlayer.name }, 'Player frozen');
     }
 
     /**
@@ -794,7 +794,7 @@ class GameStateManager {
      * @param {Object} io - Socket.IO server
      */
     handleLavaDeath(roomCode, playerId, playerName, io) {
-        log.info({ roomCode }, `Handling lava death for ${playerName}`);
+        log.info({ roomCode, player: playerName }, 'Handling lava death');
         
         // Use the same freeze + quiz logic as being tagged
         this._handleZeroHealth(roomCode, playerId, playerName, io);
@@ -880,7 +880,7 @@ class GameStateManager {
 
         // Prevent starting multiple quizzes for the same player
         if (this.hasUnfreezeQuiz(roomCode, playerId)) {
-            log.warn(`⚠️ Unfreeze quiz already exists for player ${player.name}, skipping duplicate start`);
+            log.warn({ roomCode, playerId, playerName: player.name }, 'Unfreeze quiz already exists, skipping duplicate start');
             return;
         }
 
@@ -919,7 +919,7 @@ class GameStateManager {
             startTime: Date.now()
         });
 
-        log.info({ roomCode }, `Unfreeze quiz started for ${player.name}`);
+        log.info({ roomCode, playerId, playerName: player.name }, 'Unfreeze quiz started');
 
         // Emit to only this player's socket
         io.to(playerId).emit(SOCKET_EVENTS.SERVER.UNFREEZE_QUIZ_START, {
@@ -953,14 +953,14 @@ class GameStateManager {
 
         // Validate question index
         if (questionIndex < 0 || questionIndex >= quizState.questions.length) {
-            log.warn(`Invalid question index ${questionIndex} for unfreeze quiz`);
+            log.warn({ roomCode, playerId, questionIndex }, 'Invalid question index for unfreeze quiz');
             return null;
         }
 
         // Check if already answered this question
         const alreadyAnswered = quizState.answers.some(a => a.questionIndex === questionIndex);
         if (alreadyAnswered) {
-            log.warn(`Question ${questionIndex} already answered`);
+            log.warn({ roomCode, playerId, questionIndex }, 'Question already answered');
             return null;
         }
 
@@ -990,7 +990,7 @@ class GameStateManager {
             const correctCount = quizState.answers.filter(a => a.correct).length;
             const passed = correctCount >= UNFREEZE_QUIZ_CONFIG.PASS_THRESHOLD;
 
-            log.info(`🧊 Unfreeze quiz complete for player ${playerId}: ${correctCount}/${UNFREEZE_QUIZ_CONFIG.QUESTIONS_COUNT} correct, passed: ${passed}`);
+            log.info({ roomCode, playerId, correctCount, totalQuestions: UNFREEZE_QUIZ_CONFIG.QUESTIONS_COUNT, passed }, 'Unfreeze quiz complete');
 
             if (passed) {
                 // Clear quiz state
@@ -1014,7 +1014,7 @@ class GameStateManager {
             } else {
                 // Failed - generate new questions and restart the quiz
                 // This allows the player to try again
-                log.info(`🧊 Player ${playerId} failed unfreeze quiz, restarting with new questions`);
+                log.info({ roomCode, playerId }, 'Player failed unfreeze quiz, restarting with new questions');
                 
                 // Clear current quiz state
                 roomQuizzes.delete(playerId);
@@ -1049,7 +1049,7 @@ class GameStateManager {
                     } else {
                         // Player no longer frozen (unfrozen via blitz cancel or other means)
                         // Notify client so they don't wait forever
-                        log.info(`🧊 Player ${player.name} is no longer frozen during retry delay (state: ${player.state})`);
+                        log.info({ roomCode, playerId, playerName: player.name, state: player.state }, 'Player no longer frozen during retry delay');
                         io.to(playerId).emit(SOCKET_EVENTS.SERVER.UNFREEZE_QUIZ_CANCELLED, {
                             reason: 'state_changed',
                             message: 'You are no longer frozen!'
@@ -1142,13 +1142,13 @@ class GameStateManager {
 
         const player = room.players.find(p => p.id === playerId);
         if (!player) {
-            log.warn(`Request unfreeze quiz failed: Player ${playerId} not found`);
+            log.warn({ roomCode, playerId }, 'Request unfreeze quiz failed: player not found');
             return false;
         }
 
         // Only process if player is actually frozen
         if (player.state !== PLAYER_STATE.FROZEN) {
-            log.info(`Request unfreeze quiz: Player ${player.name} is not frozen (state: ${player.state})`);
+            log.info({ roomCode, playerId, playerName: player.name, state: player.state }, 'Request unfreeze quiz: player not frozen');
             return false;
         }
 
@@ -1158,7 +1158,7 @@ class GameStateManager {
 
         if (existingQuiz) {
             // Resend existing quiz data
-            log.info(`🧊 Resending existing unfreeze quiz to ${player.name}`);
+            log.info({ roomCode, playerId, playerName: player.name }, 'Resending existing unfreeze quiz');
             const questionsForClient = existingQuiz.questions.map(q => ({
                 id: q.id,
                 question: q.question,
@@ -1173,7 +1173,7 @@ class GameStateManager {
             return true;
         } else {
             // No quiz exists - start a new one
-            log.info(`🧊 Starting new unfreeze quiz for ${player.name} (reconnection recovery)`);
+            log.info({ roomCode, playerId, playerName: player.name }, 'Starting new unfreeze quiz for reconnection recovery');
             this._startUnfreezeQuiz(roomCode, playerId, io);
             return true;
         }

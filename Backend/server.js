@@ -6,7 +6,7 @@
 import express from 'express';
 import http from 'http';
 import cors from 'cors';
-import { log } from 'console';
+import log from './utils/logger.js';
 import { SERVER_CONFIG } from './config/constants.js';
 import { setupSocketIO } from './socket/socketSetup.js';
 
@@ -26,7 +26,7 @@ const io = setupSocketIO(server);
 // Start server
 const PORT = SERVER_CONFIG.PORT;
 server.listen(PORT, () => {
-    log(`Server is running on port ${PORT}`);
+    log.info({ port: PORT }, 'Server started');
 });
 
 // Export io for potential use in other modules
