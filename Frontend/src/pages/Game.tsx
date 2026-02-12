@@ -1811,10 +1811,8 @@ const Game: React.FC = () => {
       game.map.portals = [];
 
       // Use seeded random if in multiplayer mode (room code as seed)
-      // This ensures all players in the same room get the same map
-      const rng = roomCodeRef.current 
-        ? new SeededRandom(roomCodeRef.current)
-        : { random: () => Math.random() }; // Fallback when no room code
+      // To ensure all players in the same room get the same map
+      const rng = new SeededRandom(roomCodeRef.current);
 
       for (let y = 0; y < MAP_H; y++) {
         const row: number[] = [];
@@ -1865,7 +1863,7 @@ const Game: React.FC = () => {
           if (tile === 1) {
             const rand = rng.random();
             let type = TYPE_RESIDENTIAL;
-            let height = 40 + rng.random() * 60;
+            let height = 20 + rng.random() * 60;
             let color = '#252525';
             let wallColor = '#151515';
 
@@ -1994,14 +1992,14 @@ const Game: React.FC = () => {
       return false;
     };
 
-    const checkLavaDeath = (): boolean => {
-      const gridX = Math.floor(game.player.x / TILE_SIZE);
-      const gridY = Math.floor(game.player.y / TILE_SIZE);
-      if (gridY >= 0 && gridY < MAP_H && gridX >= 0 && gridX < MAP_W) {
-        if (game.map.tiles[gridY][gridX] === 4) return true;
-      }
-      return false;
-    };
+    // const checkLavaDeath = (): boolean => {
+    //   const gridX = Math.floor(game.player.x / TILE_SIZE);
+    //   const gridY = Math.floor(game.player.y / TILE_SIZE);
+    //   if (gridY >= 0 && gridY < MAP_H && gridX >= 0 && gridX < MAP_W) {
+    //     if (game.map.tiles[gridY][gridX] === 4) return true;
+    //   }
+    //   return false;
+    // };
 
     const attemptMove = (
       entity: { x: number; y: number; width: number; height: number },
@@ -2090,13 +2088,13 @@ const Game: React.FC = () => {
         true
       );
 
-      if (checkLavaDeath()) {
-        if (!lavaDeathReportedRef.current) {
-          lavaDeathReportedRef.current = true;
-          socketService.reportLavaDeath();
-        }
-        return;
-      }
+      // if (checkLavaDeath()) {
+      //   if (!lavaDeathReportedRef.current) {
+      //     lavaDeathReportedRef.current = true;
+      //     socketService.reportLavaDeath();
+      //   }
+      //   return;
+      // }
 
       game.player.trail.push({ x: game.player.x, y: game.player.y });
       if (game.player.trail.length > 20) game.player.trail.shift();
@@ -2348,14 +2346,14 @@ const Game: React.FC = () => {
       // Draw coins
       game.coins.forEach(coin => {
         if (!coin.collected) {
-          drawCoin(ctx, coin);
+          if(!isUnicornRef.current) drawCoin(ctx, coin);
         }
       });
 
       // Draw sink collectibles
       game.sinkCollectibles.forEach(sink => {
         if (!sink.collected) {
-          drawSinkCollectible(ctx, sink);
+          if(!isUnicornRef.current) drawSinkCollectible(ctx, sink);
         }
       });
 

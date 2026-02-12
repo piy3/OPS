@@ -144,12 +144,12 @@ export const PLAYER_STATE = {
  */
 export const COIN_CONFIG = {
     VALUE: 5,                      // +20 score per coin
-    RESPAWN_TIME: 5000,             // 5 seconds after collection
-    MAX_COINS: 20,                  // Maximum coins on map at once
+    RESPAWN_TIME: 2000,             // 5 seconds after collection
+    MAX_COINS: 30,                  // Maximum coins on map at once
     INITIAL_SPAWN_COUNT: 10,        // Coins spawned at Hunt start
-    COLLECTION_RADIUS: 0,           // Player must be within 1 cell to collect
+    COLLECTION_RADIUS: 0,
     
-    // Predefined coin spawn slots (row, col) - all positions on roads (multiples ofF 4)
+    // Predefined coin spawn slots (row, col) - all positions on roads (multiples ofF 4) -- fallback
     SPAWN_SLOTS: [
         { row: 4, col: 8 }, { row: 4, col: 16 }, { row: 4, col: 32 }, { row: 4, col: 40 },
         { row: 8, col: 4 }, { row: 8, col: 24 }, { row: 8, col: 44 },

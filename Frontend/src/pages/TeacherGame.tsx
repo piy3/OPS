@@ -283,7 +283,7 @@ const TeacherGame: React.FC = () => {
               {isRestarting ? 'Starting…' : 'Restart Game'}
             </button>
             <button
-              onClick={() => navigate('/dashboard')}
+              onClick={() => navigate(`/dashboard`)}
               className="flex-1 py-4 bg-wine-600 text-cream hover:bg-wine-700 font-bold rounded-lg transition-colors border border-cream/30"
             >
               Return to Dashboard
