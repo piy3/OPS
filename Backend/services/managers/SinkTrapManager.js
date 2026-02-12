@@ -56,7 +56,7 @@ class SinkTrapManager {
 
         this.scheduleNextSpawn(roomCode, io);
 
-        log.info(`[SinkTrapManager] Initialized for room ${roomCode}`);
+        log.info({ roomCode }, 'SinkTrapManager initialized');
     }
 
     scheduleNextSpawn(roomCode, io) {
@@ -111,7 +111,7 @@ class SinkTrapManager {
             id: trapId, row: newSlot.row, col: newSlot.col
         });
 
-        log.debug(`[SinkTrapManager] Spawned collectible ${trapId} at (${newSlot.row}, ${newSlot.col}) in room ${roomCode}`);
+        log.debug({ roomCode, trapId, row: newSlot.row, col: newSlot.col }, 'SinkTrap collectible spawned');
 
         this.scheduleNextSpawn(roomCode, io);
     }
@@ -179,7 +179,7 @@ class SinkTrapManager {
             newInventoryCount: currentCount - 1
         });
 
-        log.info(`[SinkTrap] DEPLOYED room=${roomCode} trapId=${trapId} at grid (${position.row}, ${position.col}) by ${playerName}`);
+        log.info({ roomCode, trapId, row: position.row, col: position.col, playerName }, 'SinkTrap deployed');
 
         return { trapId, row: position.row, col: position.col };
     }
@@ -187,19 +187,19 @@ class SinkTrapManager {
     checkTrapTrigger(roomCode, unicornPosition, verboseLog = false) {
         const deployedTraps = this.roomDeployedTraps.get(roomCode);
         if (!deployedTraps) {
-            if (verboseLog) log.info(`[SinkTrap] checkTrapTrigger room=${roomCode}: no deployedTraps map`);
+            if (verboseLog) log.info({ roomCode }, 'checkTrapTrigger: no deployedTraps map');
             return null;
         }
         const trapCount = deployedTraps.size;
         if (trapCount === 0 && verboseLog) {
-            log.info(`[SinkTrap] checkTrapTrigger room=${roomCode}: 0 deployed traps`);
+            log.info({ roomCode }, 'checkTrapTrigger: 0 deployed traps');
             return null;
         }
 
         const row = unicornPosition?.row;
         const col = unicornPosition?.col;
         if (typeof row !== 'number' || typeof col !== 'number' || Number.isNaN(row) || Number.isNaN(col)) {
-            log.info(`[SinkTrap] checkTrapTrigger skipped: invalid unicorn position row=${row}, col=${col} (room=${roomCode})`);
+            log.info({ roomCode, row, col }, 'checkTrapTrigger skipped: invalid unicorn position');
             return null;
         }
 
@@ -297,7 +297,7 @@ class SinkTrapManager {
         this.playerInventories.delete(roomCode);
         this.roomMapConfigs.delete(roomCode);
 
-        log.debug(`[SinkTrapManager] Cleaned up room ${roomCode}`);
+        log.debug({ roomCode }, 'SinkTrapManager cleaned up');
     }
 }
 
