@@ -15,6 +15,9 @@ const LOG_DIR = '/var/log/waymaze'
 // No-op function for suppressed logs
 const noop = () => {}
 
+// Game-specific logging categories (shared by base logger and child loggers)
+const LOG_CATEGORIES = ['game', 'socket', 'combat', 'quiz', 'hunt', 'coin', 'powerup']
+
 /**
  * Get or create a write stream for today's log file.
  * Returns null if the log directory doesn't exist (e.g. running outside Docker).
@@ -53,12 +56,17 @@ function getLogStream() {
 
 /**
  * Write a JSON log line to stdout and optionally to the log file.
+ * @param {string} level - Log level
+ * @param {string|null} category - Log category
+ * @param {Array} args - Log arguments
+ * @param {Object} [context] - Optional context fields (e.g. { roomCode, userId })
  */
-function writeJsonLog(level, category, args) {
+function writeJsonLog(level, category, args, context) {
     const entry = {
         time: new Date().toISOString(),
         level,
         category: category || undefined,
+        ...context,
         msg: args.map(a => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ')
     }
     const line = JSON.stringify(entry)
@@ -75,9 +83,12 @@ function writeJsonLog(level, category, args) {
 
 /**
  * Create a category logger for production (JSON output).
+ * @param {string|null} category - Log category
+ * @param {string} level - Log level
+ * @param {Object} [context] - Optional default context fields
  */
-function jsonCategoryLogger(category, level = 'info') {
-    return (...args) => writeJsonLog(level, category, args)
+function jsonCategoryLogger(category, level = 'info', context = undefined) {
+    return (...args) => writeJsonLog(level, category, args, context)
 }
 
 // Create logger with environment-aware behavior
@@ -120,5 +131,50 @@ const logger = isDev
         coin: jsonCategoryLogger('coin'),
         powerup: jsonCategoryLogger('powerup'),
     }
+
+/**
+ * Create a child logger with default context fields baked in.
+ * In production, context fields (e.g. roomCode, userId) are added to every JSON log entry.
+ * In development, context fields are prepended as a [key=value] prefix for readability.
+ *
+ * Usage:
+ *   const rlog = logger.withContext({ roomCode: 'MAZABCD', userId: '123' })
+ *   rlog.info('Game started')  // includes roomCode + userId in output
+ *
+ * @param {Object} ctx - Context fields to include in every log entry
+ * @returns {Object} A new logger with the same API but with context baked in
+ */
+logger.withContext = function withContext(ctx) {
+    // Dev: readable prefix like [roomCode=MAZABCD userId=123]
+    const prefix = '[' + Object.entries(ctx)
+        .filter(([, v]) => v != null)
+        .map(([k, v]) => `${k}=${v}`)
+        .join(' ') + ']'
+
+    const child = isDev
+        ? {
+            log: (...args) => console.log(prefix, ...args),
+            debug: (...args) => console.debug(prefix, ...args),
+            info: (...args) => console.info(prefix, ...args),
+            warn: (...args) => console.warn(prefix, ...args),
+            error: (...args) => console.error(prefix, ...args),
+        }
+        : {
+            log: noop,
+            debug: noop,
+            info: jsonCategoryLogger(null, 'info', ctx),
+            warn: jsonCategoryLogger(null, 'warn', ctx),
+            error: jsonCategoryLogger(null, 'error', ctx),
+        }
+
+    for (const cat of LOG_CATEGORIES) {
+        child[cat] = isDev
+            ? (...args) => console.log(`[${cat.charAt(0).toUpperCase() + cat.slice(1)}]`, prefix, ...args)
+            : jsonCategoryLogger(cat, 'info', ctx)
+    }
+
+    child.withContext = (extra) => withContext({ ...ctx, ...extra })
+    return child
+}
 
 export default logger

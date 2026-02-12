@@ -54,6 +54,15 @@ class RoomManager {
             quizQuestionPool: null,
         };
 
+        // Store userId as non-enumerable so it's excluded from JSON serialization (broadcasts)
+        // but still accessible via room.userId for logging/identification
+        Object.defineProperty(room, 'userId', {
+            value: playerData?.userId ?? null,
+            enumerable: false,
+            writable: true,
+            configurable: true,
+        });
+
         this.rooms.set(roomCode, room);
         return room;
     }

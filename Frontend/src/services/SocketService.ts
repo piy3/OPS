@@ -344,12 +344,13 @@ class SocketService {
   }
 
   // Room operations
-  createRoom(name?: string, maxPlayers: number = 30, quizId?: string, isTeacher?: boolean, totalRounds?: number) {
-    const payload: { name?: string; maxPlayers: number; quizId?: string; isTeacher?: boolean, totalRounds?: number } = { maxPlayers };
+  createRoom(name?: string, maxPlayers: number = 30, quizId?: string, isTeacher?: boolean, totalRounds?: number, userId?: string) {
+    const payload: { name?: string; maxPlayers: number; quizId?: string; isTeacher?: boolean; totalRounds?: number; userId?: string } = { maxPlayers };
     if (name?.trim()) payload.name = name.trim();
     if (quizId?.trim()) payload.quizId = quizId.trim();
     if (isTeacher) payload.isTeacher = true;
     if (totalRounds) payload.totalRounds = totalRounds;
+    if (userId?.trim()) payload.userId = userId.trim();
     this.emit(SOCKET_EVENTS.CLIENT.CREATE_ROOM, payload);
   }
 
