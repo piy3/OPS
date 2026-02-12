@@ -48,6 +48,7 @@ const TeacherGame: React.FC = () => {
   const [isGameOver, setIsGameOver] = useState(false);
   const [finalLeaderboard, setFinalLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [isRestarting, setIsRestarting] = useState(false);
+  const [showEndGameConfirm, setShowEndGameConfirm] = useState(false);
   const isGameOverRef = useRef(false);
   isGameOverRef.current = isGameOver;
 
@@ -301,16 +302,53 @@ const TeacherGame: React.FC = () => {
       <div className="max-w-4xl mx-auto space-y-6">
         
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-4">
           <div>
             <h1 className="text-3xl font-bold text-foreground">Teacher Dashboard</h1>
             <p className="text-muted-foreground">Game in progress</p>
           </div>
-          <div className="bg-card px-6 py-3 rounded-lg border border-border">
-            <span className="text-muted-foreground text-sm">Room Code: </span>
-            <span className="text-cream font-mono font-bold text-2xl">{room?.code}</span>
+          <div className="flex items-center gap-3">
+            <div className="bg-card px-6 py-3 rounded-lg border border-border">
+              <span className="text-muted-foreground text-sm">Room Code: </span>
+              <span className="text-cream font-mono font-bold text-2xl">{room?.code}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowEndGameConfirm(true)}
+              className="py-3 px-5 rounded-lg font-bold border border-destructive/50 bg-destructive/20 text-destructive hover:bg-destructive/30 transition-colors"
+            >
+              End game
+            </button>
           </div>
         </div>
+
+        {/* End game confirmation modal */}
+        {showEndGameConfirm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60" onClick={() => setShowEndGameConfirm(false)}>
+            <div className="bg-card border border-border rounded-xl p-6 max-w-sm w-full shadow-xl" onClick={e => e.stopPropagation()}>
+              <p className="text-foreground mb-4">End game now? Students will see final standings.</p>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEndGameConfirm(false);
+                    socketService.endGame();
+                  }}
+                  className="flex-1 py-3 rounded-lg font-bold bg-destructive text-cream hover:bg-destructive/90"
+                >
+                  End game
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowEndGameConfirm(false)}
+                  className="flex-1 py-3 rounded-lg font-bold bg-muted text-foreground hover:bg-muted/80"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Game Status Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

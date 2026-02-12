@@ -66,6 +66,7 @@ export const SOCKET_EVENTS = {
     DEPLOY_SINK_TRAP: 'deploy_sink_trap',
     LAVA_DEATH: 'lava_death',
     REQUEST_UNFREEZE_QUIZ: 'request_unfreeze_quiz',  // Request quiz data if frozen but missing quiz
+    END_GAME: 'end_game',  // Host/teacher ends the game early
   },
   // Server -> Client
   SERVER: {
@@ -367,6 +368,11 @@ class SocketService {
 
   startGame() {
     this.emit(SOCKET_EVENTS.CLIENT.START_GAME, {});
+  }
+
+  /** Host or teacher ends the current game; server runs same end-game logic as natural completion. */
+  endGame() {
+    this.emit(SOCKET_EVENTS.CLIENT.END_GAME);
   }
 
   // Position updates

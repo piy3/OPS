@@ -93,6 +93,16 @@ class GameStateManager {
     }
 
     /**
+     * End the game immediately (e.g. when host/teacher clicks "End game").
+     * Validation is done in the handler; this just runs the same end-game path as natural completion.
+     * @param {string} roomCode - Room code
+     * @param {Object} io - Socket.IO server
+     */
+    endGameNow(roomCode, io) {
+        this._endGame(roomCode, io);
+    }
+
+    /**
      * Get full game state for synchronization
      * Includes player states (frozen/active) and unfreeze quiz data for reconnection recovery
      */

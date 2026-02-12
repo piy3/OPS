@@ -281,6 +281,27 @@ class RoomManager {
     }
 
     /**
+     * Validate if a socket can end the game (host or teacher only, game must be playing)
+     * @param {string} roomCode - Room code
+     * @param {string} socketId - Socket ID
+     * @returns {Object} { valid: boolean, error: string|null }
+     */
+    validateEndGame(roomCode, socketId) {
+        const room = this.rooms.get(roomCode);
+        if (!room) {
+            return { valid: false, error: 'Room not found' };
+        }
+        if (room.status !== ROOM_STATUS.PLAYING) {
+            return { valid: false, error: 'Game is not in progress' };
+        }
+        const isTeacher = room.teacherId === socketId;
+        if (room.hostId !== socketId && !isTeacher) {
+            return { valid: false, error: 'Only host or teacher can end the game' };
+        }
+        return { valid: true, error: null };
+    }
+
+    /**
      * Start game in room
      * Resets all player coins to STARTING_COINS for a fresh leaderboard
      * @param {string} roomCode - Room code

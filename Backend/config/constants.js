@@ -189,7 +189,8 @@ export const SOCKET_EVENTS = {
         COLLECT_SINK_TRAP: 'collect_sink_trap', // Collect a sink trap item
         DEPLOY_SINK_TRAP: 'deploy_sink_trap',   // Deploy a sink trap
         LAVA_DEATH: 'lava_death',               // Player fell in lava (freeze + quiz)
-        REQUEST_UNFREEZE_QUIZ: 'request_unfreeze_quiz'  // Request quiz data if frozen but missing quiz
+        REQUEST_UNFREEZE_QUIZ: 'request_unfreeze_quiz',  // Request quiz data if frozen but missing quiz
+        END_GAME: 'end_game'                    // Host/teacher ends the game early
     },
     // Server -> Client
     SERVER: {

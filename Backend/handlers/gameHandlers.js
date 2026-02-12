@@ -88,6 +88,28 @@ export function registerGameHandlers(socket, io) {
         }
     });
 
+    // END GAME: Host or teacher ends the game early
+    socket.on(SOCKET_EVENTS.CLIENT.END_GAME, () => {
+        try {
+            const roomCode = roomManager.getRoomCodeForSocket(socket.id);
+            if (!roomCode) {
+                socket.emit(SOCKET_EVENTS.SERVER.START_ERROR, { message: 'Not in any room' });
+                return;
+            }
+
+            const validation = roomManager.validateEndGame(roomCode, socket.id);
+            if (!validation.valid) {
+                socket.emit(SOCKET_EVENTS.SERVER.START_ERROR, { message: validation.error });
+                return;
+            }
+
+            gameStateManager.endGameNow(roomCode, io);
+        } catch (error) {
+            log(`Error ending game: ${error.message}`);
+            socket.emit(SOCKET_EVENTS.SERVER.START_ERROR, { message: 'Failed to end game' });
+        }
+    });
+
     // BLITZ ANSWER: Player submits answer to Blitz Quiz
     socket.on(SOCKET_EVENTS.CLIENT.BLITZ_ANSWER, (answerData) => {
         try {
