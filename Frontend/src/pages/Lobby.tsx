@@ -423,7 +423,7 @@ const Lobby = () => {
               </div>
               <div>
                 <div className="flex items-center gap-2 mb-2">
-                  <div className="w-8 h-8 rounded-lg bg-wine-600 flex items-center justify-center text-cream text-lg font-bold">SPACE</div>
+                  <div className="w-fit px-2 h-8 rounded-lg bg-wine-600 flex items-center justify-center text-cream text-lg font-bold">SPACE</div>
                   <span className="font-bold text-cream">DEPLOY SINK</span>
                 </div>
                 <p className="text-muted-foreground text-xs mt-1">Place a sink trap (need sink in inventory)</p>
@@ -544,7 +544,7 @@ const Lobby = () => {
             </div>
             <div>
               <div className="flex items-center gap-2 mb-2">
-                <div className="w-8 h-8 rounded-lg bg-wine-600 flex items-center justify-center text-cream text-lg font-bold">SPACE</div>
+                <div className="w-fit px-2 h-8 rounded-lg bg-wine-600 flex items-center justify-center text-cream text-lg font-bold">SPACE</div>
                 <span className="font-bold text-cream">DEPLOY SINK</span>
               </div>
               <p className="text-muted-foreground text-xs mt-1">Place a sink trap (need sink in inventory)</p>
