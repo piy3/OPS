@@ -57,11 +57,14 @@ class QuizManager {
         // Generate questions
         const questions = getRandomQuestions(QUIZ_CONFIG.QUESTIONS_PER_QUIZ);
         
-        // Store quiz state
+        // Store quiz state - use persistent playerIds for identification
+        // Keep socket IDs for socket operations
         const quizData = {
-            unicornId: unicornPlayer.id,
+            unicornId: unicornPlayer.playerId,           // Persistent playerId
+            unicornSocketId: unicornPlayer.id,           // Socket ID for socket operations
             unicornName: unicornPlayer.name,
-            caughtId: caughtPlayer.id,
+            caughtId: caughtPlayer.playerId,             // Persistent playerId
+            caughtSocketId: caughtPlayer.id,             // Socket ID for socket operations
             caughtName: caughtPlayer.name,
             questions: questions,
             startTime: Date.now(),
@@ -75,17 +78,17 @@ class QuizManager {
         // Freeze room
         this.freezeRoom(roomCode);
 
-        // Broadcast freeze to all players
+        // Broadcast freeze to all players - use persistent playerIds in event
         io.to(roomCode).emit(SOCKET_EVENTS.SERVER.GAME_FROZEN, {
             message: `🦄 ${unicornPlayer.name} caught ${caughtPlayer.name}!`,
-            unicornId: unicornPlayer.id,
+            unicornId: unicornPlayer.playerId,
             unicornName: unicornPlayer.name,
-            caughtId: caughtPlayer.id,
+            caughtId: caughtPlayer.playerId,
             caughtName: caughtPlayer.name,
             freezeReason: 'quiz_started'
         });
 
-        // Respawn both players to separate locations
+        // Respawn both players to separate locations (uses socket IDs internally)
         respawnBothPlayers(roomCode, unicornPlayer.id, caughtPlayer.id, io);
 
         // Send quiz to caught player only (without correct answers)
@@ -124,16 +127,17 @@ class QuizManager {
     /**
      * Submit an answer to the quiz
      * @param {string} roomCode - Room code
-     * @param {string} playerId - Player ID (must be caught player)
+     * @param {string} socketId - Socket ID (must be caught player's socket)
      * @param {number} questionId - Question ID
      * @param {number} answerIndex - Selected answer index
      * @returns {Object|null} Result or null
      */
-    submitAnswer(roomCode, playerId, questionId, answerIndex) {
+    submitAnswer(roomCode, socketId, questionId, answerIndex) {
         const quiz = this.activeQuizzes.get(roomCode);
         
         if (!quiz) return null;
-        if (playerId !== quiz.caughtId) return null;
+        // Validate against socket ID (internal validation)
+        if (socketId !== quiz.caughtSocketId) return null;
 
         // Find question
         const question = quiz.questions.find(q => q.id === questionId);

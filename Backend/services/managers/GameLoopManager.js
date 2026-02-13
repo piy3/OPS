@@ -313,11 +313,12 @@ class GameLoopManager {
 
         // Get correct answers sorted by response time -- used to give bonus
         const correctAnswers = [];
-        blitz.answers.forEach((answerData, playerId) => {
+        blitz.answers.forEach((answerData, socketId) => {
             if (answerData.isCorrect) {
-                const player = room.players.find(p => p.id === playerId);
+                // socketId is the key in answers map, look up player
+                const player = room.players.find(p => p.id === socketId);
                 correctAnswers.push({
-                    playerId: playerId,
+                    playerId: player?.playerId || socketId,  // Use persistent playerId in results
                     playerName: player?.name || 'Unknown',
                     responseTime: answerData.responseTime
                 });
@@ -326,31 +327,34 @@ class GameLoopManager {
         // correctAnswers.sort((a, b) => a.responseTime - b.responseTime); // not needed anymore
 
         // Weighted unicorn selection: prefer players who have never been unicorn; then fill from those who have.
+        // wasUnicornSet now tracks persistent playerIds
         let wasUnicornSet = this.wasUnicorn.get(roomCode);
         if (!wasUnicornSet) {
             wasUnicornSet = new Set();
             this.wasUnicorn.set(roomCode, wasUnicornSet);
         }
 
-        let neverUnicorn = room.players.filter(p => !wasUnicornSet.has(p.id));
-        let wasUnicorn = room.players.filter(p => wasUnicornSet.has(p.id));
+        // Use persistent playerId for wasUnicorn tracking
+        let neverUnicorn = room.players.filter(p => !wasUnicornSet.has(p.playerId));
+        let wasUnicorn = room.players.filter(p => wasUnicornSet.has(p.playerId));
         neverUnicorn = [...neverUnicorn].sort(() => Math.random() - 0.5);
         wasUnicorn = [...wasUnicorn].sort(() => Math.random() - 0.5);
 
+        // newUnicornIds should contain persistent playerIds for setUnicorns
         const newUnicornIds = [];
         for (const p of neverUnicorn) {
             if (newUnicornIds.length >= unicornCount) break;
-            newUnicornIds.push(p.id);
+            newUnicornIds.push(p.playerId);
         }
         for (const p of wasUnicorn) {
             if (newUnicornIds.length >= unicornCount) break;
-            newUnicornIds.push(p.id);
+            newUnicornIds.push(p.playerId);
         }
 
         newUnicornIds.forEach(id => wasUnicornSet.add(id));
         this.wasUnicorn.set(roomCode, wasUnicornSet);
 
-        const allHaveBeenUnicorn = room.players.length > 0 && room.players.every(p => wasUnicornSet.has(p.id));
+        const allHaveBeenUnicorn = room.players.length > 0 && room.players.every(p => wasUnicornSet.has(p.playerId));
         if (allHaveBeenUnicorn) {
             this.wasUnicorn.set(roomCode, new Set());
         }
@@ -368,7 +372,7 @@ class GameLoopManager {
             correctAnswerIndex: blitz.question.correctAnswer,
             rankings: correctAnswers.map((a, i) => ({
                 rank: i + 1,
-                playerId: a.playerId,
+                playerId: a.playerId,  // Now uses persistent playerId
                 playerName: a.playerName,
                 responseTime: a.responseTime,
                 isUnicorn: finalUnicornIds.includes(a.playerId),
@@ -376,7 +380,8 @@ class GameLoopManager {
             })),
             newUnicornIds: finalUnicornIds,
             newUnicornId: finalUnicornIds[0] ?? null,
-            newUnicornName: updatedRoom?.players?.find(p => p.id === finalUnicornIds[0])?.name ?? null,
+            // finalUnicornIds now contains persistent playerIds, so look up by playerId
+            newUnicornName: updatedRoom?.players?.find(p => p.playerId === finalUnicornIds[0])?.name ?? null,
             reserveUnicornId: null,
             reserveUnicornName: null,
             oldUnicornId: oldUnicornId,
@@ -416,11 +421,13 @@ class GameLoopManager {
         const now = Date.now();
         const huntEndTime = now + GAME_LOOP_CONFIG.HUNT_DURATION;
 
+        // unicornIds now contains persistent playerIds
         const unicornIds = room.unicornIds ?? (room.unicornId ? [room.unicornId] : []);
-        const unicornNames = unicornIds.map(id => room.players.find(p => p.id === id)?.name).filter(Boolean);
+        const unicornNames = unicornIds.map(id => room.players.find(p => p.playerId === id)?.name).filter(Boolean);
 
+        // Use persistent playerIds in events
         const playersHealth = room.players.map(p => ({
-            playerId: p.id,
+            playerId: p.playerId,
             health: p.health,
             maxHealth: COMBAT_CONFIG.MAX_HEALTH,
             state: p.state

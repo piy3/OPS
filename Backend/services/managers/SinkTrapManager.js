@@ -128,36 +128,55 @@ class SinkTrapManager {
         return null;
     }
 
-    collectTrap(roomCode, playerId, trapId, playerName, io) {
+    /**
+     * Collect a sink trap
+     * @param {string} roomCode - Room code
+     * @param {string} persistentPlayerId - Persistent player ID (for inventory tracking and events)
+     * @param {string} trapId - Trap ID
+     * @param {string} playerName - Player name
+     * @param {Object} io - Socket.IO server
+     */
+    collectTrap(roomCode, persistentPlayerId, trapId, playerName, io) {
         const collectibles = this.roomCollectibles.get(roomCode);
         if (!collectibles || !collectibles.has(trapId)) return false;
 
         const inventories = this.playerInventories.get(roomCode);
         if (!inventories) return false;
 
-        const currentCount = inventories.get(playerId) || 0;
+        // Track inventory by persistent playerId (survives reconnection)
+        const currentCount = inventories.get(persistentPlayerId) || 0;
         if (currentCount >= SINK_TRAP_CONFIG.MAX_INVENTORY) return false;
 
         collectibles.delete(trapId);
-        inventories.set(playerId, currentCount + 1);
+        inventories.set(persistentPlayerId, currentCount + 1);
 
+        // Emit with persistent playerId for frontend identification
         io.to(roomCode).emit(SOCKET_EVENTS.SERVER.SINK_TRAP_COLLECTED, {
-            trapId, playerId, playerName, newInventoryCount: currentCount + 1
+            trapId, playerId: persistentPlayerId, playerName, newInventoryCount: currentCount + 1
         });
 
-        log.debug({ roomCode, playerId, playerName, trapId, inventoryCount: currentCount + 1 }, 'SinkTrap collected');
+        log.debug({ roomCode, playerId: persistentPlayerId, playerName, trapId, inventoryCount: currentCount + 1 }, 'SinkTrap collected');
 
         return true;
     }
 
-    deployTrap(roomCode, playerId, playerName, position, io) {
+    /**
+     * Deploy a sink trap
+     * @param {string} roomCode - Room code
+     * @param {string} persistentPlayerId - Persistent player ID (for inventory and events)
+     * @param {string} playerName - Player name
+     * @param {Object} position - Position { row, col }
+     * @param {Object} io - Socket.IO server
+     */
+    deployTrap(roomCode, persistentPlayerId, playerName, position, io) {
         const inventories = this.playerInventories.get(roomCode);
         if (!inventories) return null;
 
-        const currentCount = inventories.get(playerId) || 0;
+        // Look up inventory by persistent playerId
+        const currentCount = inventories.get(persistentPlayerId) || 0;
         if (currentCount <= 0) return null;
 
-        inventories.set(playerId, currentCount - 1);
+        inventories.set(persistentPlayerId, currentCount - 1);
 
         const deployedTraps = this.roomDeployedTraps.get(roomCode);
         if (!deployedTraps) return null;
@@ -165,12 +184,13 @@ class SinkTrapManager {
         const trapId = `deployed_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         deployedTraps.set(trapId, {
             id: trapId, row: position.row, col: position.col,
-            deployedBy: playerId, deployTime: Date.now()
+            deployedBy: persistentPlayerId, deployTime: Date.now()
         });
 
         const TILE_SIZE = 64;
+        // Emit with persistent playerId for frontend identification
         io.to(roomCode).emit(SOCKET_EVENTS.SERVER.SINK_TRAP_DEPLOYED, {
-            trapId, playerId, playerName,
+            trapId, playerId: persistentPlayerId, playerName,
             row: position.row, col: position.col,
             x: position.col * TILE_SIZE + TILE_SIZE / 2,
             y: position.row * TILE_SIZE + TILE_SIZE / 2,
@@ -216,7 +236,19 @@ class SinkTrapManager {
         return null;
     }
 
-    triggerTrap(roomCode, trapId, unicornId, unicornName, io, updatePlayerPosition, updateLastMoveWasTeleport, destinationPosition = null) {
+    /**
+     * Trigger a deployed sink trap
+     * @param {string} roomCode - Room code
+     * @param {string} trapId - Trap ID
+     * @param {string} unicornSocketId - Unicorn socket ID (for position updates)
+     * @param {string} unicornPersistentId - Unicorn persistent player ID (for events)
+     * @param {string} unicornName - Unicorn name
+     * @param {Object} io - Socket.IO server
+     * @param {Function} updatePlayerPosition - Callback for position update
+     * @param {Function} updateLastMoveWasTeleport - Callback for teleport flag
+     * @param {Object} destinationPosition - Destination position
+     */
+    triggerTrap(roomCode, trapId, unicornSocketId, unicornPersistentId, unicornName, io, updatePlayerPosition, updateLastMoveWasTeleport, destinationPosition = null) {
         const deployedTraps = this.roomDeployedTraps.get(roomCode);
         if (!deployedTraps || !deployedTraps.has(trapId)) return null;
 
@@ -255,14 +287,16 @@ class SinkTrapManager {
             row: destRow, col: destCol
         };
 
+        // Use socket ID for position updates (internal operation)
         if (updatePlayerPosition) {
-            if(updateLastMoveWasTeleport) updateLastMoveWasTeleport(roomCode, unicornId);
-            updatePlayerPosition(roomCode, unicornId, toPosition);
+            if(updateLastMoveWasTeleport) updateLastMoveWasTeleport(roomCode, unicornSocketId);
+            updatePlayerPosition(roomCode, unicornSocketId, toPosition);
         }
 
+        // Emit with persistent playerIds for frontend identification
         io.to(roomCode).emit(SOCKET_EVENTS.SERVER.SINK_TRAP_TRIGGERED, {
-            trapId, unicornId, unicornName,
-            deployedBy: trap.deployedBy,
+            trapId, unicornId: unicornPersistentId, unicornName,
+            deployedBy: trap.deployedBy,  // Already stored as persistent playerId
             fromPosition, toPosition, timestamp: Date.now()
         });
 
@@ -271,9 +305,14 @@ class SinkTrapManager {
         return { fromPosition, toPosition };
     }
 
-    getPlayerInventory(roomCode, playerId) {
+    /**
+     * Get player's sink trap inventory count
+     * @param {string} roomCode - Room code
+     * @param {string} persistentPlayerId - Persistent player ID
+     */
+    getPlayerInventory(roomCode, persistentPlayerId) {
         const inventories = this.playerInventories.get(roomCode);
-        return inventories?.get(playerId) || 0;
+        return inventories?.get(persistentPlayerId) || 0;
     }
 
     getActiveCollectibles(roomCode) {

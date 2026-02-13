@@ -124,7 +124,8 @@ class CoinManager {
     /**
      * Collect a coin with race condition prevention
      * @param {string} roomCode - Room code
-     * @param {string} playerId - Player ID
+     * @param {string} socketId - Player socket ID (for internal operations)
+     * @param {string} persistentPlayerId - Persistent player ID (for events)
      * @param {string} coinId - Coin ID
      * @param {string} playerName - Player name
      * @param {Object} io - Socket.IO server
@@ -132,7 +133,7 @@ class CoinManager {
      * @param {Function} getLeaderboard - Callback to get leaderboard
      * @returns {boolean} True if collection was successful
      */
-    collectCoin(roomCode, playerId, coinId, playerName, io, updatePlayerCoins, getLeaderboard) {
+    collectCoin(roomCode, socketId, persistentPlayerId, coinId, playerName, io, updatePlayerCoins, getLeaderboard) {
         const lockKey = `${roomCode}:${coinId}`;
         
         // Race condition check
@@ -147,7 +148,7 @@ class CoinManager {
         if (!coin || coin.collected) return false;
 
         // Acquire lock
-        this.coinLocks.set(lockKey, playerId);
+        this.coinLocks.set(lockKey, socketId);
 
         try {
             // Double-check
@@ -158,15 +159,15 @@ class CoinManager {
             // Mark as collected
             coin.collected = true;
 
-            // Award score
-            const updatedPlayer = updatePlayerCoins(roomCode, playerId, COIN_CONFIG.VALUE);
+            // Award score (uses socket ID for internal operation)
+            const updatedPlayer = updatePlayerCoins(roomCode, socketId, COIN_CONFIG.VALUE);
 
-            // Notify clients (include row/col so clients can identify which coin was collected)
+            // Notify clients - use persistent playerId for player identification
             io.to(roomCode).emit(SOCKET_EVENTS.SERVER.COIN_COLLECTED, {
                 coinId: coinId,
                 row: coin.row,
                 col: coin.col,
-                playerId: playerId,
+                playerId: persistentPlayerId,
                 playerName: playerName,
                 value: COIN_CONFIG.VALUE,
                 newScore: updatedPlayer?.coins || 0,

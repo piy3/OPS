@@ -11,6 +11,7 @@ export const ROOM_CONFIG = {
     STARTING_COINS: 0,  // Starting coins for each player when a new game starts
     STARTING_QUESTIONS_ATTEMPTED: 0,
     STARTING_QUESTIONS_ANSWERED_CORRECTLY: 0,
+    RECONNECT_GRACE_PERIOD_MS: 10000,                     // 10 seconds grace period for reconnection
 };
 
 export const ROOM_STATUS = {
@@ -177,6 +178,7 @@ export const SOCKET_EVENTS = {
     CLIENT: {
         CREATE_ROOM: 'create_room',
         JOIN_ROOM: 'join_room',
+        REJOIN_ROOM: 'rejoin_room',             // Rejoin room after disconnect
         LEAVE_ROOM: 'leave_room',
         START_GAME: 'start_game',
         UPDATE_POSITION: 'update_position',
@@ -246,7 +248,12 @@ export const SOCKET_EVENTS = {
         SINK_TRAP_COLLECTED: 'sink_trap_collected',           // Player collected a sink trap
         SINK_TRAP_DEPLOYED: 'sink_trap_deployed',             // Player deployed a sink trap
         SINK_TRAP_TRIGGERED: 'sink_trap_triggered',           // Unicorn triggered a sink trap
-        PLAYER_ELIMINATED: 'player_eliminated'                // Player was eliminated
+        PLAYER_ELIMINATED: 'player_eliminated',               // Player was eliminated
+        // Reconnection Events
+        REJOIN_SUCCESS: 'rejoin_success',                     // Player successfully rejoined
+        REJOIN_ERROR: 'rejoin_error',                         // Failed to rejoin
+        PLAYER_DISCONNECTED: 'player_disconnected',           // Player temporarily disconnected
+        PLAYER_RECONNECTED: 'player_reconnected'              // Player reconnected within grace period
     }
 };
 

@@ -14,12 +14,13 @@ import { generateRoomCode, generateDefaultPlayerName } from '../utils/roomUtils.
 class RoomManager {
     constructor() {
         this.rooms = new Map(); // roomCode -> room object
+        this.disconnectTimers = new Map(); // playerId -> timeout handle for grace period
     }
 
     /**
      * Create a new room
      * @param {string} socketId - Socket ID of the host
-     * @param {Object} playerData - Player data (name, maxPlayers)
+     * @param {Object} playerData - Player data (name, maxPlayers, playerId)
      * @returns {Object} Created room object
      */
     createRoom(socketId, playerData = {}) {
@@ -27,13 +28,17 @@ class RoomManager {
         const isTeacher = playerData?.isTeacher === true;
         // Initialize map config for 1 player (host)
         const mapConfig = getMapConfigForPlayerCount(1);
+        // Use client-provided playerId or generate one from socketId
+        const playerId = playerData?.playerId || socketId;
         const room = {
             code: roomCode,
             hostId: socketId,
+            hostPlayerId: isTeacher ? null : playerId, // Persistent host ID for reconnection
             teacherId: isTeacher ? socketId : null,
             totalRounds: playerData?.totalRounds ?? null,
             players: isTeacher ? [] : [{
-                id: socketId,
+                id: socketId,                // Current socket ID (can change on reconnect)
+                playerId: playerId,          // Persistent player ID (stays same across reconnects)
                 name: playerData?.name || generateDefaultPlayerName(socketId),
                 isHost: true,
                 isUnicorn: false, // Will be assigned when game starts
@@ -43,6 +48,7 @@ class RoomManager {
                 questions_attempted: QUESTIONS_ATTEMPTED,
                 state: PLAYER_STATE.ACTIVE, // Player state
                 inIFrames: false, // Invincibility frames
+                disconnectedAt: null, // Timestamp when disconnected (null if connected)
             }],
             status: ROOM_STATUS.WAITING,
             createdAt: Date.now(),
@@ -83,7 +89,7 @@ class RoomManager {
      */
     getRoomCodeForSocket(socketId) {
         for (const [code, room] of this.rooms.entries()) {
-            if (room.hostId === socketId || room.players.some(p => p.id === socketId)) {
+            if (room.hostId === socketId || room.teacherId === socketId || room.players.some(p => p.id === socketId)) {
                 return code;
             }
         }
@@ -91,31 +97,186 @@ class RoomManager {
     }
 
     /**
+     * Get room code for a persistent player ID
+     * @param {string} playerId - Persistent player ID
+     * @returns {string|null} Room code or null
+     */
+    getRoomCodeForPlayerId(playerId) {
+        for (const [code, room] of this.rooms.entries()) {
+            if (room.hostPlayerId === playerId || room.players.some(p => p.playerId === playerId)) {
+                return code;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Get player by persistent player ID
+     * @param {string} roomCode - Room code
+     * @param {string} playerId - Persistent player ID
+     * @returns {Object|null} Player object or null
+     */
+    getPlayerByPlayerId(roomCode, playerId) {
+        const room = this.rooms.get(roomCode);
+        if (!room) return null;
+        return room.players.find(p => p.playerId === playerId) || null;
+    }
+
+    /**
+     * Get player by current socket ID
+     * @param {string} roomCode - Room code
+     * @param {string} socketId - Current socket ID
+     * @returns {Object|null} Player object or null
+     */
+    getPlayerBySocketId(roomCode, socketId) {
+        const room = this.rooms.get(roomCode);
+        if (!room) return null;
+        return room.players.find(p => p.id === socketId) || null;
+    }
+
+    /**
+     * Get persistent playerId from socket ID
+     * @param {string} roomCode - Room code
+     * @param {string} socketId - Current socket ID
+     * @returns {string|null} Persistent player ID or null
+     */
+    getPersistentPlayerId(roomCode, socketId) {
+        const player = this.getPlayerBySocketId(roomCode, socketId);
+        return player ? player.playerId : null;
+    }
+
+    /**
+     * Update player's socket ID (on reconnection)
+     * @param {string} roomCode - Room code
+     * @param {string} playerId - Persistent player ID
+     * @param {string} newSocketId - New socket ID
+     * @returns {Object|null} Updated player object or null
+     */
+    updatePlayerSocketId(roomCode, playerId, newSocketId) {
+        const room = this.rooms.get(roomCode);
+        if (!room) return null;
+
+        const player = room.players.find(p => p.playerId === playerId);
+        if (!player) return null;
+
+        const oldSocketId = player.id;
+        player.id = newSocketId;
+        player.disconnectedAt = null; // Clear disconnected status
+
+        // Update hostId if this player was the host
+        if (room.hostPlayerId === playerId) {
+            room.hostId = newSocketId;
+        }
+
+        // Note: unicornIds now uses persistent playerId, so no update needed on socket reconnect
+
+        // Cancel any pending disconnect timer
+        if (this.disconnectTimers.has(playerId)) {
+            clearTimeout(this.disconnectTimers.get(playerId));
+            this.disconnectTimers.delete(playerId);
+            log.info(`⏱️ Cancelled disconnect timer for player ${playerId}`);
+        }
+
+        log.info(`🔄 Updated socket ID for player ${playerId}: ${oldSocketId} -> ${newSocketId}`);
+        return player;
+    }
+
+    /**
+     * Mark player as disconnected (but don't remove yet - grace period)
+     * @param {string} roomCode - Room code
+     * @param {string} socketId - Socket ID of disconnected player
+     * @returns {Object|null} Player object or null
+     */
+    markPlayerDisconnected(roomCode, socketId) {
+        const room = this.rooms.get(roomCode);
+        if (!room) return null;
+
+        const player = room.players.find(p => p.id === socketId);
+        if (!player) return null;
+
+        player.disconnectedAt = Date.now();
+        log.info(`⚠️ Player ${player.playerId} (${player.name}) marked as disconnected in room ${roomCode}`);
+        return player;
+    }
+
+    /**
+     * Check if player is currently disconnected
+     * @param {string} roomCode - Room code
+     * @param {string} playerId - Persistent player ID
+     * @returns {boolean} True if player is disconnected
+     */
+    isPlayerDisconnected(roomCode, playerId) {
+        const player = this.getPlayerByPlayerId(roomCode, playerId);
+        return player?.disconnectedAt != null;
+    }
+
+    /**
+     * Store a disconnect timer for a player
+     * @param {string} playerId - Persistent player ID
+     * @param {NodeJS.Timeout} timer - Timeout handle
+     */
+    setDisconnectTimer(playerId, timer) {
+        this.disconnectTimers.set(playerId, timer);
+    }
+
+    /**
+     * Get disconnect timer for a player
+     * @param {string} playerId - Persistent player ID
+     * @returns {NodeJS.Timeout|null} Timeout handle or null
+     */
+    getDisconnectTimer(playerId) {
+        return this.disconnectTimers.get(playerId) || null;
+    }
+
+    /**
+     * Clear disconnect timer for a player
+     * @param {string} playerId - Persistent player ID
+     */
+    clearDisconnectTimer(playerId) {
+        if (this.disconnectTimers.has(playerId)) {
+            clearTimeout(this.disconnectTimers.get(playerId));
+            this.disconnectTimers.delete(playerId);
+        }
+    }
+
+    /**
      * Validate if a player can join a room
      * @param {string} roomCode - Room code
      * @param {string} socketId - Socket ID
-     * @returns {Object} { valid: boolean, error: string|null }
+     * @param {string} playerId - Persistent player ID (optional)
+     * @returns {Object} { valid: boolean, error: string|null, isRejoin: boolean }
      */
-    validateJoinRoom(roomCode, socketId) {
+    validateJoinRoom(roomCode, socketId, playerId = null) {
         if (!this.rooms.has(roomCode)) {
-            return { valid: false, error: 'Room not found' };
+            return { valid: false, error: 'Room not found', isRejoin: false };
         }
 
         const room = this.rooms.get(roomCode);
 
+        // Check if this is a reconnecting player (by playerId)
+        if (playerId) {
+            const existingPlayer = room.players.find(p => p.playerId === playerId);
+            if (existingPlayer) {
+                // Player exists - this could be a rejoin attempt
+                // Allow rejoin even if game is in progress
+                return { valid: true, error: null, isRejoin: true };
+            }
+        }
+
+        // Check if already in room by socketId
+        if (room.players.some(p => p.id === socketId)) {
+            return { valid: false, error: 'Already in this room', isRejoin: false };
+        }
+
         if (room.players.length >= room.maxPlayers) {
-            return { valid: false, error: 'Room is full' };
+            return { valid: false, error: 'Room is full', isRejoin: false };
         }
 
         if (room.status === ROOM_STATUS.PLAYING) {
-            return { valid: false, error: 'Game already in progress' };
+            return { valid: false, error: 'Game already in progress', isRejoin: false };
         }
 
-        if (room.players.some(p => p.id === socketId)) {
-            return { valid: false, error: 'Already in this room' };
-        }
-
-        return { valid: true, error: null };
+        return { valid: true, error: null, isRejoin: false };
     }
 
     /**
@@ -123,14 +284,19 @@ class RoomManager {
      * @param {string} roomCode - Room code
      * @param {string} socketId - Socket ID
      * @param {string} playerName - Player name
+     * @param {string} playerId - Persistent player ID (optional, defaults to socketId)
      * @returns {Object} { player, mapConfigChanged, newMapConfig }
      */
-    addPlayerToRoom(roomCode, socketId, playerName) {
+    addPlayerToRoom(roomCode, socketId, playerName, playerId = null) {
         const room = this.rooms.get(roomCode);
         if (!room) return null;
 
+        // Use provided playerId or default to socketId
+        const persistentId = playerId || socketId;
+
         const player = {
-            id: socketId,
+            id: socketId,                // Current socket ID (can change on reconnect)
+            playerId: persistentId,      // Persistent player ID (stays same across reconnects)
             name: playerName || generateDefaultPlayerName(socketId),
             isHost: false,
             isUnicorn: false,
@@ -140,6 +306,7 @@ class RoomManager {
             questions_attempted: QUESTIONS_ATTEMPTED,
             state: PLAYER_STATE.ACTIVE, // Player state
             inIFrames: false, // Invincibility frames
+            disconnectedAt: null, // Timestamp when disconnected (null if connected)
         };
 
         room.players.push(player);
@@ -178,21 +345,30 @@ class RoomManager {
     }
 
     /**
-     * Remove player from room
+     * Remove player from room (by socketId or playerId)
      * @param {string} roomCode - Room code
-     * @param {string} socketId - Socket ID
-     * @returns {Object} { wasHost: boolean, roomDeleted: boolean, mapConfigChanged, newMapConfig }
+     * @param {string} identifier - Socket ID or Player ID
+     * @param {boolean} byPlayerId - If true, search by playerId instead of socketId
+     * @returns {Object} { wasHost: boolean, roomDeleted: boolean, mapConfigChanged, newMapConfig, playerId }
      */
-    removePlayerFromRoom(roomCode, socketId) {
+    removePlayerFromRoom(roomCode, identifier, byPlayerId = false) {
         const room = this.rooms.get(roomCode);
         if (!room) return null;
 
-        const playerIndex = room.players.findIndex(p => p.id === socketId);
+        const playerIndex = byPlayerId
+            ? room.players.findIndex(p => p.playerId === identifier)
+            : room.players.findIndex(p => p.id === identifier);
         if (playerIndex === -1) return null;
 
-        const wasHost = room.players[playerIndex].isHost;
-        const wasUnicorn = room.players[playerIndex].isUnicorn;
+        const removedPlayer = room.players[playerIndex];
+        const wasHost = removedPlayer.isHost;
+        const wasUnicorn = removedPlayer.isUnicorn;
+        const removedPlayerId = removedPlayer.playerId;
+        const removedSocketId = removedPlayer.id;
         room.players.splice(playerIndex, 1);
+
+        // Clear any pending disconnect timer for this player
+        this.clearDisconnectTimer(removedPlayerId);
 
         let roomDeleted = false;
         let newHostId = null;
@@ -204,14 +380,15 @@ class RoomManager {
         if (wasHost && room.players.length > 0) {
             room.players[0].isHost = true;
             room.hostId = room.players[0].id;
+            room.hostPlayerId = room.players[0].playerId;
             newHostId = room.players[0].id;
         }
 
-        // If unicorn left: remove from unicornIds; optionally refill if zero remain
+        // If unicorn left: remove from unicornIds (using persistent playerId); optionally refill if zero remain
         if (wasUnicorn) {
-            room.unicornIds = (room.unicornIds || []).filter(id => id !== socketId);
+            room.unicornIds = (room.unicornIds || []).filter(id => id !== removedPlayerId);
             room.unicornId = room.unicornIds[0] ?? null;
-            room.players.forEach(p => { p.isUnicorn = room.unicornIds.includes(p.id); });
+            room.players.forEach(p => { p.isUnicorn = room.unicornIds.includes(p.playerId); });
             if (room.players.length > 0 && room.unicornIds.length === 0) {
                 // Refill to 30% (min 1) from remaining players
                 const count = Math.max(
@@ -223,9 +400,9 @@ class RoomManager {
                 );
                 const cap = Math.min(count, Math.max(1, room.players.length - 1));
                 const shuffled = [...room.players].sort(() => Math.random() - 0.5);
-                newUnicornIds = shuffled.slice(0, cap).map(p => p.id);
+                newUnicornIds = shuffled.slice(0, cap).map(p => p.playerId);
                 newUnicornIds.forEach(id => {
-                    const p = room.players.find(pl => pl.id === id);
+                    const p = room.players.find(pl => pl.playerId === id);
                     if (p) p.isUnicorn = true;
                 });
                 room.unicornIds = newUnicornIds;
@@ -258,6 +435,8 @@ class RoomManager {
             newUnicornIds,
             mapConfigChanged,
             newMapConfig,
+            playerId: removedPlayerId,
+            socketId: removedSocketId,
             room: roomDeleted ? null : room
         };
     }
@@ -352,7 +531,7 @@ class RoomManager {
     /**
      * Set unicorn set (multiple unicorns per round).
      * @param {string} roomCode - Room code
-     * @param {string[]} newUnicornIds - Socket IDs of unicorns
+     * @param {string[]} newUnicornIds - Persistent player IDs of unicorns
      * @returns {Object|null} Updated room or null
      */
     setUnicorns(roomCode, newUnicornIds) {
@@ -361,7 +540,7 @@ class RoomManager {
 
         room.players.forEach(p => { p.isUnicorn = false; });
         (newUnicornIds || []).forEach(id => {
-            const p = room.players.find(pl => pl.id === id);
+            const p = room.players.find(pl => pl.playerId === id);
             if (p) p.isUnicorn = true;
         });
         room.unicornIds = [...(newUnicornIds || [])];

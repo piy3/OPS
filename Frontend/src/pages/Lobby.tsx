@@ -3,7 +3,7 @@
  * Players join with room code from teacher; see player list and wait for host to start.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -54,6 +54,10 @@ const Lobby = () => {
   const [error, setError] = useState<string | null>(null);
   const [isJoining, setIsJoining] = useState(false);
   const [showHowToPlay, setShowHowToPlay] = useState(true);
+
+  // Rejoin state (for reconnection after page refresh)
+  const [isRejoining, setIsRejoining] = useState(false);
+  const rejoinAttemptedRef = useRef(false);
 
   // Get current player
   const getCurrentPlayer = useCallback((): Player | null => {
@@ -155,6 +159,32 @@ const Lobby = () => {
       setError(data.message);
     });
 
+    // Rejoin success - navigate back to game
+    const unsubRejoinSuccess = socketService.on(SOCKET_EVENTS.SERVER.REJOIN_SUCCESS, (data: any) => {
+      logger.game('Rejoin successful:', data);
+      setIsRejoining(false);
+      socketService.setCurrentRoomCode(data.room.code);
+      // Navigate to game with room and gameState, marking it as a rejoin
+      navigate('/game', { state: { room: data.room, gameState: data.gameState, isRejoin: true } });
+    });
+
+    // Rejoin error - clear stored room code and show lobby
+    const unsubRejoinError = socketService.on(SOCKET_EVENTS.SERVER.REJOIN_ERROR, (data: { message: string }) => {
+      logger.game('Rejoin failed:', data.message);
+      setIsRejoining(false);
+      socketService.setCurrentRoomCode(null);
+      setError(`Could not rejoin game: ${data.message}`);
+    });
+
+    // Now that all handlers are registered, attempt rejoin if we have a stored room code
+    const storedRoomCode = socketService.getCurrentRoomCode();
+    if (storedRoomCode && !rejoinAttemptedRef.current) {
+      logger.game('Handlers registered, attempting to rejoin room:', storedRoomCode);
+      rejoinAttemptedRef.current = true;
+      setIsRejoining(true);
+      socketService.rejoinRoom(storedRoomCode);
+    }
+
     return () => {
       unsubRoomInfo();
       unsubRoomJoined();
@@ -166,6 +196,8 @@ const Lobby = () => {
       unsubGameStarted();
       unsubJoinError();
       unsubStartError();
+      unsubRejoinSuccess();
+      unsubRejoinError();
     };
   }, [isConnected, navigate]);
 
@@ -215,6 +247,22 @@ const Lobby = () => {
           <CardContent className="pt-6 text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cream mx-auto mb-4"></div>
             <p className="text-muted-foreground">Connecting to server...</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Reconnecting to game screen
+  if (isRejoining) {
+    return (
+      <div className="relative min-h-screen flex items-center justify-center">
+        <LobbyBackground />
+        <Card className="relative z-10 w-[400px] bg-card border-border">
+          <CardContent className="pt-6 text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cream mx-auto mb-4"></div>
+            <p className="text-cream font-medium text-lg mb-2">Reconnecting to game...</p>
+            <p className="text-muted-foreground text-sm">Please wait while we restore your session</p>
           </CardContent>
         </Card>
       </div>

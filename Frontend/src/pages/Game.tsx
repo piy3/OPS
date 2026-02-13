@@ -172,6 +172,7 @@ interface UnfreezeQuestion {
 interface LocationState {
   room?: Room;
   gameState?: SocketGameState;
+  isRejoin?: boolean;
 }
 
 type GameState = 'name-entry' | 'playing' | 'game-over' | 'waiting-for-start' | 'blitz-quiz' | 'frozen' | 'spectating';
@@ -274,6 +275,7 @@ const Game: React.FC = () => {
   
   const isUnicornRef = useRef(false);
   const isFrozenRef = useRef(false);
+  const isRejoinRef = useRef(false);
   useEffect(() => {
     isUnicornRef.current = isUnicorn;
   }, [isUnicorn]);
@@ -395,8 +397,20 @@ const Game: React.FC = () => {
       navigate('/lobby', { replace: true });
       return;
     }
+    
+    // Detect stale browser-cached state: if we have locationState.room but socket is not connected
+    // and this isn't a rejoin (which comes from Lobby with fresh connection), it means the browser
+    // restored cached history state on page refresh. Redirect to /lobby for proper reconnection.
+    if (!socketService.isConnected()) {
+      logger.game('Detected stale cached state (socket not connected) - redirecting to lobby for reconnection');
+      navigate('/lobby', { replace: true });
+      return;
+    }
+    
     setIsMultiplayer(true);
     setRoom(locationState.room);
+    // Store room code for reconnection
+    socketService.setCurrentRoomCode(locationState.room.code);
     setPlayerName(localStorage.getItem('playerName') || 'Player');
     playerNameRef.current = localStorage.getItem('playerName') || 'Player';
     if (locationState.room.mapConfig) {
@@ -405,7 +419,35 @@ const Game: React.FC = () => {
     if (gameRef.current) {
       gameRef.current.enemies = [];
     }
-    if (locationState.gameState) {
+
+    // Handle rejoin - game is already in progress, need to sync state
+    if (locationState.isRejoin) {
+      logger.game('Rejoining game - syncing state');
+      isRejoinRef.current = true;
+      setGameState('playing');
+      if (gameRef.current) {
+        gameRef.current.isPlaying = true;
+      }
+      // Set connected players from room data
+      setConnectedPlayers(locationState.room.players);
+      // Set unicorn status from gameState or room
+      if (locationState.gameState) {
+        const gs = locationState.gameState;
+        const ids = gs.unicornIds ?? (gs.unicornId ? [gs.unicornId] : []);
+        setUnicornIds(ids);
+        setUnicornId(ids[0] ?? gs.unicornId ?? null);
+        setIsUnicorn(ids.includes(socketService.getPlayerId()));
+      } else if (locationState.room.unicornIds) {
+        setUnicornIds(locationState.room.unicornIds);
+        setUnicornId(locationState.room.unicornIds[0] ?? null);
+        setIsUnicorn(locationState.room.unicornIds.includes(socketService.getPlayerId()));
+      }
+      // Request full game state to fully sync everything
+      setTimeout(() => {
+        socketService.getGameState();
+      }, 100);
+    } else if (locationState.gameState) {
+      // Normal game start with gameState
       setGameState('playing');
       if (gameRef.current) {
         gameRef.current.isPlaying = true;
@@ -414,7 +456,7 @@ const Game: React.FC = () => {
       const ids = gs.unicornIds ?? (gs.unicornId ? [gs.unicornId] : []);
       setUnicornIds(ids);
       setUnicornId(ids[0] ?? gs.unicornId ?? null);
-      setIsUnicorn(ids.includes(socketService.getSocketId()));
+      setIsUnicorn(ids.includes(socketService.getPlayerId()));
     } else {
       setGameState('waiting-for-start');
     }
@@ -429,9 +471,18 @@ const Game: React.FC = () => {
       if (isMultiplayer && socketService.isConnected() && !returningToLobbyRef.current) {
         logger.game('Leaving room on game component unmount');
         socketService.leaveRoom();
+        // Clear stored room code when intentionally leaving
+        socketService.setCurrentRoomCode(null);
       }
     };
   }, [isMultiplayer]);
+
+  // Show status helper (defined early for use in socket handlers)
+  const showStatus = useCallback((text: string, color: string = '#fff', duration: number = 2000) => {
+    setStatus(text);
+    setStatusColor(color);
+    setTimeout(() => setStatus(''), duration);
+  }, []);
 
   // Multiplayer socket event handlers
   useEffect(() => {
@@ -440,7 +491,7 @@ const Game: React.FC = () => {
     // Position updates from other players
     const unsubPosition = socketService.on(SOCKET_EVENTS.SERVER.PLAYER_POSITION_UPDATE, (data: any) => {
       const { playerId, position } = data;
-      if (playerId === socketService.getSocketId()) return; // Ignore our own updates
+      if (playerId === socketService.getPlayerId()) return; // Ignore our own updates
       
       const remotePlayers = remotePlayersRef.current;
       const existing = remotePlayers.get(playerId);
@@ -514,11 +565,11 @@ const Game: React.FC = () => {
       }
       
       const ids = data.gameState?.unicornIds ?? (data.gameState?.unicornId ? [data.gameState.unicornId] : []);
-      const isPlayerUnicorn = ids.includes(socketService.getSocketId());
+      const isPlayerUnicorn = ids.includes(socketService.getPlayerId());
       setUnicornIds(ids);
       setUnicornId(ids[0] ?? data.gameState?.unicornId ?? null);
       setIsUnicorn(isPlayerUnicorn);
-      const myId = socketService.getSocketId();
+      const myId = socketService.getPlayerId();
       const remotePlayers = remotePlayersRef.current;
       if (data.gameState?.players) {
         data.gameState.players.forEach((p: any) => {
@@ -567,7 +618,7 @@ const Game: React.FC = () => {
       const ids = data.newUnicornIds ?? (data.newUnicornId ? [data.newUnicornId] : []);
       setUnicornIds(ids);
       setUnicornId(ids[0] ?? data.newUnicornId ?? null);
-      const amUnicorn = ids.includes(socketService.getSocketId());
+      const amUnicorn = ids.includes(socketService.getPlayerId());
       setIsUnicorn(amUnicorn);
       remotePlayersRef.current.forEach((player, id) => {
         player.isUnicorn = ids.includes(id);
@@ -575,7 +626,7 @@ const Game: React.FC = () => {
       if (gameRef.current) {
         gameRef.current.player.speed = getSpeedForRole(amUnicorn);
       }
-      const socketId = socketService.getSocketId();
+      const socketId = socketService.getPlayerId();
       if (ids.includes(socketId)) {
         showStatus(ids.length > 1 ? `YOU ARE A ${ROLE_LABEL_CHASER}!` : `YOU ARE THE ${ROLE_LABEL_CHASER}!`, '#ff00ff', 3000);
         setScreenFlash({ color: '#ff00ff', opacity: 0.4 });
@@ -606,7 +657,7 @@ const Game: React.FC = () => {
       setHuntTimeLeft(data.duration / 1000);
       setCurrentRound(data.roundInfo?.currentRound || 1);
       setTotalRounds(data.roundInfo?.totalRounds || 4);
-      const amUnicorn = data.unicornIds?.length !== undefined && data.unicornIds.includes(socketService.getSocketId());
+      const amUnicorn = data.unicornIds?.length !== undefined && data.unicornIds.includes(socketService.getPlayerId());
       if (data.unicornIds?.length !== undefined) {
         setUnicornIds(data.unicornIds);
         setUnicornId(data.unicornIds[0] ?? data.unicornId ?? null);
@@ -711,7 +762,7 @@ const Game: React.FC = () => {
       blitzHandledRef.current = false; // Reset for next blitz round
       setBlitzQuestion(null);
       const ids = data.newUnicornIds ?? (data.newUnicornId ? [data.newUnicornId] : []);
-      const isPlayerUnicorn = ids.includes(socketService.getSocketId());
+      const isPlayerUnicorn = ids.includes(socketService.getPlayerId());
       setUnicornIds(ids);
       setUnicornId(ids[0] ?? data.newUnicornId ?? null);
       setIsUnicorn(isPlayerUnicorn);
@@ -732,7 +783,7 @@ const Game: React.FC = () => {
     const unsubEliminated = socketService.on(SOCKET_EVENTS.SERVER.PLAYER_ELIMINATED, (data: any) => {
       const { playerId, attackerId } = data;
       
-      if (playerId === socketService.getSocketId()) {
+      if (playerId === socketService.getPlayerId()) {
         // We got eliminated
         setGameState('spectating');
         showStatus('YOU WERE ELIMINATED!', '#ff0000', 3000);
@@ -751,7 +802,7 @@ const Game: React.FC = () => {
     // Player state change (frozen, active, etc.)
     const unsubStateChange = socketService.on(SOCKET_EVENTS.SERVER.PLAYER_STATE_CHANGE, (data: any) => {
       const { playerId, state, playerName, inIFrames } = data;
-      const myId = socketService.getSocketId();
+      const myId = socketService.getPlayerId();
 
       if (inIFrames === false) {
         if (playerId === myId) {
@@ -818,7 +869,7 @@ const Game: React.FC = () => {
     // Player tagged (visual feedback when someone gets tagged)
     const unsubPlayerTagged = socketService.on(SOCKET_EVENTS.SERVER.PLAYER_TAGGED, (data: any) => {
       const { unicornId, caughtId, caughtName, unicornName, coinsGained } = data;
-      const myId = socketService.getSocketId();
+      const myId = socketService.getPlayerId();
 
       if (unicornId === myId) {
         soundService.playSfx('tag');
@@ -887,7 +938,7 @@ const Game: React.FC = () => {
     // Player respawn (after unfreeze quiz passed)
     const unsubPlayerRespawn = socketService.on(SOCKET_EVENTS.SERVER.PLAYER_RESPAWN, (data: any) => {
       const { playerId, position, inIFrames } = data;
-      const myId = socketService.getSocketId();
+      const myId = socketService.getPlayerId();
 
       if (playerId === myId) {
         // We respawned - update our position
@@ -980,7 +1031,7 @@ const Game: React.FC = () => {
         game.coins[coinIndex].collected = true;
       }
       
-      if (data.playerId === socketService.getSocketId()) {
+      if (data.playerId === socketService.getPlayerId()) {
         soundService.playSfx('coin');
         setCoinsCollected(data.newScore ?? game.coinsCollected + 1);
         showStatus(`+${data.value ?? 5} coins!`, '#ffd700', 1500);
@@ -1061,7 +1112,7 @@ const Game: React.FC = () => {
       addTeleportEffect(fromPosition.x, fromPosition.y, 'out');
       addTeleportEffect(toPosition.x, toPosition.y, 'in');
       
-      if (playerId === socketService.getSocketId()) {
+      if (playerId === socketService.getPlayerId()) {
         // Local player teleported - update position immediately
         game.player.x = toPosition.x;
         game.player.y = toPosition.y;
@@ -1107,7 +1158,7 @@ const Game: React.FC = () => {
         game.sinkCollectibles[trapIndex].collected = true;
       }
       
-      if (data.playerId === socketService.getSocketId()) {
+      if (data.playerId === socketService.getPlayerId()) {
         game.playerSinkInventory = data.newInventoryCount ?? game.playerSinkInventory + 1;
         setSinkInventory(data.newInventoryCount ?? game.playerSinkInventory);
         showStatus('SINK TRAP COLLECTED!', '#ff6600', 1500);
@@ -1134,7 +1185,7 @@ const Game: React.FC = () => {
       });
       
       // Update our inventory if we deployed it
-      if (data.playerId === socketService.getSocketId()) {
+      if (data.playerId === socketService.getPlayerId()) {
         game.playerSinkInventory = data.newInventoryCount;
         setSinkInventory(data.newInventoryCount);
         showStatus('TRAP DEPLOYED!', '#ff6600', 1500);
@@ -1159,7 +1210,7 @@ const Game: React.FC = () => {
       addTeleportEffect(fromPosition.x, fromPosition.y, 'out');
       addTeleportEffect(toPosition.x, toPosition.y, 'in');
       
-      if (unicornId === socketService.getSocketId()) {
+      if (unicornId === socketService.getPlayerId()) {
         // We (unicorn) got trapped
         game.player.x = toPosition.x;
         game.player.y = toPosition.y;
@@ -1198,7 +1249,7 @@ const Game: React.FC = () => {
         setLiveLeaderboard(mapLeaderboard(data.gameState.leaderboard));
       }
       
-      const myId = socketService.getSocketId();
+      const myId = socketService.getPlayerId();
       const myPlayer = data.gameState.players?.find((p: any) => p.id === myId);
       const remotePlayers = remotePlayersRef.current;
       const unicornIdsSync = data.gameState.unicornIds ?? (data.gameState.unicornId ? [data.gameState.unicornId] : []);
@@ -1244,6 +1295,84 @@ const Game: React.FC = () => {
         });
       }
       
+      // Populate game collectibles from game state (reconnection recovery)
+      if (gameRef.current) {
+        const game = gameRef.current;
+        
+        // Restore coins
+        if (Array.isArray(data.gameState.coins)) {
+          game.coins = data.gameState.coins.map((coin: any) => {
+            const pixel = toPixel(coin.row, coin.col);
+            return {
+              id: coin.id,
+              x: pixel.x,
+              y: pixel.y,
+              collected: false,
+              spawnTime: Date.now() * 0.001
+            };
+          });
+          logger.game(`Restored ${game.coins.length} coins from game state`);
+        }
+        
+        // Restore sinkholes/portals
+        if (Array.isArray(data.gameState.sinkholes) && game.map?.portals) {
+          game.map.portals = data.gameState.sinkholes.map((sinkhole: any) => {
+            const pixel = toPixel(sinkhole.row, sinkhole.col);
+            return {
+              x: pixel.x,
+              y: pixel.y,
+              color: sinkhole.color || `hsl(${Math.random() * 360}, 100%, 50%)`,
+              angle: 0
+            };
+          });
+          logger.game(`Restored ${game.map.portals.length} sinkholes from game state`);
+        }
+        
+        // Restore sink trap collectibles
+        if (Array.isArray(data.gameState.sinkTraps)) {
+          game.sinkCollectibles = data.gameState.sinkTraps.map((trap: any) => {
+            const pixel = toPixel(trap.row, trap.col);
+            return {
+              id: trap.id,
+              x: pixel.x,
+              y: pixel.y,
+              collected: false,
+              spawnTime: Date.now() * 0.001
+            };
+          });
+          logger.game(`Restored ${game.sinkCollectibles.length} sink trap collectibles from game state`);
+        }
+        
+        // Restore deployed sink traps
+        if (Array.isArray(data.gameState.deployedSinkTraps)) {
+          const TILE_SIZE = 64;
+          game.deployedSinks = data.gameState.deployedSinkTraps.map((trap: any) => ({
+            x: trap.col * TILE_SIZE + TILE_SIZE / 2,
+            y: trap.row * TILE_SIZE + TILE_SIZE / 2,
+            deployTime: trap.deployTime || Date.now()
+          }));
+          logger.game(`Restored ${game.deployedSinks.length} deployed sink traps from game state`);
+        }
+        
+        // Restore player's sink trap inventory
+        if (myPlayer?.sinkInventory !== undefined) {
+          game.playerSinkInventory = myPlayer.sinkInventory;
+          setSinkInventory(myPlayer.sinkInventory);
+          logger.game(`Restored sink inventory: ${myPlayer.sinkInventory}`);
+        }
+      }
+      
+      // Start appropriate music based on current phase (reconnection recovery)
+      // This handles the case where we refresh during hunt and miss HUNT_START
+      if (data.phase === 'hunt') {
+        logger.game('Game state sync: Hunt phase active, starting hunt music');
+        setGameState('playing');
+        if (!soundService.isPlaying('hunt') && !soundService.isPlaying('timer')) {
+          soundService.setTrackVolume('hunt', 0.2);
+          soundService.playMusic('hunt');
+        }
+      }
+      
       // Handle blitz quiz sync - this fixes the race condition where
       // the client navigates to /game and misses BLITZ_START
       if (data.phase === 'blitz_quiz' && data.blitzQuiz) {
@@ -1276,6 +1405,11 @@ const Game: React.FC = () => {
             setGameState('blitz-quiz');
             showStatus('BLITZ QUIZ!', '#ffff00', 1500);
             
+            // Start blitz quiz music (reconnection recovery)
+            if (!soundService.isPlaying('blitzQuiz')) {
+              soundService.playMusic('blitzQuiz');
+            }
+            
             return {
               question: data.blitzQuiz.question.question,
               options: data.blitzQuiz.question.options,
@@ -1306,6 +1440,71 @@ const Game: React.FC = () => {
           }
           return currentQuizData;
         });
+      }
+    });
+
+    // Player temporarily disconnected (show visual feedback)
+    const unsubPlayerDisconnected = socketService.on(SOCKET_EVENTS.SERVER.PLAYER_DISCONNECTED, (data: any) => {
+      const { playerId, playerName } = data;
+      logger.game(`Player ${playerName} temporarily disconnected`);
+      showStatus(`${playerName} disconnected...`, '#ffaa00', 3000);
+      
+      // Mark remote player as disconnected (visual feedback)
+      const remotePlayers = remotePlayersRef.current;
+      const player = remotePlayers.get(playerId);
+      if (player) {
+        // Could add a visual indicator here if needed
+      }
+    });
+
+    // Player reconnected (within grace period)
+    const unsubPlayerReconnected = socketService.on(SOCKET_EVENTS.SERVER.PLAYER_RECONNECTED, (data: any) => {
+      const { playerId, playerName } = data;
+      logger.game(`Player ${playerName} reconnected`);
+      showStatus(`${playerName} reconnected!`, '#00ff00', 2000);
+    });
+
+    // Rejoin success (we reconnected successfully)
+    const unsubRejoinSuccess = socketService.on(SOCKET_EVENTS.SERVER.REJOIN_SUCCESS, (data: any) => {
+      logger.game('Successfully rejoined room');
+      showStatus('Reconnected!', '#00ff00', 2000);
+      
+      // Update room and game state from server
+      if (data.room) {
+        setRoom(data.room);
+        setConnectedPlayers(data.room.players);
+        if (data.room.mapConfig) {
+          setMapConfig(data.room.mapConfig);
+        }
+      }
+      
+      // Request full game state to sync everything
+      socketService.getGameState();
+    });
+
+    // Rejoin error (couldn't reconnect - room no longer exists or player removed)
+    const unsubRejoinError = socketService.on(SOCKET_EVENTS.SERVER.REJOIN_ERROR, (data: any) => {
+      logger.game('Failed to rejoin room:', data.message);
+      showStatus('Could not reconnect', '#ff0000', 3000);
+      // Clear stored room code since we can't rejoin
+      socketService.setCurrentRoomCode(null);
+      // Navigate back to lobby after a brief delay
+      setTimeout(() => {
+        navigate('/lobby', { replace: true });
+      }, 2000);
+    });
+
+    // Auto-rejoin on socket reconnection
+    const unsubConnectionChange = socketService.onConnectionChange((connected: boolean) => {
+      if (connected) {
+        const storedRoomCode = socketService.getCurrentRoomCode();
+        if (storedRoomCode) {
+          logger.game('Socket reconnected, attempting to rejoin room:', storedRoomCode);
+          socketService.rejoinRoom(storedRoomCode);
+        }
+      } else {
+        logger.game('Socket disconnected');
+        showStatus('Connection lost...', '#ff0000', 3000);
       }
     });
 
@@ -1349,8 +1548,13 @@ const Game: React.FC = () => {
       unsubSinkTrapDeployed();
       unsubSinkTrapTriggered();
       unsubGameStateSync();
+      unsubPlayerDisconnected();
+      unsubPlayerReconnected();
+      unsubRejoinSuccess();
+      unsubRejoinError();
+      unsubConnectionChange();
     };
-  }, [isMultiplayer, unicornIds, gameState, navigate]);
+  }, [isMultiplayer, unicornIds, gameState, navigate, showStatus]);
 
   // Clear last-round banner timeout on unmount only (so the 3s hide timer is not cancelled when effect re-runs)
   useEffect(() => {
@@ -1360,13 +1564,6 @@ const Game: React.FC = () => {
         lastRoundBannerTimeoutRef.current = null;
       }
     };
-  }, []);
-
-  // Show status helper (defined early for use in socket handlers)
-  const showStatus = useCallback((text: string, color: string = '#fff', duration: number = 2000) => {
-    setStatus(text);
-    setStatusColor(color);
-    setTimeout(() => setStatus(''), duration);
   }, []);
 
   // Timer effect for blitz and hunt timers (multiplayer)
@@ -1803,7 +2000,7 @@ const Game: React.FC = () => {
       playerSinkInventory: 0,
       lastTime: 0,
       animationId: null as number | null,
-      isPlaying: false,
+      isPlaying: isRejoinRef.current || false,
       floatingRewards: [],
     };
     gameRef.current = game;
@@ -1943,7 +2140,7 @@ const Game: React.FC = () => {
       const inMultiplayer = !!(locationState?.room?.code ?? roomCodeRef.current);
       const players = locationState?.gameState?.players;
       if (inMultiplayer && Array.isArray(players)) {
-        const myId = socketService.getSocketId();
+        const myId = socketService.getPlayerId();
         const me = players.find((p: { id?: string }) => p.id === myId);
         const pos = me?.position as { x?: number; y?: number; row?: number; col?: number } | undefined;
         if (pos && ((pos.x != null && pos.y != null) || (pos.row != null && pos.col != null))) {
@@ -2868,7 +3065,7 @@ const Game: React.FC = () => {
                       </thead>
                       <tbody>
                         {gameEndLeaderboard.map((entry, i) => {
-                          const isYou = entry.id === socketService.getSocketId();
+                          const isYou = entry.id === socketService.getPlayerId();
                           return (
                             <tr
                               key={entry.id || i}
@@ -3094,7 +3291,7 @@ const Game: React.FC = () => {
                 </thead>
                 <tbody>
                   {liveLeaderboard.map((entry, i) => {
-                    const isYou = entry.id === socketService.getSocketId();
+                    const isYou = entry.id === socketService.getPlayerId();
                     return (
                       <tr
                         key={entry.id || i}

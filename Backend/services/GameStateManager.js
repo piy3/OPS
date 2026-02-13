@@ -70,10 +70,10 @@ class GameStateManager {
         if (room) room.quizQuestionPool = null;
 
         positionManager.cleanupRoom(roomCode);
-        // Clean up combat state for each player
+        // Clean up combat state for each player (using persistent playerId)
         if (room?.players) {
             room.players.forEach(player => {
-                combatManager.cleanupPlayer(player.id);
+                combatManager.cleanupPlayer(player.playerId);
             });
         }
         coinManager.cleanupRoom(roomCode);
@@ -116,9 +116,9 @@ class GameStateManager {
         
         room.players.forEach(player => {
             if (player.state === PLAYER_STATE.FROZEN) {
-                const quizState = roomQuizzes?.get(player.id);
+                const quizState = roomQuizzes?.get(player.playerId);
                 frozenPlayers.push({
-                    playerId: player.id,
+                    playerId: player.playerId,
                     hasActiveQuiz: !!quizState,
                     // Don't include full quiz data here - client will request via REQUEST_UNFREEZE_QUIZ
                 });
@@ -131,18 +131,20 @@ class GameStateManager {
             isTeacher: requesterId == room.teacherId,
             totalRounds: room?.totalRounds ?? GAME_LOOP_CONFIG.TOTAL_GAME_ROUNDS,
             players: room.players.map(player => ({
-                id: player.id,
+                id: player.playerId,  // Use persistent playerId for player identification
                 name: player.name,
                 isUnicorn: player.isUnicorn,
                 coins: player.coins,
+                sinkInventory: sinkTrapManager.getPlayerInventory(roomCode, player.playerId),
                 state: player.state || PLAYER_STATE.ACTIVE, // Include player state for frozen detection
-                position: positionManager.getPlayerPosition(roomCode, player.id),
+                position: positionManager.getPlayerPosition(roomCode, player.id),  // Position manager still uses socket ID internally
                 questions_attempted: player.questions_attempted ?? 0,
                 questions_correctly_answered: player.questions_correctly_answered ?? 0
             })),
             unicornIds: room.unicornIds ?? (room.unicornId ? [room.unicornId] : []),
             unicornId: room.unicornIds?.[0] ?? room.unicornId ?? null, // not necessary to send it, but kept due to support legacy frontend code
             leaderboard: roomManager.getLeaderboard(roomCode),
+            coins: coinManager.getActiveCoins(roomCode),
             sinkholes: sinkholeManager.getActiveSinkholes(roomCode),
             sinkTraps: sinkTrapManager.getActiveCollectibles(roomCode),
             deployedSinkTraps: sinkTrapManager.getDeployedTraps(roomCode),
@@ -262,6 +264,7 @@ class GameStateManager {
             this._checkTagCollision(roomCode, playerId, oldPosition, validatedPosition, isUnicorn, io);
 
             // Check if any unicorn stepped on a sink trap (moving player's position + all other unicorns' positions)
+            // unicornIds now contains persistent playerIds
             const unicornIds = room.unicornIds ?? (room.unicornId ? [room.unicornId] : []);
             const deployedCount = (sinkTrapManager.getDeployedTraps(roomCode) || []).length;
             if (isUnicorn && deployedCount > 0 && !this._lastSinkTrapLog) this._lastSinkTrapLog = 0;
@@ -269,10 +272,22 @@ class GameStateManager {
             const shouldLogSinkTrap = isUnicorn && deployedCount > 0 && (now - (this._lastSinkTrapLog || 0) > 2000);
             if (shouldLogSinkTrap) this._lastSinkTrapLog = now;
 
+            // Get current player's persistent playerId for comparison
+            const currentPlayer = room.players.find(p => p.id === playerId);
+            const currentPersistentId = currentPlayer?.playerId;
+
             for (const uid of unicornIds) {
-                const pos = uid === playerId
+                // uid is persistent playerId, need to get socket ID for position lookups
+                const unicornPlayer = roomManager.getPlayerByPlayerId(roomCode, uid);
+                if (!unicornPlayer) continue;
+                const unicornSocketId = unicornPlayer.id;
+                
+                // Check if this is the current moving player
+                const isCurrentPlayer = uid === currentPersistentId;
+                
+                const pos = isCurrentPlayer
                     ? { row: updatedPosition.row, col: updatedPosition.col, x: updatedPosition.x, y: updatedPosition.y }
-                    : positionManager.getPlayerPosition(roomCode, uid);
+                    : positionManager.getPlayerPosition(roomCode, unicornSocketId);
                 if (!pos) continue;
                 const gridRow = typeof pos.row === 'number' && !Number.isNaN(pos.row)
                     ? pos.row
@@ -284,7 +299,7 @@ class GameStateManager {
                 // For the moving unicorn: check every cell along the path so we don't miss a trap when updates are throttled
                 let triggeredTrapId = null;
                 let pathLength = 0;
-                if (uid === playerId && isUnicorn && oldPosition) {
+                if (isCurrentPlayer && isUnicorn && oldPosition) {
                     const oldRow = typeof oldPosition.row === 'number' && !Number.isNaN(oldPosition.row)
                         ? oldPosition.row
                         : Math.floor((oldPosition.y ?? 0) / TILE_SIZE);
@@ -305,15 +320,16 @@ class GameStateManager {
                     triggeredTrapId = sinkTrapManager.checkTrapTrigger(roomCode, { row: gridRow, col: gridCol }, shouldLogSinkTrap);
                 }
 
-                if (shouldLogSinkTrap && uid === playerId) {
-                    log.info({ roomCode, phase: 'HUNT', unicornId: playerId, grid: `${gridRow},${gridCol}`, pathCells: pathLength, deployedTraps: deployedCount, triggered: !!triggeredTrapId }, 'SinkTrap position check');
+                if (shouldLogSinkTrap && isCurrentPlayer) {
+                    log.info({ roomCode, phase: 'HUNT', unicornId: uid, grid: `${gridRow},${gridCol}`, pathCells: pathLength, deployedTraps: deployedCount, triggered: !!triggeredTrapId }, 'SinkTrap position check');
                 }
 
                 if (triggeredTrapId) {
-                    const uPlayer = room.players.find(p => p.id === uid);
-                    const destinationPosition = positionManager.findFreeSpawnPosition(roomCode, uid, room.players, room.mapConfig);
+                    // Use socket ID for position operations
+                    const destinationPosition = positionManager.findFreeSpawnPosition(roomCode, unicornSocketId, room.players, room.mapConfig);
+                    // Pass both socket ID (for position updates) and persistent playerId (for events)
                     sinkTrapManager.triggerTrap(
-                        roomCode, triggeredTrapId, uid, uPlayer?.name || 'Unicorn', io,
+                        roomCode, triggeredTrapId, unicornSocketId, uid, unicornPlayer.name || 'Unicorn', io,
                         (code, id, position) => positionManager.setPlayerPosition(code, id, position),
                         (code, pId) => positionManager.setLastMoveWasTeleport(code, pId),
                         destinationPosition,
@@ -342,11 +358,25 @@ class GameStateManager {
 
     /**
      * Remove player position (when they leave/disconnect)
+     * @param {string} roomCode - Room code
+     * @param {string} socketId - Player socket ID (for position manager)
+     * @param {string} persistentPlayerId - Persistent player ID (for combat manager, optional - defaults to socketId)
      */
-    removePlayerPosition(roomCode, playerId) {
-        positionManager.removePlayerPosition(roomCode, playerId);
-        combatManager.cleanupPlayer(playerId);
-        this.cleanupUnfreezeQuiz(roomCode, playerId);
+    removePlayerPosition(roomCode, socketId, persistentPlayerId = null) {
+        positionManager.removePlayerPosition(roomCode, socketId);
+        // Use persistent playerId for combat cleanup if provided, otherwise fall back to socketId
+        combatManager.cleanupPlayer(persistentPlayerId || socketId);
+        this.cleanupUnfreezeQuiz(roomCode, persistentPlayerId || socketId);
+    }
+
+    /**
+     * Update player's socket ID in position tracking (on reconnection)
+     * @param {string} roomCode - Room code
+     * @param {string} oldSocketId - Old socket ID
+     * @param {string} newSocketId - New socket ID
+     */
+    updatePlayerSocketId(roomCode, oldSocketId, newSocketId) {
+        positionManager.updatePlayerSocketId(roomCode, oldSocketId, newSocketId);
     }
 
     /**
@@ -411,12 +441,18 @@ class GameStateManager {
 
     /**
      * Enter a sinkhole to teleport to another sinkhole
+     * @param {string} roomCode - Room code
+     * @param {string} socketId - Player socket ID (for position updates)
+     * @param {string} persistentPlayerId - Persistent player ID (for events)
+     * @param {string} playerName - Player name
+     * @param {string} sinkholeId - Sinkhole ID
+     * @param {Object} io - Socket.IO server
      */
-    enterSinkhole(roomCode, playerId, playerName, sinkholeId, io) {
+    enterSinkhole(roomCode, socketId, persistentPlayerId, playerName, sinkholeId, io) {
         return sinkholeManager.enterSinkhole(
-            roomCode, playerId, playerName, sinkholeId, io,
+            roomCode, socketId, persistentPlayerId, playerName, sinkholeId, io,
             (code, id, position) => positionManager.setPlayerPosition(code, id, position),
-            (code, playerId) => positionManager.setLastMoveWasTeleport(code, playerId)
+            (code, pId) => positionManager.setLastMoveWasTeleport(code, pId)
         );
     }
 
@@ -470,9 +506,9 @@ class GameStateManager {
         // Reset player health for new round
         roomManager.resetPlayersHealth(roomCode);
         
-        // Clean up combat states
+        // Clean up combat states (using persistent playerId)
         room.players.forEach(player => {
-            combatManager.cleanupPlayer(player.id);
+            combatManager.cleanupPlayer(player.playerId);
         });
 
         gameLoopManager.startHuntPhase(
@@ -567,7 +603,7 @@ class GameStateManager {
         positionManager.cleanupRoom(roomCode);
         if (room?.players) {
             room.players.forEach(player => {
-                combatManager.cleanupPlayer(player.id);
+                combatManager.cleanupPlayer(player.playerId);
             });
         }
         coinManager.cleanupRoom(roomCode);
@@ -628,14 +664,28 @@ class GameStateManager {
 
     /**
      * Callback when tag quiz completes
+     * Note: caughtId and unicornId are now persistent playerIds
      */
     _onQuizComplete(results) {
         const { roomCode, caughtPlayerWins, caughtId, unicornId, scorePercentage, isTimeout } = results;
         
+        // Get socket IDs from persistent playerIds for internal operations
+        const caughtPlayer = roomManager.getPlayerByPlayerId(roomCode, caughtId);
+        const unicornPlayer = roomManager.getPlayerByPlayerId(roomCode, unicornId);
+        const caughtSocketId = caughtPlayer?.id;
+        const unicornSocketId = unicornPlayer?.id;
+        
+        if (!caughtSocketId || !unicornSocketId) {
+            log.warn(`Quiz complete but players not found: caught=${caughtId}, unicorn=${unicornId}`);
+            return;
+        }
+        
         if (caughtPlayerWins) {
-            roomManager.updatePlayerCoins(roomCode, caughtId, 20);
-            roomManager.updatePlayerCoins(roomCode, unicornId, -20);
+            // Use socket IDs for internal coin operations
+            roomManager.updatePlayerCoins(roomCode, caughtSocketId, 20);
+            roomManager.updatePlayerCoins(roomCode, unicornSocketId, -20);
             const room = roomManager.getRoom(roomCode);
+            // unicornIds now contains persistent playerIds
             const currentIds = room?.unicornIds ?? (room?.unicornId ? [room.unicornId] : []);
             const newSet = [...currentIds.filter(id => id !== unicornId), caughtId];
             roomManager.setUnicorns(roomCode, newSet);
@@ -651,8 +701,9 @@ class GameStateManager {
                 });
             }
         } else {
-            roomManager.updatePlayerCoins(roomCode, unicornId, 20);
-            roomManager.updatePlayerCoins(roomCode, caughtId, -20);
+            // Use socket IDs for internal coin operations
+            roomManager.updatePlayerCoins(roomCode, unicornSocketId, 20);
+            roomManager.updatePlayerCoins(roomCode, caughtSocketId, -20);
         }
     }
 
@@ -660,11 +711,13 @@ class GameStateManager {
 
     /**
      * Check for tag collision between players (multiple unicorns: any unicorn can tag any survivor)
+     * Note: unicornIds now contains persistent playerIds, but positionManager uses socket IDs
      */
     _checkTagCollision(roomCode, playerId, oldPosition, newPosition, isUnicorn, io) {
         const room = roomManager.getRoom(roomCode);
         if (!room) return;
 
+        // unicornIds now contains persistent playerIds
         const unicornIds = room.unicornIds ?? (room.unicornId ? [room.unicornId] : []);
         if (unicornIds.length === 0) return;
 
@@ -678,14 +731,19 @@ class GameStateManager {
         const pathCells = positionManager.getCellsInPath(oldPos, newPosition);
 
         if (!isUnicorn) {
+            // Current player is survivor, check collision with unicorns
             for (const uid of unicornIds) {
-                const unicornPos = positionManager.getPlayerPosition(roomCode, uid);
+                // uid is persistent playerId, need to get socket ID for position lookup
+                const unicornPlayer = roomManager.getPlayerByPlayerId(roomCode, uid);
+                if (!unicornPlayer) continue;
+                const unicornPos = positionManager.getPlayerPosition(roomCode, unicornPlayer.id);
                 if (!unicornPos) continue;
                 const crossed = pathCells.some(cell =>
                     cell.row === unicornPos.row && cell.col === unicornPos.col
                 ) || (newPosition.row === unicornPos.row && newPosition.col === unicornPos.col);
                 if (crossed) {
-                    this._handleTag(roomCode, uid, playerId, io);
+                    // Pass socket IDs to _handleTag for internal processing
+                    this._handleTag(roomCode, unicornPlayer.id, playerId, io);
                     return;
                 }
             }
@@ -702,6 +760,7 @@ class GameStateManager {
                 if (caught) caughtPlayers.push(p);
             }
             for (const caughtPlayer of caughtPlayers) {
+                // Pass socket IDs to _handleTag for internal processing
                 this._handleTag(roomCode, playerId, caughtPlayer.id, io);
             }
         }
@@ -710,53 +769,58 @@ class GameStateManager {
     /**
      * Handle unicorn tagging a survivor
      * Uses freeze + unfreeze quiz mode (player is frozen and must answer quiz to respawn)
+     * Note: Parameters are socket IDs for internal processing, events emit persistent playerIds
      */
-    _handleTag(roomCode, unicornId, survivorId, io) {
+    _handleTag(roomCode, unicornSocketId, survivorSocketId, io) {
         const room = roomManager.getRoom(roomCode);
+        // unicornIds now contains persistent playerIds
         const unicornIds = room?.unicornIds ?? (room?.unicornId ? [room.unicornId] : []);
-        if (!room || !unicornIds.includes(unicornId)) return;
 
-        // Rate limit collision
-        if (!combatManager.shouldProcessCollision(unicornId, survivorId)) {
+        const unicornPlayer = room?.players.find(p => p.id === unicornSocketId);
+        const survivorPlayer = room?.players.find(p => p.id === survivorSocketId);
+        if (!unicornPlayer || !survivorPlayer) return;
+
+        // Check if this player is actually a unicorn (compare persistent playerId)
+        if (!unicornIds.includes(unicornPlayer.playerId)) return;
+
+        // Rate limit collision (uses socket IDs internally)
+        if (!combatManager.shouldProcessCollision(unicornSocketId, survivorSocketId)) {
             return;
         }
 
-        const unicornPlayer = room.players.find(p => p.id === unicornId);
-        const survivorPlayer = room.players.find(p => p.id === survivorId);
-        if (!unicornPlayer || !survivorPlayer) return;
-
         // Check if survivor can be hit (not already frozen, not in i-frames)
-        const hitCheck = combatManager.canHitPlayer(survivorPlayer, survivorId);
+        // Use persistent playerId for combat state tracking
+        const hitCheck = combatManager.canHitPlayer(survivorPlayer, survivorPlayer.playerId);
         if (!hitCheck.canHit) {
             log.debug({ roomCode, player: survivorPlayer.name, reason: hitCheck.reason }, 'Cannot tag player');
             return;
         }
 
-        combatManager.setCollisionCooldown(unicornId, survivorId);
+        combatManager.setCollisionCooldown(unicornSocketId, survivorSocketId);
 
         // FREEZE + UNFREEZE QUIZ MODE
-        // Award points to unicorn
-        roomManager.updatePlayerCoins(roomCode, unicornId, GAME_LOOP_CONFIG.TAG_SCORE_STEAL);
+        // Award points to unicorn (uses socket ID internally)
+        roomManager.updatePlayerCoins(roomCode, unicornSocketId, GAME_LOOP_CONFIG.TAG_SCORE_STEAL);
         
         // Handle freeze and start unfreeze quiz
-        this._handleZeroHealth(roomCode, survivorId, survivorPlayer.name, io);
+        this._handleZeroHealth(roomCode, survivorSocketId, survivorPlayer.name, io);
 
-        const updatedUnicorn = roomManager.getPlayer(roomCode, unicornId);
+        const updatedUnicorn = roomManager.getPlayer(roomCode, unicornSocketId);
 
-        // Emit tagged event for visual feedback
+        // Emit tagged event for visual feedback - use persistent playerIds
         io.to(roomCode).emit(SOCKET_EVENTS.SERVER.PLAYER_TAGGED, {
-            unicornId: unicornId,
+            unicornId: unicornPlayer.playerId,
             unicornName: unicornPlayer.name,
-            caughtId: survivorId,
+            caughtId: survivorPlayer.playerId,
             caughtName: survivorPlayer.name,
             coinsGained: GAME_LOOP_CONFIG.TAG_SCORE_STEAL,
             timestamp: Date.now()
         });
 
-        // Update leaderboard
+        // Update leaderboard - use persistent playerIds
         io.to(roomCode).emit(SOCKET_EVENTS.SERVER.SCORE_UPDATE, {
-            unicornId: unicornId,
-            caughtId: survivorId,
+            unicornId: unicornPlayer.playerId,
+            caughtId: survivorPlayer.playerId,
             unicornCoins: updatedUnicorn?.coins || 0,
             caughtCoins: survivorPlayer.coins || 0,
             room: roomManager.getRoom(roomCode),
@@ -769,20 +833,29 @@ class GameStateManager {
     /**
      * Handle player reaching zero health
      * Freezes the player and starts a personal unfreeze quiz
+     * @param {string} roomCode - Room code
+     * @param {string} socketId - Player socket ID
+     * @param {string} playerName - Player name
+     * @param {Object} io - Socket.IO server
      */
-    _handleZeroHealth(roomCode, playerId, playerName, io) {
+    _handleZeroHealth(roomCode, socketId, playerName, io) {
+        // Get player to access persistent playerId
+        const player = roomManager.getPlayer(roomCode, socketId);
+        const persistentPlayerId = player?.playerId || socketId;
+        
         // Freeze the player (no respawn timer - quiz handles unfreeze)
         combatManager.handleZeroHealth(
             roomCode,
-            playerId,
+            socketId,
+            persistentPlayerId,
             playerName,
             io,
             (code, id, state) => roomManager.setPlayerState(code, id, state),
             (code, id, value) => roomManager.setPlayerIFrames(code, id, value)
         );
         
-        // Start personal unfreeze quiz for this player
-        this._startUnfreezeQuiz(roomCode, playerId, io);
+        // Start personal unfreeze quiz for this player (uses persistent playerId)
+        this._startUnfreezeQuiz(roomCode, persistentPlayerId, io);
     }
 
     /**
@@ -803,22 +876,27 @@ class GameStateManager {
     /**
      * Respawn player after freeze duration
      * BATCHED: Single PLAYER_RESPAWN event includes position + health + state
+     * @param {string} roomCode - Room code
+     * @param {string} socketId - Player socket ID
+     * @param {Object} io - Socket.IO server
      */
-    _respawnAfterFreeze(roomCode, playerId, io) {
-        const player = roomManager.getPlayer(roomCode, playerId);
+    _respawnAfterFreeze(roomCode, socketId, io) {
+        const player = roomManager.getPlayer(roomCode, socketId);
         if (!player) return;
 
         const room = roomManager.getRoom(roomCode);
         if (!room) return;
 
-        // Set state to ACTIVE
-        roomManager.setPlayerState(roomCode, playerId, PLAYER_STATE.ACTIVE);
+        const persistentPlayerId = player.playerId;
+
+        // Set state to ACTIVE (uses socket ID for internal operation)
+        roomManager.setPlayerState(roomCode, socketId, PLAYER_STATE.ACTIVE);
         
         // Restore health
-        roomManager.setPlayerHealth(roomCode, playerId, COMBAT_CONFIG.RESPAWN_HEALTH);
+        roomManager.setPlayerHealth(roomCode, socketId, COMBAT_CONFIG.RESPAWN_HEALTH);
         
         // Get new spawn position (pass mapConfig for dynamic map sizing)
-        const spawnPos = positionManager.findFreeSpawnPosition(roomCode, playerId, room.players, room.mapConfig);
+        const spawnPos = positionManager.findFreeSpawnPosition(roomCode, socketId, room.players, room.mapConfig);
         
         // Update position
         const newPos = {
@@ -828,21 +906,23 @@ class GameStateManager {
             y: null,
             timestamp: Date.now()
         };
-        positionManager.setPlayerPosition(roomCode, playerId, newPos);
+        positionManager.setPlayerPosition(roomCode, socketId, newPos);
 
-        // Grant i-frames
+        // Grant i-frames (pass both socket ID and persistent playerId)
         combatManager.grantIFrames(
             roomCode, 
-            playerId, 
+            socketId,
+            persistentPlayerId,
             io, 
             (code, id, value) => roomManager.setPlayerIFrames(code, id, value)
         );
 
-        const updatedPlayer = roomManager.getPlayer(roomCode, playerId);
+        const updatedPlayer = roomManager.getPlayer(roomCode, socketId);
 
         // BATCHED: Single event with all respawn data (position + health + state)
+        // Use persistent playerId for player identification in events
         io.to(roomCode).emit(SOCKET_EVENTS.SERVER.PLAYER_RESPAWN, {
-            playerId: playerId,
+            playerId: player.playerId,
             playerName: player.name,
             health: updatedPlayer.health,
             maxHealth: COMBAT_CONFIG.MAX_HEALTH,
@@ -1192,7 +1272,8 @@ class GameStateManager {
 
         coinManager.collectCoin(
             roomCode,
-            playerId,
+            playerId,           // socket ID for internal operations
+            player.playerId,    // persistent playerId for events
             coinId,
             player.name,
             io,

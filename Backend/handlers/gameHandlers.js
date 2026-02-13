@@ -168,6 +168,11 @@ export function registerGameHandlers(socket, io) {
                 return; // Silently ignore if game not playing
             }
             
+            // Get persistent playerId for this socket
+            const persistentPlayerId = roomManager.getPersistentPlayerId(roomCode, socket.id);
+            if (!persistentPlayerId) {
+                return; // Player not found in room
+            }
             
             // Update position with validation and rate limiting
             const updatedPosition = gameStateManager.updatePlayerPosition(
@@ -180,8 +185,9 @@ export function registerGameHandlers(socket, io) {
             // If update was successful (not throttled), broadcast to other players
             if (updatedPosition) {
                 // Broadcast to all other players in the room (excluding sender)
+                // Use persistent playerId for player identification
                 socket.to(roomCode).emit(SOCKET_EVENTS.SERVER.PLAYER_POSITION_UPDATE, {
-                    playerId: socket.id,
+                    playerId: persistentPlayerId,
                     position: updatedPosition
                 });
             }
@@ -333,7 +339,8 @@ export function registerGameHandlers(socket, io) {
         const player = room.players.find(p => p.id === socket.id);
         if (!player) return;
         
-        gameStateManager.enterSinkhole(roomCode, socket.id, player.name, data.sinkholeId, io);
+        // Pass both socket ID (for position) and persistent playerId (for events/cooldown)
+        gameStateManager.enterSinkhole(roomCode, socket.id, player.playerId, player.name, data.sinkholeId, io);
     });
 
     // COLLECT SINK TRAP: Only survivors can collect
@@ -349,7 +356,8 @@ export function registerGameHandlers(socket, io) {
         
         if (player.isUnicorn) return;
         
-        gameStateManager.collectSinkTrap(roomCode, socket.id, player.name, data.trapId, io);
+        // Pass persistent playerId for inventory tracking and events
+        gameStateManager.collectSinkTrap(roomCode, player.playerId, player.name, data.trapId, io);
     });
 
     // DEPLOY SINK TRAP: Only survivors can deploy
@@ -367,7 +375,8 @@ export function registerGameHandlers(socket, io) {
         
         const position = data.position ?? (data.row != null && data.col != null ? { row: data.row, col: data.col } : null);
         if (!position) return;
-        gameStateManager.deploySinkTrap(roomCode, socket.id, player.name, position, io);
+        // Pass persistent playerId for inventory tracking and events
+        gameStateManager.deploySinkTrap(roomCode, player.playerId, player.name, position, io);
     });
 
     // LAVA DEATH: Player fell in lava - freeze them and start unfreeze quiz

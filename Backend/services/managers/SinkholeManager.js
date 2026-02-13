@@ -3,10 +3,8 @@
  * Handles sinkhole (portal) spawning and teleportation
  */
 import { SOCKET_EVENTS } from '../../config/constants.js';
-import logger from '../../utils/logger.js';
+import log from '../../utils/logger.js';
 import { getOccupiedSpawnPositions } from '../occupiedSpawnPositions.js';
-
-const log = logger.log;
 
 // Sinkhole configuration
 const SINKHOLE_CONFIG = {
@@ -80,7 +78,7 @@ class SinkholeManager {
 
         this.scheduleNextSpawn(roomCode, io);
 
-        log(`[SinkholeManager] Initialized ${initialSinkholes.length} sinkholes for room ${roomCode}`);
+        log.info({ roomCode, count: initialSinkholes.length }, 'SinkholeManager initialized sinkholes');
     }
 
     scheduleNextSpawn(roomCode, io) {
@@ -134,7 +132,7 @@ class SinkholeManager {
         sinkholeMap.set(sinkholeId, sinkhole);
         io.to(roomCode).emit(SOCKET_EVENTS.SERVER.SINKHOLE_SPAWNED, { sinkholes: [sinkhole] });
 
-        log(`[SinkholeManager] Spawned sinkhole ${sinkholeId} at (${newSlot.row}, ${newSlot.col}) in room ${roomCode}`);
+        log.info({ roomCode, sinkholeId, row: newSlot.row, col: newSlot.col }, 'SinkholeManager spawned sinkhole');
 
         this.scheduleNextSpawn(roomCode, io);
     }
@@ -153,13 +151,24 @@ class SinkholeManager {
         return null;
     }
 
-    enterSinkhole(roomCode, playerId, playerName, sinkholeId, io, updatePlayerPosition, updateLastMoveAsTeleport) {
+    /**
+     * Enter a sinkhole to teleport to another sinkhole
+     * @param {string} roomCode - Room code
+     * @param {string} socketId - Player socket ID (for position updates)
+     * @param {string} persistentPlayerId - Persistent player ID (for events and cooldown)
+     * @param {string} playerName - Player name
+     * @param {string} sinkholeId - Sinkhole ID
+     * @param {Object} io - Socket.IO server
+     * @param {Function} updatePlayerPosition - Callback for position update
+     * @param {Function} updateLastMoveAsTeleport - Callback for teleport flag
+     */
+    enterSinkhole(roomCode, socketId, persistentPlayerId, playerName, sinkholeId, io, updatePlayerPosition, updateLastMoveAsTeleport) {
         const sinkholeMap = this.roomSinkholes.get(roomCode);
         if (!sinkholeMap || !sinkholeMap.has(sinkholeId)) return null;
 
-        // Check cooldown
+        // Check cooldown (using persistent playerId so cooldown survives reconnect)
         const now = Date.now();
-        const lastTeleport = this.teleportCooldowns.get(playerId);
+        const lastTeleport = this.teleportCooldowns.get(persistentPlayerId);
         if (lastTeleport && (now - lastTeleport) < SINKHOLE_CONFIG.TELEPORT_COOLDOWN) {
             return null;
         }
@@ -186,25 +195,25 @@ class SinkholeManager {
             col: destSinkhole.col
         };
 
-        // Update cooldown
-        this.teleportCooldowns.set(playerId, now);
+        // Update cooldown (using persistent playerId)
+        this.teleportCooldowns.set(persistentPlayerId, now);
 
-        // Update player position
+        // Update player position (using socket ID for internal operation)
         if (updatePlayerPosition) {
-            if (updateLastMoveAsTeleport) updateLastMoveAsTeleport(roomCode, playerId);
-            updatePlayerPosition(roomCode, playerId, toPosition);
+            if (updateLastMoveAsTeleport) updateLastMoveAsTeleport(roomCode, socketId);
+            updatePlayerPosition(roomCode, socketId, toPosition);
         }
 
-        // Notify all clients
+        // Notify all clients - use persistent playerId for player identification
         io.to(roomCode).emit(SOCKET_EVENTS.SERVER.PLAYER_TELEPORTED, {
-            playerId,
+            playerId: persistentPlayerId,
             playerName,
             fromPosition,
             toPosition,
             timestamp: now
         });
 
-        log(`[SinkholeManager] Player ${playerName} teleported from (${sourceSinkhole.row}, ${sourceSinkhole.col}) to (${destSinkhole.row}, ${destSinkhole.col})`);
+        log.info({ roomCode, playerName, from: { row: sourceSinkhole.row, col: sourceSinkhole.col }, to: { row: destSinkhole.row, col: destSinkhole.col } }, 'SinkholeManager player teleported');
 
         return { fromPosition, toPosition };
     }
@@ -223,8 +232,12 @@ class SinkholeManager {
         this.roomMapConfigs.delete(roomCode);
     }
 
-    clearPlayerCooldown(playerId) {
-        this.teleportCooldowns.delete(playerId);
+    /**
+     * Clear player's teleport cooldown
+     * @param {string} persistentPlayerId - Persistent player ID
+     */
+    clearPlayerCooldown(persistentPlayerId) {
+        this.teleportCooldowns.delete(persistentPlayerId);
     }
 }
 

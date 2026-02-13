@@ -420,6 +420,39 @@ class PositionManager {
     }
 
     /**
+     * Update player's socket ID in position tracking (on reconnection)
+     * Moves position data from old socket ID to new socket ID
+     * @param {string} roomCode - Room code
+     * @param {string} oldSocketId - Old socket ID
+     * @param {string} newSocketId - New socket ID
+     */
+    updatePlayerSocketId(roomCode, oldSocketId, newSocketId) {
+        const roomPositions = this.playerPositions.get(roomCode);
+        if (!roomPositions) return;
+
+        // Move position data from old ID to new ID
+        const position = roomPositions.get(oldSocketId);
+        if (position) {
+            roomPositions.delete(oldSocketId);
+            roomPositions.set(newSocketId, position);
+            log.info(`🔄 Updated position tracking: ${oldSocketId} -> ${newSocketId}`);
+        }
+
+        // Update throttle tracking
+        const lastUpdate = this.lastUpdateTime.get(oldSocketId);
+        if (lastUpdate !== undefined) {
+            this.lastUpdateTime.delete(oldSocketId);
+            this.lastUpdateTime.set(newSocketId, lastUpdate);
+        }
+
+        // Update respawned players tracking
+        if (this.respawnedPlayers.has(oldSocketId)) {
+            this.respawnedPlayers.delete(oldSocketId);
+            this.respawnedPlayers.add(newSocketId);
+        }
+    }
+
+    /**
      * Clean up room data
      * @param {string} roomCode - Room code
      */

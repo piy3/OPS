@@ -63,15 +63,15 @@ class CombatManager {
     /**
      * Validate if target can be hit
      * @param {Object} targetPlayer - Target player object
-     * @param {string} targetId - Target player ID
+     * @param {string} targetPersistentId - Target persistent player ID
      * @returns {Object} { canHit: boolean, reason?: string }
      */
-    canHitPlayer(targetPlayer, targetId) {
-        if (targetPlayer.inIFrames || this.playerIFrames.has(targetId)) {
+    canHitPlayer(targetPlayer, targetPersistentId) {
+        if (targetPlayer.inIFrames || this.playerIFrames.has(targetPersistentId)) {
             return { canHit: false, reason: 'iframes' };
         }
         
-        if (targetPlayer.state === PLAYER_STATE.FROZEN || this.frozenPlayers.has(targetId)) {
+        if (targetPlayer.state === PLAYER_STATE.FROZEN || this.frozenPlayers.has(targetPersistentId)) {
             return { canHit: false, reason: 'frozen' };
         }
         
@@ -81,35 +81,38 @@ class CombatManager {
     /**
      * Grant invincibility frames to a player
      * @param {string} roomCode - Room code
-     * @param {string} playerId - Player ID
+     * @param {string} socketId - Player socket ID (for internal operations)
+     * @param {string} persistentPlayerId - Persistent player ID (for events and tracking)
      * @param {Object} io - Socket.IO server
      * @param {Function} setPlayerIFrames - Callback to set player i-frames in room manager
      */
-    grantIFrames(roomCode, playerId, io, setPlayerIFrames) {
-        setPlayerIFrames(roomCode, playerId, true);
+    grantIFrames(roomCode, socketId, persistentPlayerId, io, setPlayerIFrames) {
+        setPlayerIFrames(roomCode, socketId, true);
         
-        // Clear existing timeout
-        const existing = this.playerIFrames.get(playerId);
+        // Clear existing timeout (track by persistent playerId)
+        const existing = this.playerIFrames.get(persistentPlayerId);
         if (existing?.timeoutId) {
             clearTimeout(existing.timeoutId);
         }
 
         const timeoutId = setTimeout(() => {
-            setPlayerIFrames(roomCode, playerId, false);
-            this.playerIFrames.delete(playerId);
+            setPlayerIFrames(roomCode, socketId, false);
+            this.playerIFrames.delete(persistentPlayerId);
             
             if (io) {
+                // Emit with persistent playerId for frontend identification
                 io.to(roomCode).emit(SOCKET_EVENTS.SERVER.PLAYER_STATE_CHANGE, {
-                    playerId: playerId,
+                    playerId: persistentPlayerId,
                     state: PLAYER_STATE.ACTIVE,
                     inIFrames: false
                 });
             }
         }, COMBAT_CONFIG.IFRAME_DURATION);
 
-        this.playerIFrames.set(playerId, {
+        this.playerIFrames.set(persistentPlayerId, {
             endTime: Date.now() + COMBAT_CONFIG.IFRAME_DURATION,
-            timeoutId: timeoutId
+            timeoutId: timeoutId,
+            socketId: socketId  // Store socket ID for potential updates
         });
     }
 
@@ -117,10 +120,10 @@ class CombatManager {
      * Apply knockback to a player
      * @param {Object} victimPos - Victim position { row, col }
      * @param {Object} attackerPos - Attacker position { row, col }
-     * @param {string} victimId - Victim player ID
+     * @param {string} victimPersistentId - Victim persistent player ID
      * @returns {Object|null} Knockback data or null
      */
-    applyKnockback(victimPos, attackerPos, victimId) {
+    applyKnockback(victimPos, attackerPos, victimPersistentId) {
         if (!victimPos || !attackerPos) return null;
         if (!COMBAT_CONFIG.KNOCKBACK_ENABLED) return null;
 
@@ -152,14 +155,15 @@ class CombatManager {
             duration: COMBAT_CONFIG.KNOCKBACK_DURATION
         };
 
-        this.playerKnockbacks.set(victimId, {
+        // Track knockback by persistent playerId
+        this.playerKnockbacks.set(victimPersistentId, {
             direction: knockbackDirection,
             endTime: Date.now() + COMBAT_CONFIG.KNOCKBACK_DURATION
         });
 
         // Clear knockback after duration
         setTimeout(() => {
-            this.playerKnockbacks.delete(victimId);
+            this.playerKnockbacks.delete(victimPersistentId);
         }, COMBAT_CONFIG.KNOCKBACK_DURATION);
 
         return knockbackData;
@@ -169,56 +173,58 @@ class CombatManager {
      * Handle player reaching zero health - freeze them
      * No longer starts a respawn timer - GameStateManager will start an unfreeze quiz instead
      * @param {string} roomCode - Room code
-     * @param {string} playerId - Player ID
+     * @param {string} socketId - Player socket ID (for internal operations)
+     * @param {string} persistentPlayerId - Persistent player ID (for events and tracking)
      * @param {string} playerName - Player name
      * @param {Object} io - Socket.IO server
      * @param {Function} setPlayerState - Callback to set player state
      * @param {Function} setPlayerIFrames - Callback to set player i-frames
      */
-    handleZeroHealth(roomCode, playerId, playerName, io, setPlayerState, setPlayerIFrames) {
-        // Set state to FROZEN
-        setPlayerState(roomCode, playerId, PLAYER_STATE.FROZEN);
+    handleZeroHealth(roomCode, socketId, persistentPlayerId, playerName, io, setPlayerState, setPlayerIFrames) {
+        // Set state to FROZEN (using socket ID for internal operation)
+        setPlayerState(roomCode, socketId, PLAYER_STATE.FROZEN);
         
-        // Clear i-frames
-        const existingIFrames = this.playerIFrames.get(playerId);
+        // Clear i-frames (track by persistent playerId)
+        const existingIFrames = this.playerIFrames.get(persistentPlayerId);
         if (existingIFrames?.timeoutId) {
             clearTimeout(existingIFrames.timeoutId);
-            this.playerIFrames.delete(playerId);
+            this.playerIFrames.delete(persistentPlayerId);
         }
-        setPlayerIFrames(roomCode, playerId, false);
+        setPlayerIFrames(roomCode, socketId, false);
 
-        // Notify clients
+        // Notify clients - emit with persistent playerId for frontend identification
         io.to(roomCode).emit(SOCKET_EVENTS.SERVER.PLAYER_STATE_CHANGE, {
-            playerId: playerId,
+            playerId: persistentPlayerId,
             playerName: playerName,
             state: PLAYER_STATE.FROZEN
             // No freezeDuration - player must pass unfreeze quiz to respawn
         });
 
-        // Track frozen state (no timeout - quiz handles unfreeze)
-        this.frozenPlayers.set(playerId, {
-            startTime: Date.now()
+        // Track frozen state by persistent playerId (no timeout - quiz handles unfreeze)
+        this.frozenPlayers.set(persistentPlayerId, {
+            startTime: Date.now(),
+            socketId: socketId
         });
     }
 
     /**
      * Clear frozen state for a player (called when unfreeze quiz passed or cancelled)
-     * @param {string} playerId - Player ID
+     * @param {string} persistentPlayerId - Persistent player ID
      */
-    clearFrozenState(playerId) {
-        this.frozenPlayers.delete(playerId);
+    clearFrozenState(persistentPlayerId) {
+        this.frozenPlayers.delete(persistentPlayerId);
     }
 
     /**
      * Check if player can move (not frozen)
      * @param {Object} player - Player object
-     * @param {string} playerId - Player ID
+     * @param {string} persistentPlayerId - Persistent player ID
      * @returns {boolean} True if player can move
      */
-    canPlayerMove(player, playerId) {
+    canPlayerMove(player, persistentPlayerId) {
         if (!player) return false;
         
-        if (player.state === PLAYER_STATE.FROZEN || this.frozenPlayers.has(playerId)) {
+        if (player.state === PLAYER_STATE.FROZEN || this.frozenPlayers.has(persistentPlayerId)) {
             return false;
         }
         
@@ -227,34 +233,34 @@ class CombatManager {
 
     /**
      * Check if player is in knockback
-     * @param {string} playerId - Player ID
+     * @param {string} persistentPlayerId - Persistent player ID
      * @returns {boolean} True if in knockback
      */
-    isInKnockback(playerId) {
-        return this.playerKnockbacks.has(playerId);
+    isInKnockback(persistentPlayerId) {
+        return this.playerKnockbacks.has(persistentPlayerId);
     }
 
     /**
      * Clean up combat state for a player
-     * @param {string} playerId - Player ID
+     * @param {string} persistentPlayerId - Persistent player ID
      */
-    cleanupPlayer(playerId) {
+    cleanupPlayer(persistentPlayerId) {
         // Clear i-frames
-        const iframes = this.playerIFrames.get(playerId);
+        const iframes = this.playerIFrames.get(persistentPlayerId);
         if (iframes?.timeoutId) {
             clearTimeout(iframes.timeoutId);
         }
-        this.playerIFrames.delete(playerId);
+        this.playerIFrames.delete(persistentPlayerId);
 
         // Clear frozen state
-        const frozen = this.frozenPlayers.get(playerId);
+        const frozen = this.frozenPlayers.get(persistentPlayerId);
         if (frozen?.timeoutId) {
             clearTimeout(frozen.timeoutId);
         }
-        this.frozenPlayers.delete(playerId);
+        this.frozenPlayers.delete(persistentPlayerId);
 
         // Clear knockback
-        this.playerKnockbacks.delete(playerId);
+        this.playerKnockbacks.delete(persistentPlayerId);
     }
 
     /**
@@ -263,7 +269,8 @@ class CombatManager {
      */
     cleanupRoom(players) {
         players.forEach(player => {
-            this.cleanupPlayer(player.id);
+            // Use persistent playerId for cleanup
+            this.cleanupPlayer(player.playerId);
         });
     }
 }

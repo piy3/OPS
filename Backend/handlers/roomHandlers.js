@@ -35,22 +35,28 @@ export function registerRoomHandlers(socket, io) {
     // JOIN ROOM: Player joins an existing room using room code
     socket.on(SOCKET_EVENTS.CLIENT.JOIN_ROOM, (data) => {
         try {
-            const { roomCode, playerName } = data || {};
+            const { roomCode, playerName, playerId } = data || {};
 
             if (!roomCode) {
                 socket.emit(SOCKET_EVENTS.SERVER.JOIN_ERROR, { message: 'Room code is required' });
                 return;
             }
 
-            // Validate join request
-            const validation = roomManager.validateJoinRoom(roomCode, socket.id);
+            // Validate join request (pass playerId for reconnection detection)
+            const validation = roomManager.validateJoinRoom(roomCode, socket.id, playerId);
             if (!validation.valid) {
                 socket.emit(SOCKET_EVENTS.SERVER.JOIN_ERROR, { message: validation.error });
                 return;
             }
 
+            // If this is a rejoin (player already exists with this playerId), handle as reconnect
+            if (validation.isRejoin && playerId) {
+                handleRejoin(socket, io, roomCode, playerId, playerName);
+                return;
+            }
+
             // Add player to room (returns player + mapConfig change info)
-            const result = roomManager.addPlayerToRoom(roomCode, socket.id, playerName);
+            const result = roomManager.addPlayerToRoom(roomCode, socket.id, playerName, playerId);
             if (!result || !result.player) {
                 socket.emit(SOCKET_EVENTS.SERVER.JOIN_ERROR, { message: 'Failed to join room' });
                 return;
@@ -85,6 +91,23 @@ export function registerRoomHandlers(socket, io) {
         } catch (error) {
             log.error({ err: error }, 'Error joining room');
             socket.emit(SOCKET_EVENTS.SERVER.JOIN_ERROR, { message: 'Failed to join room' });
+        }
+    });
+
+    // REJOIN ROOM: Player reconnects after accidental disconnect
+    socket.on(SOCKET_EVENTS.CLIENT.REJOIN_ROOM, (data) => {
+        try {
+            const { roomCode, playerId } = data || {};
+
+            if (!roomCode || !playerId) {
+                socket.emit(SOCKET_EVENTS.SERVER.REJOIN_ERROR, { message: 'Room code and player ID are required' });
+                return;
+            }
+
+            handleRejoin(socket, io, roomCode, playerId);
+        } catch (error) {
+            log.error({ err: error }, 'Error rejoining room');
+            socket.emit(SOCKET_EVENTS.SERVER.REJOIN_ERROR, { message: 'Failed to rejoin room' });
         }
     });
 
@@ -146,7 +169,8 @@ export function registerRoomHandlers(socket, io) {
 
                 // Notify remaining players
                 socket.to(roomCode).emit(SOCKET_EVENTS.SERVER.PLAYER_LEFT, {
-                    playerId: socket.id,
+                    playerId: result.playerId || socket.id,
+                    socketId: socket.id,
                     room: result.room
                 });
                 io.to(roomCode).emit(SOCKET_EVENTS.SERVER.ROOM_UPDATE, { 
@@ -178,4 +202,67 @@ export function registerRoomHandlers(socket, io) {
             socket.emit(SOCKET_EVENTS.SERVER.ROOM_INFO, { room: null });
         }
     });
+}
+
+/**
+ * Handle player rejoin after disconnect
+ * @param {Socket} socket - Socket instance
+ * @param {Server} io - Socket.IO server instance
+ * @param {string} roomCode - Room code
+ * @param {string} playerId - Persistent player ID
+ * @param {string} playerName - Player name (optional, for updating)
+ */
+function handleRejoin(socket, io, roomCode, playerId, playerName = null) {
+    const room = roomManager.getRoom(roomCode);
+    if (!room) {
+        socket.emit(SOCKET_EVENTS.SERVER.REJOIN_ERROR, { message: 'Room not found' });
+        return;
+    }
+
+    const player = roomManager.getPlayerByPlayerId(roomCode, playerId);
+    if (!player) {
+        socket.emit(SOCKET_EVENTS.SERVER.REJOIN_ERROR, { message: 'Player not found in room' });
+        return;
+    }
+
+    // Update player's socket ID and clear disconnected status
+    const oldSocketId = player.id;
+    const updatedPlayer = roomManager.updatePlayerSocketId(roomCode, playerId, socket.id);
+    if (!updatedPlayer) {
+        socket.emit(SOCKET_EVENTS.SERVER.REJOIN_ERROR, { message: 'Failed to update player connection' });
+        return;
+    }
+
+    // Optionally update player name if provided
+    if (playerName && playerName.trim()) {
+        updatedPlayer.name = playerName.trim();
+    }
+
+    // Join the socket room
+    socket.join(roomCode);
+
+    // Update game state position tracking with new socket ID
+    gameStateManager.updatePlayerSocketId(roomCode, oldSocketId, socket.id);
+
+    log.info({ roomCode, playerId, playerName: updatedPlayer.name, oldSocketId, newSocketId: socket.id }, 'Player rejoined room with new socket');
+
+    // Get current game state for the rejoining player
+    const gameState = gameStateManager.getGameState(roomCode);
+
+    // Send success response to the rejoining player
+    socket.emit(SOCKET_EVENTS.SERVER.REJOIN_SUCCESS, {
+        room: room,
+        gameState: gameState,
+        player: updatedPlayer
+    });
+
+    // Notify other players that this player reconnected
+    socket.to(roomCode).emit(SOCKET_EVENTS.SERVER.PLAYER_RECONNECTED, {
+        playerId: playerId,
+        socketId: socket.id,
+        playerName: updatedPlayer.name
+    });
+
+    // Send updated room state to all players
+    io.to(roomCode).emit(SOCKET_EVENTS.SERVER.ROOM_UPDATE, { room: room });
 }

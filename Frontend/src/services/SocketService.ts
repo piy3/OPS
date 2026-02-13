@@ -52,6 +52,7 @@ export const SOCKET_EVENTS = {
   CLIENT: {
     CREATE_ROOM: 'create_room',
     JOIN_ROOM: 'join_room',
+    REJOIN_ROOM: 'rejoin_room',  // Rejoin room after disconnect
     LEAVE_ROOM: 'leave_room',
     START_GAME: 'start_game',
     UPDATE_POSITION: 'update_position',
@@ -118,6 +119,11 @@ export const SOCKET_EVENTS = {
     SINK_TRAP_TRIGGERED: 'sink_trap_triggered',
     // Player elimination (instant kill mode)
     PLAYER_ELIMINATED: 'player_eliminated',
+    // Reconnection Events
+    REJOIN_SUCCESS: 'rejoin_success',
+    REJOIN_ERROR: 'rejoin_error',
+    PLAYER_DISCONNECTED: 'player_disconnected',
+    PLAYER_RECONNECTED: 'player_reconnected',
   }
 };
 
@@ -207,11 +213,53 @@ export const toPixel = (row: number, col: number) => ({
   y: row * TILE_SIZE + TILE_SIZE / 2
 });
 
+// localStorage keys for reconnection
+const PLAYER_ID_KEY = 'qbit_player_id';
+const ROOM_CODE_KEY = 'qbit_room_code';
+
 // Singleton socket instance
 class SocketService {
   private socket: Socket | null = null;
   private listeners: Map<string, Set<(data: any) => void>> = new Map();
   private connectionListeners: Set<(connected: boolean) => void> = new Set();
+
+  /**
+   * Get or create a persistent player ID stored in localStorage
+   * This ID persists across page refreshes and reconnections
+   */
+  getOrCreatePlayerId(): string {
+    let playerId = localStorage.getItem(PLAYER_ID_KEY);
+    if (!playerId) {
+      playerId = crypto.randomUUID();
+      localStorage.setItem(PLAYER_ID_KEY, playerId);
+    }
+    return playerId;
+  }
+
+  /**
+   * Get the current player ID (without creating one)
+   */
+  getPlayerId(): string | null {
+    return localStorage.getItem(PLAYER_ID_KEY);
+  }
+
+  /**
+   * Store the current room code for reconnection purposes
+   */
+  setCurrentRoomCode(roomCode: string | null) {
+    if (roomCode) {
+      localStorage.setItem(ROOM_CODE_KEY, roomCode);
+    } else {
+      localStorage.removeItem(ROOM_CODE_KEY);
+    }
+  }
+
+  /**
+   * Get the stored room code for reconnection
+   */
+  getCurrentRoomCode(): string | null {
+    return localStorage.getItem(ROOM_CODE_KEY);
+  }
 
   // Connect to the server
   connect(): Socket {
@@ -345,7 +393,8 @@ class SocketService {
 
   // Room operations
   createRoom(name?: string, maxPlayers: number = 30, quizId?: string, isTeacher?: boolean, totalRounds?: number, userId?: string) {
-    const payload: { name?: string; maxPlayers: number; quizId?: string; isTeacher?: boolean; totalRounds?: number; userId?: string } = { maxPlayers };
+    const playerId = this.getOrCreatePlayerId();
+    const payload: { name?: string; maxPlayers: number; quizId?: string; isTeacher?: boolean; totalRounds?: number; userId?: string; playerId: string } = { maxPlayers, playerId };
     if (name?.trim()) payload.name = name.trim();
     if (quizId?.trim()) payload.quizId = quizId.trim();
     if (isTeacher) payload.isTeacher = true;
@@ -355,7 +404,17 @@ class SocketService {
   }
 
   joinRoom(roomCode: string, playerName: string) {
-    this.emit(SOCKET_EVENTS.CLIENT.JOIN_ROOM, { roomCode, playerName });
+    const playerId = this.getOrCreatePlayerId();
+    this.emit(SOCKET_EVENTS.CLIENT.JOIN_ROOM, { roomCode, playerName, playerId });
+  }
+
+  /**
+   * Rejoin a room after disconnection
+   * Used for automatic reconnection when socket reconnects
+   */
+  rejoinRoom(roomCode: string) {
+    const playerId = this.getOrCreatePlayerId();
+    this.emit(SOCKET_EVENTS.CLIENT.REJOIN_ROOM, { roomCode, playerId });
   }
 
   leaveRoom() {
