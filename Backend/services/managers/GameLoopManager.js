@@ -42,7 +42,7 @@ class GameLoopManager {
             roundsRemaining: totalRoundsOverride,
             currentRound: 1
         });
-        log.info(`🎮 Room ${roomCode}: Initialized rounds - ${totalRoundsOverride} total rounds`);
+        log.info({ roomCode, totalRounds: totalRoundsOverride }, 'Initialized rounds');
     }
 
     /**
@@ -72,14 +72,14 @@ class GameLoopManager {
     decrementRound(roomCode) {
         const roundData = this.roomRounds.get(roomCode);
         if (!roundData) {
-            log.warn(`⚠️ Room ${roomCode}: No round data found for decrement`);
+            log.warn({ roomCode }, 'No round data found for decrement');
             return 0;
         }
         
         roundData.roundsRemaining = Math.max(0, roundData.roundsRemaining - 1);
         roundData.currentRound += 1;
         
-        log.info(`🎮 Room ${roomCode}: Round complete - ${roundData.roundsRemaining} rounds remaining (was round ${roundData.currentRound - 1})`);
+        log.info({ roomCode, roundsRemaining: roundData.roundsRemaining, currentRound: roundData.currentRound - 1 }, 'Round complete');
         
         return roundData.roundsRemaining;
     }
@@ -176,7 +176,7 @@ class GameLoopManager {
             const idx = Math.floor(Math.random() * room.quizQuestionPool.length);
             question = room.quizQuestionPool[idx];
         } else {
-            log.info(`Couldn't get question from quizizz service, using fallback`)
+            log.info({ roomCode }, 'Couldn\'t get question from quizizz service, using fallback');
             question = getBlitzQuestion(); // fallback for play-test: should be removed before shipping
         }
 
@@ -597,7 +597,7 @@ class GameLoopManager {
         this.reserveUnicorns.delete(roomCode);
         this.roomRounds.delete(roomCode);
         this.wasUnicorn.delete(roomCode);
-        log.info(`🧹 Room ${roomCode}: Game loop state cleaned up`);
+        log.info({ roomCode }, 'Game loop state cleaned up');
     }
 }
 

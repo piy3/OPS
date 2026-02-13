@@ -3,10 +3,8 @@
  * Handles sink trap collectible spawning, collection, deployment, and triggering
  */
 import { SOCKET_EVENTS } from '../../config/constants.js';
-import logger from '../../utils/logger.js';
+import log from '../../utils/logger.js';
 import { getOccupiedSpawnPositions } from '../occupiedSpawnPositions.js';
-
-const log = logger;
 
 const SINK_TRAP_CONFIG = {
     MAX_COLLECTIBLES: 8,
@@ -56,7 +54,7 @@ class SinkTrapManager {
 
         this.scheduleNextSpawn(roomCode, io);
 
-        log.info(`[SinkTrapManager] Initialized for room ${roomCode}`);
+        log.info({ roomCode }, 'SinkTrapManager initialized');
     }
 
     scheduleNextSpawn(roomCode, io) {
@@ -111,7 +109,7 @@ class SinkTrapManager {
             id: trapId, row: newSlot.row, col: newSlot.col
         });
 
-        log.debug(`[SinkTrapManager] Spawned collectible ${trapId} at (${newSlot.row}, ${newSlot.col}) in room ${roomCode}`);
+        log.debug({ roomCode, trapId, row: newSlot.row, col: newSlot.col }, 'SinkTrap collectible spawned');
 
         this.scheduleNextSpawn(roomCode, io);
     }
@@ -147,7 +145,7 @@ class SinkTrapManager {
             trapId, playerId, playerName, newInventoryCount: currentCount + 1
         });
 
-        log.debug(`[SinkTrapManager] Player ${playerName} collected trap, inventory: ${currentCount + 1}`);
+        log.debug({ roomCode, playerId, playerName, trapId, inventoryCount: currentCount + 1 }, 'SinkTrap collected');
 
         return true;
     }
@@ -179,7 +177,7 @@ class SinkTrapManager {
             newInventoryCount: currentCount - 1
         });
 
-        log.info(`[SinkTrap] DEPLOYED room=${roomCode} trapId=${trapId} at grid (${position.row}, ${position.col}) by ${playerName}`);
+        log.info({ roomCode, trapId, row: position.row, col: position.col, playerName }, 'SinkTrap deployed');
 
         return { trapId, row: position.row, col: position.col };
     }
@@ -187,19 +185,19 @@ class SinkTrapManager {
     checkTrapTrigger(roomCode, unicornPosition, verboseLog = false) {
         const deployedTraps = this.roomDeployedTraps.get(roomCode);
         if (!deployedTraps) {
-            if (verboseLog) log.info(`[SinkTrap] checkTrapTrigger room=${roomCode}: no deployedTraps map`);
+            if (verboseLog) log.info({ roomCode }, 'checkTrapTrigger: no deployedTraps map');
             return null;
         }
         const trapCount = deployedTraps.size;
         if (trapCount === 0 && verboseLog) {
-            log.info(`[SinkTrap] checkTrapTrigger room=${roomCode}: 0 deployed traps`);
+            log.info({ roomCode }, 'checkTrapTrigger: 0 deployed traps');
             return null;
         }
 
         const row = unicornPosition?.row;
         const col = unicornPosition?.col;
         if (typeof row !== 'number' || typeof col !== 'number' || Number.isNaN(row) || Number.isNaN(col)) {
-            log.info(`[SinkTrap] checkTrapTrigger skipped: invalid unicorn position row=${row}, col=${col} (room=${roomCode})`);
+            log.info({ roomCode, row, col }, 'checkTrapTrigger skipped: invalid unicorn position');
             return null;
         }
 
@@ -208,10 +206,10 @@ class SinkTrapManager {
             const colDiff = Math.abs(col - trap.col);
             const inRange = rowDiff <= SINK_TRAP_CONFIG.TRIGGER_RADIUS && colDiff <= SINK_TRAP_CONFIG.TRIGGER_RADIUS;
             if (verboseLog) {
-                log.info(`[SinkTrap] trap ${trapId} at (${trap.row},${trap.col}) unicorn at (${row},${col}) rowDiff=${rowDiff} colDiff=${colDiff} TRIGGER_RADIUS=${SINK_TRAP_CONFIG.TRIGGER_RADIUS} inRange=${inRange}`);
+                log.info({ roomCode, trapId, trapRow: trap.row, trapCol: trap.col, row, col, rowDiff, colDiff, triggerRadius: SINK_TRAP_CONFIG.TRIGGER_RADIUS, inRange }, 'SinkTrap position check');
             }
             if (inRange) {
-                log.info(`[SinkTrap] TRIGGERED: ${trapId} at (${trap.row},${trap.col}) by unicorn at (${row},${col})`);
+                log.info({ roomCode, trapId, trapRow: trap.row, trapCol: trap.col, row, col }, 'SinkTrap triggered');
                 return trapId;
             }
         }
@@ -268,7 +266,7 @@ class SinkTrapManager {
             fromPosition, toPosition, timestamp: Date.now()
         });
 
-        log.info(`[SinkTrapManager] Unicorn ${unicornName} triggered trap, teleported from (${trap.row}, ${trap.col}) to (${destRow}, ${destCol})`);
+        log.info({ roomCode, trapId, unicornId, unicornName, fromRow: trap.row, fromCol: trap.col, toRow: destRow, toCol: destCol }, 'Unicorn triggered trap, teleported');
 
         return { fromPosition, toPosition };
     }
@@ -297,7 +295,7 @@ class SinkTrapManager {
         this.playerInventories.delete(roomCode);
         this.roomMapConfigs.delete(roomCode);
 
-        log.debug(`[SinkTrapManager] Cleaned up room ${roomCode}`);
+        log.debug({ roomCode }, 'SinkTrapManager cleaned up');
     }
 }
 

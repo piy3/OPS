@@ -5,7 +5,7 @@
 import { SOCKET_EVENTS } from '../config/constants.js';
 import roomManager from '../services/RoomManager.js';
 import gameStateManager from '../services/GameStateManager.js';
-import { log } from 'console';
+import log from '../utils/logger.js';
 
 /**
  * Register room-related socket event handlers
@@ -19,14 +19,15 @@ export function registerRoomHandlers(socket, io) {
             const room = roomManager.createRoom(socket.id, playerData);
             socket.join(room.code);
 
-            log(`Room created: ${room.code} by ${socket.id}`);
+            const rlog = log.child({ roomCode: room.code, userId: room.userId });
+            rlog.info({ socketId: socket.id }, 'Room created');
 
             socket.emit(SOCKET_EVENTS.SERVER.ROOM_CREATED, {
                 roomCode: room.code,
                 room: room
             });
         } catch (error) {
-            log(`Error creating room: ${error.message}`);
+            log.error({ err: error }, 'Error creating room');
             socket.emit('error', { message: 'Failed to create room' });
         }
     });
@@ -60,7 +61,8 @@ export function registerRoomHandlers(socket, io) {
             socket.join(roomCode);
             const room = roomManager.getRoom(roomCode);
 
-            log(`Player ${socket.id} joined room: ${roomCode}`);
+            const rlog = log.child({ roomCode, userId: room?.userId });
+            rlog.info({ socketId: socket.id }, 'Player joined room');
 
             // Notify the joining player (includes current mapConfig in room)
             socket.emit(SOCKET_EVENTS.SERVER.ROOM_JOINED, {
@@ -81,7 +83,7 @@ export function registerRoomHandlers(socket, io) {
                 mapConfigChanged: mapConfigChanged 
             });
         } catch (error) {
-            log(`Error joining room: ${error.message}`);
+            log.error({ err: error }, 'Error joining room');
             socket.emit(SOCKET_EVENTS.SERVER.JOIN_ERROR, { message: 'Failed to join room' });
         }
     });
@@ -95,6 +97,9 @@ export function registerRoomHandlers(socket, io) {
                 return;
             }
 
+            const roomBeforeLeave = roomManager.getRoom(roomCode);
+            const rlog = log.child({ roomCode, userId: roomBeforeLeave?.userId });
+
             // Clean up player position from game state first
             gameStateManager.removePlayerPosition(roomCode, socket.id);
 
@@ -107,12 +112,12 @@ export function registerRoomHandlers(socket, io) {
             const wasUnicornDuringGame = result.wasUnicorn && result.room?.status === 'playing';
 
             socket.leave(roomCode);
-            log(`Player ${socket.id} left room: ${roomCode}`);
+            rlog.info({ socketId: socket.id }, 'Player left room');
 
             // If room is empty, clean up game state
             if (result.roomDeleted) {
                 gameStateManager.cleanupRoom(roomCode);
-                log(`Room ${roomCode} deleted (empty)`);
+                rlog.info({}, 'Room deleted (empty)');
             } else {
                 // If unicorn left during active game: sync clients or trigger new blitz
                 if (wasUnicornDuringGame) {
@@ -135,7 +140,7 @@ export function registerRoomHandlers(socket, io) {
                         room: result.room
                     });
                     if (ids.length > 0) {
-                        log(`Unicorns updated in room ${roomCode}: ${ids.join(', ')}`);
+                        rlog.info({ newUnicornIds: ids }, 'Unicorns updated');
                     }
                 }
 
@@ -152,7 +157,7 @@ export function registerRoomHandlers(socket, io) {
 
             socket.emit(SOCKET_EVENTS.SERVER.ROOM_LEFT, { roomCode: roomCode });
         } catch (error) {
-            log(`Error leaving room: ${error.message}`);
+            log.error({ err: error }, 'Error leaving room');
             socket.emit(SOCKET_EVENTS.SERVER.LEAVE_ERROR, { message: 'Failed to leave room' });
         }
     });
@@ -169,7 +174,7 @@ export function registerRoomHandlers(socket, io) {
             const room = roomManager.getRoom(roomCode);
             socket.emit(SOCKET_EVENTS.SERVER.ROOM_INFO, { room: room || null });
         } catch (error) {
-            log(`Error getting room info: ${error.message}`);
+            log.error({ err: error }, 'Error getting room info');
             socket.emit(SOCKET_EVENTS.SERVER.ROOM_INFO, { room: null });
         }
     });

@@ -4,14 +4,13 @@
  */
 
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams, useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import socketService, { SOCKET_EVENTS, Room, Player } from '@/services/SocketService';
 import logger from '@/utils/logger';
-import { useParams } from 'react-router-dom';
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -30,6 +29,8 @@ const Dashboard = () => {
   const [isCreating, setIsCreating] = useState(false);
   
   const { quizId: quizIdParam } = useParams<{ quizId?: string }>();
+  const [searchParams] = useSearchParams();
+  const userId = searchParams.get('uid') || undefined;
   
   useEffect(() => {
     if (quizIdParam) {
@@ -129,8 +130,8 @@ const Dashboard = () => {
     setError(null);
     setIsCreating(true);
     const totalRounds = Math.round(selectedMinutes * (4/3));
-    // Pass isTeacher: true to create room as teacher
-    socketService.createRoom('', 30, quizId.trim() || undefined, true, totalRounds);
+    // Pass isTeacher: true to create room as teacher, and userId if available from query param
+    socketService.createRoom('', 30, quizId.trim() || undefined, true, totalRounds, userId);
   };
 
   // Start the game (teacher is host)

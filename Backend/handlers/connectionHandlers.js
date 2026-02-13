@@ -5,7 +5,7 @@
 import { SOCKET_EVENTS } from '../config/constants.js';
 import roomManager from '../services/RoomManager.js';
 import gameStateManager from '../services/GameStateManager.js';
-import { log } from 'console';
+import log from '../utils/logger.js';
 
 /**
  * Register connection-related socket event handlers
@@ -14,16 +14,19 @@ import { log } from 'console';
  */
 export function registerConnectionHandlers(socket, io) {
     // Handle new connection
-    log(`User Connected: ${socket.id}`);
+    log.info({ socketId: socket.id }, 'User Connected');
 
     // Handle disconnection
     socket.on('disconnect', () => {
-        log(`User Disconnected: ${socket.id}`);
+        log.info({ socketId: socket.id }, 'User Disconnected');
 
         const roomCode = roomManager.getRoomCodeForSocket(socket.id);
         if (!roomCode) {
             return; // Player wasn't in any room
         }
+
+        const room = roomManager.getRoom(roomCode);
+        const rlog = log.child({ roomCode, userId: room?.userId });
 
         try {
             gameStateManager.removePlayerPosition(roomCode, socket.id);
@@ -38,7 +41,7 @@ export function registerConnectionHandlers(socket, io) {
             // If room is empty, clean up game state
             if (result.roomDeleted) {
                 gameStateManager.cleanupRoom(roomCode);
-                log(`Room ${roomCode} deleted (host disconnected)`);
+                rlog.info({}, 'Room deleted (host disconnected)');
                 return;
             }
 
@@ -69,7 +72,7 @@ export function registerConnectionHandlers(socket, io) {
             });
             io.to(roomCode).emit(SOCKET_EVENTS.SERVER.ROOM_UPDATE, { room: result.room });
         } catch (error) {
-            log(`Error handling disconnect: ${error.message}`);
+            rlog.error({ err: error }, 'Error handling disconnect');
         }
     });
 }

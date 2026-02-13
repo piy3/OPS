@@ -54,6 +54,15 @@ class RoomManager {
             quizQuestionPool: null,
         };
 
+        // Store userId as non-enumerable so it's excluded from JSON serialization (broadcasts)
+        // but still accessible via room.userId for logging/identification
+        Object.defineProperty(room, 'userId', {
+            value: playerData?.userId ?? null,
+            enumerable: false,
+            writable: true,
+            configurable: true,
+        });
+
         this.rooms.set(roomCode, room);
         return room;
     }
@@ -162,7 +171,7 @@ class RoomManager {
         const newConfig = getMapConfigForPlayerCount(room.players.length);
         if (newConfig.width !== room.mapConfig?.width) {
             room.mapConfig = newConfig;
-            log.info(`📐 Map config updated for room ${roomCode}: ${newConfig.width}x${newConfig.height} (${room.players.length} players)`);
+            log.info({ roomCode, width: newConfig.width, height: newConfig.height, players: room.players.length }, 'Map config updated');
             return newConfig;
         }
         return null;
@@ -548,7 +557,7 @@ class RoomManager {
         const player = room.players.find(p => p.id === playerId)
         if(!player) {
             // console.log(`player ${playerId} not found in handlePlayerQuestionAttempt for room ${roomCode}`);
-            log.warn(`player ${playerId} not found in handlePlayerQuestionAttempt for room ${roomCode}`); // checking if logger works
+            log.warn({ roomCode, playerId }, 'Player not found in handlePlayerQuestionAttempt');
             return null;
         }
         player.questions_attempted = (player.questions_attempted ?? 0) + 1;
@@ -579,7 +588,7 @@ class RoomManager {
         // Delete the room
         this.rooms.delete(roomCode);
         
-        log.info(`🗑️ Room ${roomCode} deleted from RoomManager`);
+        log.info({ roomCode }, 'Room deleted from RoomManager');
         return true;
     }
 }
