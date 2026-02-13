@@ -132,7 +132,7 @@ interface LeaderboardEntryMP {
 /** Map raw server leaderboard array to typed entries */
 function mapLeaderboard(raw: any[]): LeaderboardEntryMP[] {
   return raw.map((p: any) => ({
-    id: p?.id ?? '',
+    id: p?.playerId ?? p?.id ?? '',
     name: typeof p?.name === 'string' ? p.name : 'Player',
     coins: typeof p?.coins === 'number' ? p.coins : 0,
     questionsAttempted: typeof p?.questions_attempted === 'number' ? p.questions_attempted : 0,

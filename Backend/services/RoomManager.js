@@ -591,7 +591,7 @@ class RoomManager {
         const room = this.rooms.get(roomCode);
         if (!room) return null;
 
-        const player = room.players.find(p => p.id === playerId);
+        const player = room.players.find(p => p.id === playerId || p.playerId === playerId);
         if (!player) return null;
 
         player.coins = Math.max(0, player.coins + coinChange); // Don't allow negative coins
