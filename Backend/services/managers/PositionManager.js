@@ -23,6 +23,20 @@ class PositionManager {
     }
 
     /**
+     * Check if a position is a valid road intersection (both row and col are multiples of 4)
+     * This ensures spawn positions are always on walkable road tiles
+     * @param {Object} pos - Position object with row and col
+     * @returns {boolean} True if position is a valid road intersection
+     */
+    isValidRoadPosition(pos) {
+        if (!pos || typeof pos.row !== 'number' || typeof pos.col !== 'number') {
+            return false;
+        }
+        // Road intersections are where both row AND col are multiples of 4
+        return pos.row % 4 === 0 && pos.col % 4 === 0;
+    }
+
+    /**
      * Initialize room positions map
      * @param {string} roomCode - Room code
      */
@@ -44,7 +58,8 @@ class PositionManager {
         // Use mapConfig spawn positions if available, otherwise fall back to default
         const spawnPositions = mapConfig?.spawnPositions || GAME_CONFIG.SPAWN_POSITIONS;
         const mapSize = mapConfig?.width || 30;
-        const maxCoord = mapSize - 6; // Leave border room
+        // Ensure maxCoord is a multiple of 4 for valid road intersections
+        const maxCoord = Math.floor((mapSize - 4) / 4) * 4;
         
         const roomPositions = this.playerPositions.get(roomCode);
 
@@ -64,11 +79,12 @@ class PositionManager {
                 return;
             }
 
-            // Find first available spawn position
+            // Find first available AND valid spawn position
             let spawnPos = null;
             for (const pos of spawnPositions) {
                 const posKey = `${pos.row},${pos.col}`;
-                if (!usedSpawnPositions.has(posKey)) {
+                // Validate position is on a road intersection before using
+                if (!usedSpawnPositions.has(posKey) && this.isValidRoadPosition(pos)) {
                     spawnPos = pos;
                     usedSpawnPositions.add(posKey);
                     break;
@@ -90,8 +106,9 @@ class PositionManager {
                     if (spawnPos) break;
                 }
                 if (!spawnPos) {
-                    // Extremely unlikely: reuse first predefined spawn
-                    spawnPos = spawnPositions[0];
+                    // Extremely unlikely: reuse first valid predefined spawn
+                    const validSpawn = spawnPositions.find(p => this.isValidRoadPosition(p)) || { row: 4, col: 4 };
+                    spawnPos = validSpawn;
                     usedSpawnPositions.add(`${spawnPos.row},${spawnPos.col}`);
                 }
             }
@@ -365,7 +382,8 @@ class PositionManager {
         // Use mapConfig spawn positions if available, otherwise fall back to default
         const spawnPositions = mapConfig?.spawnPositions || GAME_CONFIG.SPAWN_POSITIONS;
         const mapSize = mapConfig?.width || 30;
-        const maxCoord = mapSize - 6;
+        // Ensure maxCoord is a multiple of 4 for valid road intersections
+        const maxCoord = Math.floor((mapSize - 4) / 4) * 4;
         
         // Collect occupied positions
         const occupiedPositions = new Set();
@@ -378,10 +396,11 @@ class PositionManager {
             }
         }
         
-        // Collect all free predefined spawn positions, then pick one at random
+        // Collect all free AND valid predefined spawn positions, then pick one at random
         const freeSpawns = spawnPositions.filter(spawnPos => {
             const posKey = `${spawnPos.row},${spawnPos.col}`;
-            return !occupiedPositions.has(posKey);
+            // Validate position is on a road intersection before using
+            return !occupiedPositions.has(posKey) && this.isValidRoadPosition(spawnPos);
         });
         if (freeSpawns.length > 0) {
             return freeSpawns[Math.floor(Math.random() * freeSpawns.length)];
@@ -401,8 +420,9 @@ class PositionManager {
             return freeGridPositions[Math.floor(Math.random() * freeGridPositions.length)];
         }
         
-        // Last resort: random predefined spawn
-        return spawnPositions[Math.floor(Math.random() * spawnPositions.length)];
+        // Last resort: first valid predefined spawn or safe default
+        const validSpawn = spawnPositions.find(p => this.isValidRoadPosition(p)) || { row: 4, col: 4 };
+        return validSpawn;
     }
 
     /**

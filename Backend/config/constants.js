@@ -308,7 +308,9 @@ export function getMapConfigForPlayerCount(playerCount) {
     
     const blockSize = MAZE_CONFIG.BLOCK_SIZE;
     const tileSize = MAZE_CONFIG.TILE_SIZE;
-    const maxCoord = size - 6; // Leave border room (e.g., 24 for 30x30)
+    // Ensure maxCoord is always a multiple of 4 (road intersection)
+    // 30x30: Math.floor(26/4)*4 = 24, 40x40: 32, 50x50: 44
+    const maxCoord = Math.floor((size - 4) / 4) * 4;
     
     // Generate spawn positions dynamically (road intersections: multiples of 4)
     const spawnPositions = [];

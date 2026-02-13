@@ -940,13 +940,35 @@ const Game: React.FC = () => {
       const { playerId, position, inIFrames } = data;
       const myId = socketService.getPlayerId();
 
+      // Helper to validate and correct spawn position using current map tiles
+      const getValidatedPixel = (row: number, col: number): { x: number; y: number } => {
+        const game = gameRef.current;
+        const mapH = game?.map?.tiles?.length ?? 30;
+        const mapW = game?.map?.tiles?.[0]?.length ?? 30;
+        
+        // Check if tile is a road (type 0)
+        if (game?.map?.tiles?.[row]?.[col] === 0) {
+          return toPixel(row, col);
+        }
+        
+        // Snap to nearest road intersection (multiples of 4)
+        const correctedRow = Math.max(4, Math.min(mapH - 5, Math.round(row / 4) * 4));
+        const correctedCol = Math.max(4, Math.min(mapW - 5, Math.round(col / 4) * 4));
+        logger.game(`Correcting invalid respawn position (${row},${col}) to (${correctedRow},${correctedCol})`);
+        return toPixel(correctedRow, correctedCol);
+      };
+
       if (playerId === myId) {
         // We respawned - update our position
         isFrozenRef.current = false;
         lavaDeathReportedRef.current = false; // Reset so lava death can be reported again
         if (gameRef.current && position) {
-          gameRef.current.player.x = position.x || toPixel(position.row, position.col).x;
-          gameRef.current.player.y = position.y || toPixel(position.row, position.col).y;
+          // Use pixel coordinates if available, otherwise validate and convert row/col
+          const pixel = (position.x != null && position.y != null) 
+            ? { x: position.x, y: position.y }
+            : getValidatedPixel(position.row, position.col);
+          gameRef.current.player.x = pixel.x;
+          gameRef.current.player.y = pixel.y;
           gameRef.current.player.trail = [];
         }
         // Server always grants i-frames on respawn; show Protected (use payload or fallback to true)
@@ -966,7 +988,10 @@ const Game: React.FC = () => {
         // Remote player respawned
         const remotePlayer = remotePlayersRef.current.get(playerId);
         if (remotePlayer && position) {
-          const pixel = position.x ? position : toPixel(position.row, position.col);
+          // Use pixel coordinates if available, otherwise validate and convert row/col
+          const pixel = (position.x != null && position.y != null)
+            ? { x: position.x, y: position.y }
+            : getValidatedPixel(position.row, position.col);
           remotePlayer.x = pixel.x;
           remotePlayer.y = pixel.y;
           remotePlayer.targetX = pixel.x;
@@ -2135,6 +2160,29 @@ const Game: React.FC = () => {
       }
     };
 
+    /**
+     * Validate and correct a spawn position from the server.
+     * If the position is not on a road tile, snap to the nearest valid road intersection.
+     * @param row - Grid row from server
+     * @param col - Grid column from server
+     * @returns Corrected pixel coordinates { x, y }
+     */
+    const validateAndCorrectSpawnPosition = (row: number, col: number): { x: number; y: number } => {
+      // Check if the tile is a road (type 0)
+      if (row >= 0 && row < MAP_H && col >= 0 && col < MAP_W && game.map.tiles[row]?.[col] === 0) {
+        // Valid road position - use as-is
+        return toPixel(row, col);
+      }
+      
+      // Invalid position - snap to nearest road intersection (multiples of 4)
+      const correctedRow = Math.max(4, Math.min(MAP_H - 5, Math.round(row / 4) * 4));
+      const correctedCol = Math.max(4, Math.min(MAP_W - 5, Math.round(col / 4) * 4));
+      
+      logger.game(`Correcting invalid spawn position (${row},${col}) to road intersection (${correctedRow},${correctedCol})`);
+      
+      return toPixel(correctedRow, correctedCol);
+    };
+
     const init = () => {
       generateCity();
       const inMultiplayer = !!(locationState?.room?.code ?? roomCodeRef.current);
@@ -2144,7 +2192,10 @@ const Game: React.FC = () => {
         const me = players.find((p: { id?: string }) => p.id === myId);
         const pos = me?.position as { x?: number; y?: number; row?: number; col?: number } | undefined;
         if (pos && ((pos.x != null && pos.y != null) || (pos.row != null && pos.col != null))) {
-          const pixel = (pos.x != null && pos.y != null) ? { x: pos.x, y: pos.y } : toPixel(pos.row!, pos.col!);
+          // Use pixel coordinates if available, otherwise validate and convert row/col
+          const pixel = (pos.x != null && pos.y != null) 
+            ? { x: pos.x, y: pos.y } 
+            : validateAndCorrectSpawnPosition(pos.row!, pos.col!);
           game.player.x = pixel.x;
           game.player.y = pixel.y;
         } else {
