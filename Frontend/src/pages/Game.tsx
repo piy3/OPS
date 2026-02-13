@@ -1189,7 +1189,7 @@ const Game: React.FC = () => {
         showStatus('SINK TRAP COLLECTED!', '#ff6600', 1500);
         soundService.playSfx('sink_trap');
         game.floatingRewards.push({
-          text: 'Press C to deploy',
+          text: 'Spacebar to deploy',
           x: game.player.x,
           y: game.player.y,
           createdAt: Date.now(),
@@ -1873,7 +1873,7 @@ const Game: React.FC = () => {
     if (isUnicornChar) {
       ctx.save();
       ctx.rotate(-(angle + Math.PI / 2)); // Counter-rotate for screen-aligned glow
-      const t = Date.now() * 0.004;
+      const t = Date.now() * 0.02;
       const redPhase = Math.sin(t) > 0;
       const glowColor = redPhase ? '#ff0000' : '#0066ff';
       const glowPulse = 0.8 + Math.sin(Date.now() * 0.008) * 0.2;
@@ -1950,6 +1950,46 @@ const Game: React.FC = () => {
 
     ctx.restore();
   };
+
+
+  function drawUnicornSirenTopView(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    dirX: number,
+    dirY: number,
+    redPhase: boolean,
+    glowPulse: number
+  ) {
+    ctx.save();
+    ctx.translate(x, y);
+    const angle = Math.atan2(dirY, dirX);
+    ctx.rotate(angle + Math.PI / 2);  // match game’s “forward”
+  
+    // Optional: soft glow behind
+    ctx.shadowColor = redPhase ? '#ff0000' : '#0066ff';
+    ctx.shadowBlur = 20 * glowPulse;
+  
+    // Body (top-down “car roof” / unit)
+    ctx.fillStyle = '#1a1a1a';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 14, 10, 0, 0, Math.PI * 2);
+    ctx.fill();
+  
+    // Two siren lights (left and right)
+    const r = 6 * glowPulse;
+    ctx.beginPath();
+    ctx.arc(-8, 0, r, 0, Math.PI * 2);
+    ctx.fillStyle = redPhase ? '#ff0000' : '#0066ff';
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(8, 0, r, 0, Math.PI * 2);
+    ctx.fillStyle = redPhase ? '#0066ff' : '#ff0000';
+    ctx.fill();
+  
+    ctx.shadowBlur = 0;
+    ctx.restore();
+  }
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -2628,10 +2668,15 @@ const Game: React.FC = () => {
       // Entities - Draw trails
       const isPlayerWalking = game.player.velX !== 0 || game.player.velY !== 0;
 
-      // Player trail; unicorn uses same palette as remote unicorns
+      // Shared unicorn timing so siren, glow, and trail pulse together
+      const unicornT = Date.now() * 0.02;
+      const unicornRedPhase = Math.sin(unicornT) > 0;
+      const unicornGlowPulse = 0.8 + Math.sin(unicornT * 2) * 0.2;
+
+      // Player trail; unicorn uses same palette and timing as siren
       ctx.lineWidth = game.player.width * 0.8;
       ctx.lineCap = 'round';
-      const trailRedPhase = Math.sin(Date.now() * 0.004) > 0;
+      const trailRedPhase = unicornRedPhase;
       ctx.strokeStyle = isUnicornRef.current
         ? (trailRedPhase ? 'rgba(255, 0, 0, 0.4)' : 'rgba(0, 102, 255, 0.4)')
         : 'rgba(0, 255, 255, 0.2)';
@@ -2705,21 +2750,33 @@ const Game: React.FC = () => {
           
           // Draw remote player with isometric Qbit
           // Use different colors for unicorn or frozen
+          // Draw remote player: siren for unicorn, isometric Qbit otherwise
           ctx.save();
           if (remotePlayer.isFrozen) {
-            // Add blue tint for frozen players
             ctx.globalAlpha = 0.7;
           }
-          drawQbitIsometric(
-            ctx,
-            remotePlayer.x,
-            remotePlayer.y,
-            remotePlayer.dirX,
-            remotePlayer.dirY,
-            false, // not local player
-            !remotePlayer.isFrozen,  // not walking if frozen
-            remotePlayer.isUnicorn // pass unicorn status for special coloring
-          );
+          if (remotePlayer.isUnicorn) {
+            drawUnicornSirenTopView(
+              ctx,
+              remotePlayer.x,
+              remotePlayer.y,
+              remotePlayer.dirX,
+              remotePlayer.dirY,
+              unicornRedPhase,
+              unicornGlowPulse
+            );
+          } else {
+            drawQbitIsometric(
+              ctx,
+              remotePlayer.x,
+              remotePlayer.y,
+              remotePlayer.dirX,
+              remotePlayer.dirY,
+              false,
+              !remotePlayer.isFrozen,
+              false
+            );
+          }
           ctx.restore();
           
           // Draw name label above player
@@ -2759,16 +2816,29 @@ const Game: React.FC = () => {
       }
 
       // Draw player with isometric Qbit
-      drawQbitIsometric(
-        ctx,
-        game.player.x,
-        game.player.y,
-        game.player.dirX,
-        game.player.dirY,
-        true,
-        isPlayerWalking,
-        isUnicornRef.current // pass our unicorn status
-      );
+      // Draw local player: top-down siren when unicorn, else isometric Qbit
+      if (isUnicornRef.current) {
+        drawUnicornSirenTopView(
+          ctx,
+          game.player.x,
+          game.player.y,
+          game.player.dirX,
+          game.player.dirY,
+          unicornRedPhase,
+          unicornGlowPulse
+        );
+      } else {
+        drawQbitIsometric(
+          ctx,
+          game.player.x,
+          game.player.y,
+          game.player.dirX,
+          game.player.dirY,
+          true,
+          isPlayerWalking,
+          false
+        );
+      }
       
       // Draw "YOU" label and unicorn indicator for local player in multiplayer
       if (isMultiplayerRef.current) {
@@ -2803,7 +2873,7 @@ const Game: React.FC = () => {
         ctx.globalAlpha = alpha;
         ctx.font = `bold ${rewardFontSize}px Arial`;
         ctx.textAlign = 'center';
-        ctx.fillStyle = r.text === '+15💰' ? '#ff00ff' : r.text === 'Press C to deploy' ? '#ff6600' : '#ffd700';
+        ctx.fillStyle = r.text === '+15💰' ? '#ff00ff' : r.text === 'Spacebar to deploy' ? '#ff6600' : '#ffd700';
         ctx.fillText(r.text, game.player.x, drawY);
       });
       ctx.restore();
@@ -2910,7 +2980,7 @@ const Game: React.FC = () => {
     // Input handlers
     const handleKeyDown = (e: KeyboardEvent) => {
       game.keys[e.code] = true;
-      if (e.code === 'KeyC' && game.isPlaying) {
+      if (e.code === 'Space' && game.isPlaying) {
         deploySink();
       }
     };
@@ -3293,13 +3363,13 @@ const Game: React.FC = () => {
               ))}
             </div>
             {sinkInventory > 0 && (
-              <span className="text-orange-400 text-xs">(Press C)</span>
+              <span className="text-orange-400 text-xs">(Press Spacebar)</span>
             )}
           </div>
           
           <div className="mt-3 space-y-1">
             <p className="text-sm text-muted-foreground">
-              <span className="text-orange-400">C</span>: Deploy Sink Trap
+              <span className="text-orange-400">Spacebar</span>: Deploy Sink Trap
             </p>
           </div>
 
