@@ -1189,7 +1189,7 @@ const Game: React.FC = () => {
         showStatus('SINK TRAP COLLECTED!', '#ff6600', 1500);
         soundService.playSfx('sink_trap');
         game.floatingRewards.push({
-          text: 'Spacebar to deploy',
+          text: 'SPACE to deploy',
           x: game.player.x,
           y: game.player.y,
           createdAt: Date.now(),
@@ -2873,7 +2873,7 @@ const Game: React.FC = () => {
         ctx.globalAlpha = alpha;
         ctx.font = `bold ${rewardFontSize}px Arial`;
         ctx.textAlign = 'center';
-        ctx.fillStyle = r.text === '+15💰' ? '#ffd700' : r.text === 'Spacebar to deploy' ? '#ff6600' : '#ffd700';
+        ctx.fillStyle = r.text === '+15💰' ? '#ffd700' : r.text === 'SPACE to deploy' ? '#ff6600' : '#ffd700';
         ctx.fillText(r.text, game.player.x, drawY);
       });
       ctx.restore();
@@ -3363,13 +3363,13 @@ const Game: React.FC = () => {
               ))}
             </div>
             {sinkInventory > 0 && (
-              <span className="text-orange-400 text-xs">(Press Spacebar)</span>
+              <span className="text-orange-400 text-xs">(Press SPACE)</span>
             )}
           </div>
           
           <div className="mt-3 space-y-1">
             <p className="text-sm text-muted-foreground">
-              <span className="text-orange-400">Spacebar</span>: Deploy Sink Trap
+              <span className="text-orange-400">SPACE</span>: Deploy Sink Trap
             </p>
           </div>
 
