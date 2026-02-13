@@ -240,7 +240,7 @@ const TeacherGame: React.FC = () => {
   // Game over screen
   if (isGameOver) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-wine-900 to-wine-800 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-gradient-to-b from-neutral-950 to-black flex items-center justify-center p-4">
         <div className="bg-card border border-border rounded-xl p-8 max-w-2xl w-full shadow-xl shadow-black/20">
           <h1 className="text-4xl font-bold text-center text-cream mb-6">GAME OVER</h1>
           
@@ -301,7 +301,7 @@ const TeacherGame: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-wine-900 to-wine-800 p-6">
+    <div className="min-h-screen bg-gradient-to-b from-neutral-950 to-black p-6">
       <div className="max-w-4xl mx-auto space-y-6">
         
         {/* Header */}
@@ -358,9 +358,9 @@ const TeacherGame: React.FC = () => {
           {/* Phase Card */}
           <div className={`p-6 rounded-xl border ${
             gamePhase === 'blitz_quiz' 
-              ? 'bg-wine-700/80 border-cream/40'
+              ? 'bg-neutral-800/80 border-cream/40'
               : gamePhase === 'hunt'
-                ? 'bg-wine-600/80 border-cream/30'
+                ? 'bg-neutral-700/80 border-cream/30'
                 : 'bg-card border-border'
           }`}>
             <div className="flex items-center gap-3 mb-2">

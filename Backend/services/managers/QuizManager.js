@@ -80,7 +80,7 @@ class QuizManager {
 
         // Broadcast freeze to all players - use persistent playerIds in event
         io.to(roomCode).emit(SOCKET_EVENTS.SERVER.GAME_FROZEN, {
-            message: `🦄 ${unicornPlayer.name} caught ${caughtPlayer.name}!`,
+            message: `${unicornPlayer.name} caught ${caughtPlayer.name}!`,
             unicornId: unicornPlayer.playerId,
             unicornName: unicornPlayer.name,
             caughtId: caughtPlayer.playerId,

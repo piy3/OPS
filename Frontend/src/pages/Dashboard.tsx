@@ -148,7 +148,7 @@ const Dashboard = () => {
   // Connection screen
   if (isConnecting) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-wine-900 to-wine-800 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-b from-neutral-950 to-black flex items-center justify-center">
         <Card className="w-[400px] bg-card border-border">
           <CardContent className="pt-6 text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cream mx-auto mb-4"></div>
@@ -162,7 +162,7 @@ const Dashboard = () => {
   // Not connected screen
   if (!isConnected) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-wine-900 to-wine-800 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-b from-neutral-950 to-black flex items-center justify-center">
         <Card className="w-[400px] bg-card border-border">
           <CardContent className="pt-6 text-center">
             <p className="text-destructive mb-4">Failed to connect to server</p>
@@ -178,7 +178,7 @@ const Dashboard = () => {
   // Room created - show waiting room with prominent room code
   if (room) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-wine-900 to-wine-800 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-gradient-to-b from-neutral-950 to-black flex items-center justify-center p-4">
         <Card className="w-[600px] bg-card border-border shadow-xl shadow-black/20">
           <CardHeader className="text-center">
             <CardTitle className="text-2xl text-foreground">Teacher Dashboard</CardTitle>
@@ -269,7 +269,7 @@ const Dashboard = () => {
 
   // Not in a room - show create room form
   return (
-    <div className="min-h-screen bg-gradient-to-b from-wine-950 to-wine-800 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-b from-black to-neutral-900 flex items-center justify-center p-4">
       <Card className="w-[450px] bg-card border-border shadow-xl shadow-black/20">
         <CardHeader className="text-center">
           <CardTitle className="text-3xl text-foreground">Teacher Dashboard</CardTitle>

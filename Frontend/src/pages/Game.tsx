@@ -3075,8 +3075,8 @@ const Game: React.FC = () => {
         <div className="absolute inset-0 bg-black/95 flex items-center justify-center z-50">
           <div className={`text-center p-8 rounded-2xl ${
             roleAnnouncement.isUnicorn 
-              ? 'bg-wine-800/95 border-2 border-cream/50' 
-              : 'bg-wine-700/95 border-2 border-cream/40'
+              ? 'bg-neutral-900/95 border-2 border-cream/50' 
+              : 'bg-neutral-800/95 border-2 border-cream/40'
           }`}>
             {/* Large animated icon */}
             <div className="text-8xl mb-6 animate-bounce text-cream">
@@ -3303,8 +3303,8 @@ const Game: React.FC = () => {
               <div className="flex flex-wrap items-center gap-2">
                 <div className={`px-3 py-1.5 rounded-lg text-sm font-bold ${
                   isUnicorn
-                    ? 'bg-wine-600/90 border border-cream/50 text-cream'
-                    : 'bg-wine-700/90 border border-cream/40 text-cream'
+                    ? 'bg-neutral-800/90 border border-cream/50 text-cream'
+                    : 'bg-neutral-700/90 border border-cream/40 text-cream'
                 }`}>
                   {isUnicorn ? ` ${ROLE_LABEL_CHASER}` : `${ROLE_LABEL_RUNNER}`}
                 </div>

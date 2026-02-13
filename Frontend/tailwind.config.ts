@@ -57,13 +57,13 @@ export default {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
-        /* Theme palette: #5c0938 (wine), #f4efda (cream) */
+        /* Black tint theme; cream for accents */
         wine: {
-          950: "#2d0628",
-          900: "#3d0626",
-          800: "#5c0938",
-          700: "#7a0c4a",
-          600: "#98155e",
+          950: "#0a0a0a",
+          900: "#141414",
+          800: "#1a1a1a",
+          700: "#262626",
+          600: "#333333",
         },
         cream: {
           DEFAULT: "#f4efda",
@@ -71,9 +71,9 @@ export default {
           dim: "#c9c4b0",
         },
         game: {
-          bg: "#5c0938",
-          card: "#7a0c4a",
-          pill: "#98155e",
+          bg: "#0a0a0a",
+          card: "#171717",
+          pill: "#262626",
           accent: "#f4efda",
           icon: "#f4efda",
           answer0: "#8CC63F",

@@ -52,7 +52,6 @@ const BlitzQuiz: React.FC<BlitzQuizProps> = ({ question, options, timeLeft, onAn
             </p> */}
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
-            <span className="text-3xl" aria-hidden>🦄</span>
             <span className="px-3 py-1.5 rounded-full bg-game-pill border border-game-accent text-game-icon font-mono text-xl font-bold">
               {Math.ceil(timeLeft)}s
             </span>
