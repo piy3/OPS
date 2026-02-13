@@ -177,8 +177,9 @@ const Lobby = () => {
     });
 
     // Now that all handlers are registered, attempt rejoin if we have a stored room code
+    const returnFromGameOver = (location.state as { returnFromGameOver?: boolean } | null)?.returnFromGameOver;
     const storedRoomCode = socketService.getCurrentRoomCode();
-    if (storedRoomCode && !rejoinAttemptedRef.current) {
+    if (storedRoomCode && !rejoinAttemptedRef.current && !returnFromGameOver) {
       logger.game('Handlers registered, attempting to rejoin room:', storedRoomCode);
       rejoinAttemptedRef.current = true;
       setIsRejoining(true);
@@ -199,7 +200,7 @@ const Lobby = () => {
       unsubRejoinSuccess();
       unsubRejoinError();
     };
-  }, [isConnected, navigate]);
+  }, [isConnected, navigate, location]);
 
   // Save player name to localStorage
   useEffect(() => {
