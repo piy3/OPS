@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Trophy, X, Users } from 'lucide-react';
 import socketService, { SOCKET_EVENTS, toGrid, toPixel, Room, Player as SocketPlayer, GameState as SocketGameState, Coin as SocketCoin, MapConfig } from '@/services/SocketService';
 import BlitzQuiz from '@/components/BlitzQuiz';
@@ -228,6 +228,7 @@ const getQuadrant = (x: number, y: number, mapWidth: number, mapHeight: number):
 const Game: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  const [, setSearchParams] = useSearchParams();
   const locationState = location.state as LocationState | null;
   
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -1085,6 +1086,7 @@ const Game: React.FC = () => {
       } else {
         setGameEndLeaderboard([]);
       }
+      setSearchParams({ isCompleted: 'true' });
       showStatus('GAME OVER!', '#ff0000', 3000);
     });
 

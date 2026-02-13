@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Trophy, Users, Clock, Zap } from 'lucide-react';
 import socketService, { SOCKET_EVENTS, Room, MapConfig } from '@/services/SocketService';
 import logger from '@/utils/logger';
@@ -29,6 +29,7 @@ interface LocationState {
 const TeacherGame: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  const [, setSearchParams] = useSearchParams();
   const locationState = location.state as LocationState | null;
   const quizId = locationState?.quizId ?? (typeof localStorage !== 'undefined' ? localStorage.getItem('QUIZ_ID') : null);
   const dashboardPath = quizId ? `/dashboard/${quizId}` : '/dashboard';
@@ -183,6 +184,7 @@ const TeacherGame: React.FC = () => {
         })).sort((a: LeaderboardEntry, b: LeaderboardEntry) => b.coins - a.coins);
         setFinalLeaderboard(finalData);
       }
+      setSearchParams({ isCompleted: 'true' });
     });
 
     // Game started (initial start or restart after game over)
