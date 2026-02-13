@@ -2873,7 +2873,7 @@ const Game: React.FC = () => {
         ctx.globalAlpha = alpha;
         ctx.font = `bold ${rewardFontSize}px Arial`;
         ctx.textAlign = 'center';
-        ctx.fillStyle = r.text === '+15💰' ? '#ff00ff' : r.text === 'Spacebar to deploy' ? '#ff6600' : '#ffd700';
+        ctx.fillStyle = r.text === '+15💰' ? '#ffd700' : r.text === 'Spacebar to deploy' ? '#ff6600' : '#ffd700';
         ctx.fillText(r.text, game.player.x, drawY);
       });
       ctx.restore();
@@ -3079,20 +3079,20 @@ const Game: React.FC = () => {
               : 'bg-neutral-800/95 border-2 border-cream/40'
           }`}>
             {/* Large animated icon */}
-            <div className="text-8xl mb-6 animate-bounce text-cream">
+            <div className="text-6xl mb-6 text-cream">
               {roleAnnouncement.isUnicorn ? '🚔' : '🏃'}
             </div>
             
             {/* Role title */}
-            <h1 className="text-5xl font-bold mb-4 text-cream">
-              {roleAnnouncement.isUnicorn ? `You are the ${ROLE_LABEL_CHASER}!` : `You are a ${ROLE_LABEL_RUNNER}!`}
+            <h1 className="text-3xl font-bold mb-4 text-cream">
+              {roleAnnouncement.isUnicorn ? `${ROLE_LABEL_CHASER}!` : `${ROLE_LABEL_RUNNER}!`}
             </h1>
             
             {/* Role instruction */}
-            <p className="text-2xl text-cream/90">
+            <p className="text-5xl text-cream/90 font-bold animate-bounce">
               {roleAnnouncement.isUnicorn 
-                ? 'Catch Bandits for coins! 💰' 
-                : 'Evade Enforcers and collect coins! 💰'}
+                ? 'CATCH Bandits!' 
+                : 'RUN from Enforcers!'}
             </p>
             
             {/* Pulsing "Get Ready" text */}
