@@ -300,7 +300,7 @@ class SinkTrapManager {
             fromPosition, toPosition, timestamp: Date.now()
         });
 
-        log.info({ roomCode, trapId, unicornId, unicornName, fromRow: trap.row, fromCol: trap.col, toRow: destRow, toCol: destCol }, 'Unicorn triggered trap, teleported');
+        log.info({ roomCode, trapId, unicornId: unicornPersistentId, unicornName, fromRow: trap.row, fromCol: trap.col, toRow: destRow, toCol: destCol }, 'Unicorn triggered trap, teleported');
 
         return { fromPosition, toPosition };
     }

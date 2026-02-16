@@ -275,11 +275,15 @@ const Game: React.FC = () => {
   const remotePlayersRef = useRef<Map<string, RemotePlayer>>(new Map());
   
   const isUnicornRef = useRef(false);
+  const unicornIdsRef = useRef<string[]>([]);
   const isFrozenRef = useRef(false);
   const isRejoinRef = useRef(false);
   useEffect(() => {
     isUnicornRef.current = isUnicorn;
   }, [isUnicorn]);
+  useEffect(() => {
+    unicornIdsRef.current = unicornIds;
+  }, [unicornIds]);
 
   // Keep refs in sync with state
   useEffect(() => {
@@ -316,7 +320,22 @@ const Game: React.FC = () => {
   const isFirstBlitzRef = useRef(true);
   const blitzHandledRef = useRef(false); // Prevents race between BLITZ_START and GAME_STATE_SYNC
   const [blitzShowObjective, setBlitzShowObjective] = useState(false);
-  
+
+  // Per-player entry quiz (3 questions, no timer)
+  const [entryQuizQuestions, setEntryQuizQuestions] = useState<Array<{
+    id: string | number;
+    question: string;
+    options: string[];
+    correctAnswer?: number;
+    questionImage?: string | null;
+    optionImages?: (string | null)[];
+  }> | null>(null);
+  const [currentEntryQuestionIndex, setCurrentEntryQuestionIndex] = useState(0);
+
+  // Global game timer (teacher-set; game ends when this expires)
+  const [gameEndTime, setGameEndTime] = useState<number | null>(null);
+  const [countdownTick, setCountdownTick] = useState(0); // tick every second to refresh countdown display
+
   // Role announcement state (shows before hunt phase)
   const [roleAnnouncement, setRoleAnnouncement] = useState<{
     isUnicorn: boolean;
@@ -478,6 +497,13 @@ const Game: React.FC = () => {
     };
   }, [isMultiplayer]);
 
+  // Global countdown: tick every second while gameEndTime is set
+  useEffect(() => {
+    if (gameEndTime == null) return;
+    const interval = setInterval(() => setCountdownTick((t) => t + 1), 1000);
+    return () => clearInterval(interval);
+  }, [gameEndTime]);
+
   // Show status helper (defined early for use in socket handlers)
   const showStatus = useCallback((text: string, color: string = '#fff', duration: number = 2000) => {
     setStatus(text);
@@ -514,7 +540,7 @@ const Game: React.FC = () => {
           targetY: position.y,
           dirX: position.dirX || 0,
           dirY: position.dirY || 1,
-          isUnicorn: unicornIds.includes(playerId),
+          isUnicorn: unicornIdsRef.current.includes(playerId),
           isEliminated: false,
           isFrozen: false,
           inIFrames: false,
@@ -538,6 +564,13 @@ const Game: React.FC = () => {
       showStatus('A player left', '#ff8800', 2000);
     });
 
+    // Player left maze (went back to blitz quiz - not visible to others)
+    const unsubPlayerLeftMaze = socketService.on(SOCKET_EVENTS.SERVER.PLAYER_LEFT_MAZE, (data: any) => {
+      const { playerId } = data;
+      if (playerId === socketService.getPlayerId()) return; // Ignore self
+      remotePlayersRef.current.delete(playerId);
+    });
+
     // Room update (includes mapConfig changes when player count changes in lobby)
     const unsubRoomUpdate = socketService.on(SOCKET_EVENTS.SERVER.ROOM_UPDATE, (data: any) => {
       if (data.room) {
@@ -557,7 +590,8 @@ const Game: React.FC = () => {
       setRoom(data.room);
       isFirstBlitzRef.current = true; // Next blitz is first of this game → 3s objective intro
       blitzHandledRef.current = false; // Reset for new game
-      
+      setGameEndTime(data.gameEndTime ?? null);
+
       // Set final mapConfig for the game (locked at game start)
       if (data.mapConfig) {
         setMapConfig(data.mapConfig);
@@ -575,6 +609,7 @@ const Game: React.FC = () => {
       if (data.gameState?.players) {
         data.gameState.players.forEach((p: any) => {
           if (p.id === myId) return;
+          if (p.inMaze === false) return; // Player still in blitz quiz — not visible in maze
           const pos = p.position;
           // const pixel = pos?.x != null ? { x: pos.x, y: pos.y } : (pos ? toPixel(pos.row, pos.col) : { x: 0, y: 0 });
           const pixel = (pos?.x != null && pos?.y != null) ? { x: pos.x, y: pos.y } : (pos?.row != null && pos?.col != null ? toPixel(pos.row, pos.col) : { x: 0, y: 0 });
@@ -614,6 +649,18 @@ const Game: React.FC = () => {
       soundService.stopMusic();
     });
 
+    // Per-player entry quiz (3 questions; no shared timer)
+    const unsubMazeEntryQuiz = socketService.on(SOCKET_EVENTS.SERVER.MAZE_ENTRY_QUIZ, (questions: any[]) => {
+      blitzHandledRef.current = true;
+      if (!Array.isArray(questions) || questions.length === 0) return;
+      setEntryQuizQuestions(questions);
+      setCurrentEntryQuestionIndex(0);
+      setGameState('blitz-quiz');
+      setBlitzQuestion(null);
+      soundService.playMusic('blitzQuiz');
+      showStatus('Answer 3 questions to enter the maze!', '#ffff00', 2000);
+    });
+
     // Unicorn transferred (single or multiple)
     const unsubUnicorn = socketService.on(SOCKET_EVENTS.SERVER.UNICORN_TRANSFERRED, (data: any) => {
       const ids = data.newUnicornIds ?? (data.newUnicornId ? [data.newUnicornId] : []);
@@ -644,21 +691,22 @@ const Game: React.FC = () => {
       }
     });
 
-    // Hunt phase started
+    // Hunt phase started (per-player: sent to this player when their 30s hunt begins)
     const unsubHuntStart = socketService.on(SOCKET_EVENTS.SERVER.HUNT_START, (data: any) => {
       console.log('[Music] HUNT_START -> playMusic("hunt"), duration:', data.duration);
+      setEntryQuizQuestions(null);
+      setCurrentEntryQuestionIndex(0);
       soundService.stopMusic();
       soundService.setTrackVolume('hunt', 0.2);
       soundService.playMusic('hunt');
-      // Hide role announcement when hunt starts
       setRoleAnnouncement(null);
       setGameState('playing');
       isFrozenRef.current = false;
       setBlitzQuestion(null);
-      setHuntTimeLeft(data.duration / 1000);
-      setCurrentRound(data.roundInfo?.currentRound || 1);
-      setTotalRounds(data.roundInfo?.totalRounds || 4);
-      const amUnicorn = data.unicornIds?.length !== undefined && data.unicornIds.includes(socketService.getPlayerId());
+      setHuntTimeLeft((data.duration ?? 30000) / 1000);
+      setCurrentRound(data.roundInfo?.currentRound ?? 1);
+      setTotalRounds(data.roundInfo?.totalRounds ?? 4);
+      const amUnicorn = data.isEnforcer !== undefined ? data.isEnforcer : (data.unicornIds?.length !== undefined && data.unicornIds.includes(socketService.getPlayerId()));
       if (data.unicornIds?.length !== undefined) {
         setUnicornIds(data.unicornIds);
         setUnicornId(data.unicornIds[0] ?? data.unicornId ?? null);
@@ -666,6 +714,8 @@ const Game: React.FC = () => {
         remotePlayersRef.current.forEach((player, id) => {
           player.isUnicorn = data.unicornIds.includes(id);
         });
+      } else {
+        setIsUnicorn(amUnicorn);
       }
       if (gameRef.current) {
         gameRef.current.player.speed = getSpeedForRole(amUnicorn ?? false);
@@ -677,10 +727,15 @@ const Game: React.FC = () => {
           if (gameRef.current.map?.portals) {
             gameRef.current.map.portals = [];
           }
-          gameRef.current.coins = [];
+          // DON'T clear coins here - let COIN_SPAWNED events manage coin state
+          // The old code was: gameRef.current.coins = [];
+          // This caused a race condition where COIN_SPAWNED arrived before HUNT_START,
+          // then HUNT_START cleared the coins that were just added
+          // Instead, we'll let the server be authoritative - it sends COIN_SPAWNED
+          // at the right time, and we just add/remove coins as events arrive
           gameRef.current.sinkCollectibles = [];
           gameRef.current.deployedSinks = [];
-          // So only current hunt's server events (COIN_SPAWNED, SINK_TRAP_*, etc.) apply
+          // Sink traps and collectibles still need clearing as they're round-specific
         }
         gameRef.current.playerSinkInventory = 0;
         gameRef.current.isPlaying = true;
@@ -690,9 +745,9 @@ const Game: React.FC = () => {
         setLiveLeaderboard(mapLeaderboard(data.leaderboard));
       }
 
-      showStatus(`HUNT PHASE - Round ${data.roundInfo?.currentRound || 1}!`, '#ff4400', 2000);
+      showStatus(`HUNT PHASE${data.roundInfo ? ` - Round ${data.roundInfo.currentRound}` : ''}!`, '#ff4400', 2000);
 
-      // Last round: show red banner for 3s
+      // Last round: show red banner for 3s (only when roundInfo is present)
       const roundInfo = data.roundInfo;
       const isLastRound = roundInfo && (roundInfo.roundsRemaining === 1 || roundInfo.currentRound === roundInfo.totalRounds);
       if (isLastRound) {
@@ -1017,26 +1072,66 @@ const Game: React.FC = () => {
       if (!gameRef.current) return;
       const game = gameRef.current;
       
+      // Check if this is a batch spawn (initial round spawn) or single coin respawn
+      const isBatchSpawn = Array.isArray(data.coins);
       const coins = data.coins || [data];
-      coins.forEach((coinData: any) => {
-        const pixel = toPixel(coinData.row, coinData.col);
-        game.coins.push({
-          id: coinData.id ?? coinData.coinId,
-          x: pixel.x,
-          y: pixel.y,
-          collected: false,
-          spawnTime: Date.now() * 0.001
+      
+      // For batch spawns (round start), REPLACE all coins to avoid race conditions
+      // For single coin respawns, just add to existing
+      if (isBatchSpawn) {
+        // Batch spawn = new round starting, replace all coins
+        game.coins = coins.map((coinData: any) => {
+          const pixel = toPixel(coinData.row, coinData.col);
+          return {
+            id: coinData.id ?? coinData.coinId,
+            x: pixel.x,
+            y: pixel.y,
+            collected: false,
+            spawnTime: Date.now() * 0.001
+          };
         });
-      });
+      } else {
+        // Single coin respawn, update existing or add new
+        coins.forEach((coinData: any) => {
+          const coinId = coinData.id ?? coinData.coinId;
+          const pixel = toPixel(coinData.row, coinData.col);
+          const existingCoin = game.coins.find(c => c.id === coinId);
+          
+          if (existingCoin) {
+            // Update existing coin position (it may be collected and about to be filtered)
+            // or it's the same coin at a new position after respawn
+            existingCoin.x = pixel.x;
+            existingCoin.y = pixel.y;
+            existingCoin.collected = false;
+            existingCoin.spawnTime = Date.now() * 0.001;
+          } else {
+            // Add new coin
+            game.coins.push({
+              id: coinId,
+              x: pixel.x,
+              y: pixel.y,
+              collected: false,
+              spawnTime: Date.now() * 0.001
+            });
+          }
+        });
+      }
     });
 
-    // Coin collected (server is authoritative: match by coinId + position, then id-only, then row/col)
+    // Coin collected (server is authoritative)
     const unsubCoinCollected = socketService.on(SOCKET_EVENTS.SERVER.COIN_COLLECTED, (data: any) => {
       if (!gameRef.current) return;
       const game = gameRef.current;
       
       let coinIndex = -1;
       const hasPos = data.row != null && data.col != null;
+      
+      // IMPORTANT: Only mark a coin as collected if BOTH the ID and position match.
+      // This prevents a race condition where:
+      //   1. Coin is collected at position A
+      //   2. Server respawns coin at position B (COIN_SPAWNED arrives)
+      //   3. COIN_COLLECTED event for position A arrives late
+      //   4. Without position check, we'd mark the new coin at position B as collected!
       if (data.coinId && hasPos) {
         coinIndex = game.coins.findIndex(c => {
           if (c.collected) return false;
@@ -1044,9 +1139,8 @@ const Game: React.FC = () => {
           return c.id === data.coinId && grid.row === data.row && grid.col === data.col;
         });
       }
-      if (coinIndex === -1 && data.coinId) {
-        coinIndex = game.coins.findIndex(c => !c.collected && c.id === data.coinId);
-      }
+      // Fallback to position-only match (for legacy compatibility)
+      // But NOT id-only match, as that would catch respawned coins at different positions
       if (coinIndex === -1 && hasPos) {
         coinIndex = game.coins.findIndex(c => {
           const grid = toGrid(c.x, c.y);
@@ -1077,6 +1171,7 @@ const Game: React.FC = () => {
     // Game ended
     const unsubGameEnd = socketService.on(SOCKET_EVENTS.SERVER.GAME_END, (data: any) => {
       console.log('[Music] GAME_END -> stopMusic()');
+      setGameEndTime(null);
       soundService.stopMusic();
       soundService.playSfx('gameOver');
       setGameState('game-over');
@@ -1286,10 +1381,14 @@ const Game: React.FC = () => {
       setUnicornId(unicornIdsSync[0] ?? data.gameState.unicornId ?? null);
       setIsUnicorn(unicornIdsSync.includes(myId));
 
-      // Populate or update remote players from game state (ensures names are set when we mounted after GAME_STARTED)
+      // Populate or update remote players from game state (only players in maze are visible)
       if (data.gameState.players) {
         data.gameState.players.forEach((p: any) => {
           if (p.id === myId) return;
+          if (p.inMaze === false) {
+            remotePlayers.delete(p.id); // Remove from maze view when they re-enter blitz
+            return;
+          }
           const pos = p.position;
           const pixel = (pos?.x != null && pos?.y != null) ? { x: pos.x, y: pos.y } : (pos?.row != null && pos?.col != null ? toPixel(pos.row, pos.col) : { x: 0, y: 0 });
           const existing = remotePlayers.get(p.id);
@@ -1326,19 +1425,28 @@ const Game: React.FC = () => {
       if (gameRef.current) {
         const game = gameRef.current;
         
-        // Restore coins
+        // Restore coins - only replace if sync has coins OR we have none locally
+        // This prevents GAME_STATE_SYNC with stale/empty data from wiping out coins
+        // that were received via COIN_SPAWNED events
         if (Array.isArray(data.gameState.coins)) {
-          game.coins = data.gameState.coins.map((coin: any) => {
-            const pixel = toPixel(coin.row, coin.col);
-            return {
-              id: coin.id,
-              x: pixel.x,
-              y: pixel.y,
-              collected: false,
-              spawnTime: Date.now() * 0.001
-            };
-          });
-          logger.game(`Restored ${game.coins.length} coins from game state`);
+          // Only replace coins if:
+          // 1. Server has coins to give us, OR
+          // 2. We have no coins locally (need to sync from server)
+          if (data.gameState.coins.length > 0 || game.coins.length === 0) {
+            game.coins = data.gameState.coins.map((coin: any) => {
+              const pixel = toPixel(coin.row, coin.col);
+              return {
+                id: coin.id,
+                x: pixel.x,
+                y: pixel.y,
+                collected: false,
+                spawnTime: Date.now() * 0.001
+              };
+            });
+            logger.game(`Restored ${game.coins.length} coins from game state`);
+          } else {
+            logger.game(`Skipped coin sync (server: ${data.gameState.coins.length}, local: ${game.coins.length})`);
+          }
         }
         
         // Restore sinkholes/portals
@@ -1389,9 +1497,19 @@ const Game: React.FC = () => {
         }
       }
       
-      // Start appropriate music based on current phase (reconnection recovery)
-      // This handles the case where we refresh during hunt and miss HUNT_START
-      if (data.phase === 'hunt') {
+      // Per-player entry quiz sync (client missed maze_entry_quiz or reconnected during blitz)
+      if (Array.isArray(data.mazeEntryQuiz) && data.mazeEntryQuiz.length > 0) {
+        logger.game('Game state sync: Per-player entry quiz, showing 3 questions');
+        setEntryQuizQuestions(data.mazeEntryQuiz);
+        setCurrentEntryQuestionIndex(0);
+        setGameState('blitz-quiz');
+        setBlitzQuestion(null);
+        blitzHandledRef.current = true;
+        if (!soundService.isPlaying('blitzQuiz')) {
+          soundService.playMusic('blitzQuiz');
+        }
+      } else if (data.phase === 'hunt') {
+        // Start appropriate music based on current phase (reconnection recovery)
         logger.game('Game state sync: Hunt phase active, starting hunt music');
         setGameState('playing');
         if (!soundService.isPlaying('hunt') && !soundService.isPlaying('timer')) {
@@ -1400,9 +1518,8 @@ const Game: React.FC = () => {
         }
       }
       
-      // Handle blitz quiz sync - this fixes the race condition where
-      // the client navigates to /game and misses BLITZ_START
-      if (data.phase === 'blitz_quiz' && data.blitzQuiz) {
+      // Handle room-wide blitz quiz sync (legacy) - client navigates to /game and misses BLITZ_START
+      if (data.phase === 'blitz_quiz' && data.blitzQuiz && !data.mazeEntryQuiz?.length) {
         logger.quiz('Game state sync: Received blitz quiz data');
         
         // Skip if BLITZ_START already handled this blitz (prevents race condition)
@@ -1548,8 +1665,10 @@ const Game: React.FC = () => {
       unsubPosition();
       unsubPlayerJoined();
       unsubPlayerLeft();
+      unsubPlayerLeftMaze();
       unsubRoomUpdate();
       unsubGameStarted();
+      unsubMazeEntryQuiz();
       unsubUnicorn();
       unsubHuntStart();
       unsubHuntEnd();
@@ -1581,7 +1700,7 @@ const Game: React.FC = () => {
       unsubRejoinError();
       unsubConnectionChange();
     };
-  }, [isMultiplayer, unicornIds, gameState, navigate, showStatus]);
+  }, [isMultiplayer, navigate, showStatus]);
 
   // Clear last-round banner timeout on unmount only (so the 3s hide timer is not cancelled when effect re-runs)
   useEffect(() => {
@@ -3037,7 +3156,44 @@ const Game: React.FC = () => {
       )}
 
       {/* Blitz Quiz Overlay (Multiplayer) */}
-      {gameState === 'blitz-quiz' && blitzQuestion && (
+      {/* Per-player entry quiz (3 questions, no timer) */}
+      {gameState === 'blitz-quiz' && entryQuizQuestions && entryQuizQuestions.length > 0 && (() => {
+        const q = entryQuizQuestions[currentEntryQuestionIndex];
+        if (!q) {
+          // Backend should always send 3 questions; if we're missing one, show message and rely on HUNT_START
+          return (
+            <div className="absolute inset-0 bg-game-bg flex items-center justify-center z-50">
+              <div className="bg-game-card rounded-2xl p-8 max-w-lg mx-4 text-center text-cream">
+                <p className="text-xl font-bold">Loading next question…</p>
+                <p className="text-sm text-cream/80 mt-2">If this doesn’t update, the game will continue shortly.</p>
+              </div>
+            </div>
+          );
+        }
+        return (
+          <BlitzQuiz
+            question={q.question}
+            options={q.options}
+            timeLeft={999}
+            onAnswer={(answerIndex) => {
+              socketService.submitBlitzAnswer(currentEntryQuestionIndex, answerIndex);
+              if (currentEntryQuestionIndex < entryQuizQuestions.length - 1) {
+                setCurrentEntryQuestionIndex((i) => i + 1);
+              }
+              // Don't clear entryQuizQuestions here - let HUNT_START do it.
+              // The BlitzQuiz component shows "Entering the maze..." while hasAnswered=true on final question.
+              // If we clear here, there's a gap before HUNT_START where nothing renders.
+            }}
+            questionImage={q.questionImage}
+            optionImages={q.optionImages}
+            hideTimer
+            questionLabel={`Question ${currentEntryQuestionIndex + 1}/3`}
+            isFinalQuestion={currentEntryQuestionIndex === entryQuizQuestions.length - 1}
+          />
+        );
+      })()}
+
+      {gameState === 'blitz-quiz' && blitzQuestion && !entryQuizQuestions?.length && (
         blitzShowObjective ? (
           <div className="absolute inset-0 bg-black/90 flex items-center justify-center z-50">
             <div className="bg-card border-2 border-cream/50 rounded-xl p-8 max-w-lg w-full mx-4 shadow-2xl shadow-black/30 text-center">
@@ -3056,7 +3212,7 @@ const Game: React.FC = () => {
             question={blitzQuestion.question}
             options={blitzQuestion.options}
             timeLeft={blitzTimeLeft}
-            onAnswer={(index) => socketService.submitBlitzAnswer(index)}
+            onAnswer={(answerIndex) => socketService.submitBlitzAnswer(0, answerIndex)}
             questionImage={blitzQuestion.questionImage}
             optionImages={blitzQuestion.optionImages}
           />
@@ -3291,10 +3447,17 @@ const Game: React.FC = () => {
           
           {/* Timer and multiplayer info in one row when applicable */}
           <div className="flex flex-col gap-2 mt-2">
-            <div className="flex items-center gap-3 text-lg">
-              {/* <span className="text-cyan-400 font-mono text-xl">
-                ⏱ {formatTime(gameTime)}
-              </span> */}
+            <div className="flex items-center gap-3 text-lg flex-wrap">
+              {gameEndTime != null && (() => {
+                const secs = Math.max(0, Math.floor((gameEndTime - Date.now()) / 1000));
+                const m = Math.floor(secs / 60);
+                const s = secs % 60;
+                return (
+                  <span className="text-amber-400 font-mono text-xl">
+                    Game ends: {m}:{s.toString().padStart(2, '0')}
+                  </span>
+                );
+              })()}
               {isMultiplayer && huntTimeLeft > 0 && (
                 <span className="text-cream font-mono text-xl">
                   Hunt ⏱: <span className=" ">{Math.ceil(huntTimeLeft)}s</span>
@@ -3308,10 +3471,7 @@ const Game: React.FC = () => {
                     ? 'bg-neutral-800/90 border border-cream/50 text-cream'
                     : 'bg-neutral-700/90 border border-cream/40 text-cream'
                 }`}>
-                  {isUnicorn ? ` ${ROLE_LABEL_CHASER}` : `${ROLE_LABEL_RUNNER}`}
-                </div>
-                <div className="bg-card/80 rounded-lg px-3 py-1.5 text-sm text-muted-foreground">
-                  Round <span className="text-cream font-bold">{currentRound}</span> / {totalRounds}
+                  {isUnicorn ? `🚔 ${ROLE_LABEL_CHASER}` : `🏃 ${ROLE_LABEL_RUNNER}`}
                 </div>
               </div>
             )}

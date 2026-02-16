@@ -125,13 +125,11 @@ const Dashboard = () => {
   }, [isConnected, navigate]);
 
 
-  // Create a new room as teacher
+  // Create a new room as teacher (game duration in minutes = global timer)
   const handleCreateRoom = () => {
     setError(null);
     setIsCreating(true);
-    const totalRounds = Math.round(selectedMinutes * (4/3));
-    // Pass isTeacher: true to create room as teacher, and userId if available from query param
-    socketService.createRoom('', 30, quizId.trim() || undefined, true, totalRounds, userId);
+    socketService.createRoom('', 30, quizId.trim() || undefined, true, undefined, userId, selectedMinutes);
   };
 
   // Start the game (teacher is host)
@@ -185,9 +183,9 @@ const Dashboard = () => {
             <CardDescription className="text-muted-foreground">
               Share the room code with your students
             </CardDescription>
-            {(room as Room & { totalRounds?: number }).totalRounds != null && (
+            {((room as Room & { gameDurationMinutes?: number }).gameDurationMinutes ?? selectedMinutes) != null && (
             <p className="text-muted-foreground text-sm">
-                Game: {(room as Room & { totalRounds?: number }).totalRounds} rounds
+                Game: {(room as Room & { gameDurationMinutes?: number }).gameDurationMinutes ?? selectedMinutes} minutes
             </p>
             )}
           </CardHeader>
@@ -283,7 +281,7 @@ const Dashboard = () => {
         <div className="space-y-2">
         <label className="text-sm font-medium text-muted-foreground block">Game length</label>
         <div className="flex gap-2 flex-wrap">
-            {([6, 9, 12, 15, 18] as const).map((min) => {
+            {([1, 6, 9, 12, 15, 18] as const).map((min) => {
             const isSelected = selectedMinutes === min;
             return (
                 <Button

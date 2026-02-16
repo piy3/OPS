@@ -16,17 +16,24 @@ interface BlitzQuizProps {
   questionImage?: string | null;
   /** Option image URLs; same length as options; null = no image for that option */
   optionImages?: (string | null)[];
+  /** When true, hide the timer bar and timer badge (e.g. for 3-question entry quiz) */
+  hideTimer?: boolean;
+  /** Optional label above question (e.g. "Question 2/3") */
+  questionLabel?: string;
+  /** Whether this is the final question in a per-player quiz (changes waiting message) */
+  isFinalQuestion?: boolean;
 }
 
-const BlitzQuiz: React.FC<BlitzQuizProps> = ({ question, options, timeLeft, onAnswer, questionImage, optionImages }) => {
+const BlitzQuiz: React.FC<BlitzQuizProps> = ({ question, options, timeLeft, onAnswer, questionImage, optionImages, hideTimer, questionLabel, isFinalQuestion }) => {
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
   const [hasAnswered, setHasAnswered] = useState(false);
 
-  // Reset state when question changes
+  // Reset state when question changes (use questionLabel which is unique per question index,
+  // since question text can have duplicates in the quiz pool)
   useEffect(() => {
-    setSelectedAnswer(null);
+    setSelectedAnswer(null); 
     setHasAnswered(false);
-  }, [question]);
+  }, [questionLabel]);
 
   const handleAnswer = (index: number) => {
     if (hasAnswered) return;
@@ -45,26 +52,27 @@ const BlitzQuiz: React.FC<BlitzQuizProps> = ({ question, options, timeLeft, onAn
         <div className="flex items-center justify-between mb-4 gap-4">
           <div className="flex-1">
             <h2 className="text-2xl md:text-3xl font-bold text-cream">
-              Answer correct for 10 bonus coins
+              {questionLabel ?? 'Answer correct for 10 bonus coins'}
             </h2>
-            {/* <p className="mt-1 text-white/80 text-sm">
-              Get it right to earn bonus coins!
-            </p> */}
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <span className="px-3 py-1.5 rounded-full bg-game-pill border border-game-accent text-game-icon font-mono text-xl font-bold">
-              {Math.ceil(timeLeft)}s
-            </span>
-          </div>
+          {!hideTimer && (
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <span className="px-3 py-1.5 rounded-full bg-game-pill border border-game-accent text-game-icon font-mono text-xl font-bold">
+                {Math.ceil(timeLeft)}s
+              </span>
+            </div>
+          )}
         </div>
 
-        {/* Timer bar */}
-        <div className="h-2 bg-game-pill rounded-full mb-6 overflow-hidden">
-          <div
-            className="h-full bg-game-accent transition-all duration-1000 ease-linear"
-            style={{ width: `${timePercentage}%` }}
-          />
-        </div>
+        {/* Timer bar (hidden for entry quiz) */}
+        {!hideTimer && (
+          <div className="h-2 bg-game-pill rounded-full mb-6 overflow-hidden">
+            <div
+              className="h-full bg-game-accent transition-all duration-1000 ease-linear"
+              style={{ width: `${timePercentage}%` }}
+            />
+          </div>
+        )}
 
         {/* Question */}
         <div className="bg-game-pill/60 rounded-xl p-4 mb-5 border border-game-accent/40">
@@ -104,7 +112,7 @@ const BlitzQuiz: React.FC<BlitzQuizProps> = ({ question, options, timeLeft, onAn
 
         {hasAnswered && (
           <p className="text-center text-game-accent font-medium animate-pulse">
-            Answer submitted! Waiting for others...
+            {isFinalQuestion ? 'Entering the maze...' : 'Answer submitted! Waiting for others...'}
           </p>
         )}
       </div>

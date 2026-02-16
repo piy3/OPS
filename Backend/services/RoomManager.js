@@ -3,7 +3,7 @@
  * Handles all room-related business logic
  */
 
-import { ROOM_CONFIG, ROOM_STATUS, COMBAT_CONFIG, PLAYER_STATE, GAME_LOOP_CONFIG, getMapConfigForPlayerCount } from '../config/constants.js';
+import { ROOM_CONFIG, ROOM_STATUS, COMBAT_CONFIG, PLAYER_STATE, GAME_LOOP_CONFIG, getMapConfigForPlayerCount, GAME_CONFIG } from '../config/constants.js';
 import log from "../utils/logger.js"
 // Extract starting coins from config for easy reference
 const STARTING_COINS = ROOM_CONFIG.STARTING_COINS;
@@ -45,10 +45,12 @@ class RoomManager {
                 coins: STARTING_COINS, // Starting coins
                 health: COMBAT_CONFIG.STARTING_HEALTH, // Starting health
                 questions_correctly_answered: QUESTIONS_CORRECTLY_ANSWERED,
-                questions_attempted: QUESTIONS_ATTEMPTED,
+                questions_attempted: Number(QUESTIONS_ATTEMPTED) || 0,
+                attemptedQuestionIds: [],   // Per-player blitz: question ids this player has attempted
                 state: PLAYER_STATE.ACTIVE, // Player state
                 inIFrames: false, // Invincibility frames
                 disconnectedAt: null, // Timestamp when disconnected (null if connected)
+                timeLeftInMaze: GAME_LOOP_CONFIG.ALLOWED_TIME_IN_MAZE,
             }],
             status: ROOM_STATUS.WAITING,
             createdAt: Date.now(),
@@ -58,6 +60,9 @@ class RoomManager {
             mapConfig: mapConfig,      // Dynamic map configuration based on player count
             quizId: playerData?.quizId ?? null,
             quizQuestionPool: null,
+            // Per-player flow: teacher-set game duration (minutes) → global timer
+            gameDurationMinutes: playerData?.gameDurationMinutes ?? null,
+            gameDurationMs: playerData?.gameDurationMinutes != null ? playerData.gameDurationMinutes * 60 * 1000 : null,
         };
 
         // Store userId as non-enumerable so it's excluded from JSON serialization (broadcasts)
@@ -303,7 +308,8 @@ class RoomManager {
             coins: STARTING_COINS, // Starting coins
             health: COMBAT_CONFIG.STARTING_HEALTH, // Starting health
             questions_correctly_answered: QUESTIONS_CORRECTLY_ANSWERED,
-            questions_attempted: QUESTIONS_ATTEMPTED,
+            questions_attempted: Number(QUESTIONS_ATTEMPTED) || 0,
+            attemptedQuestionIds: [],   // Per-player blitz: question ids this player has attempted
             state: PLAYER_STATE.ACTIVE, // Player state
             inIFrames: false, // Invincibility frames
             disconnectedAt: null, // Timestamp when disconnected (null if connected)
@@ -501,11 +507,11 @@ class RoomManager {
 
         room.status = ROOM_STATUS.PLAYING;
         
-        // Reset all player coins to starting amount for the new game
+        // Reset all player coins and question counts for the new game (use numbers only)
         room.players.forEach(player => {
             player.coins = STARTING_COINS;
-            player.questions_attempted = QUESTIONS_ATTEMPTED;
-            player.questions_correctly_answered = QUESTIONS_CORRECTLY_ANSWERED;
+            player.questions_attempted = Number(QUESTIONS_ATTEMPTED) || 0;
+            player.questions_correctly_answered = Number(QUESTIONS_CORRECTLY_ANSWERED) || 0;
         });
         
         return room;
@@ -739,10 +745,31 @@ class RoomManager {
             log.warn({ roomCode, playerId }, 'Player not found in handlePlayerQuestionAttempt');
             return null;
         }
-        player.questions_attempted = (player.questions_attempted ?? 0) + 1;
-        if (isCorrect) player.questions_correctly_answered = (player.questions_correctly_answered ?? 0) + 1;
-        // log.info(`incremented question counts of player ${player.id} ${player.questions_correctly_answered} ${player.questions_attempted}`)
+        player.questions_attempted = (Number(player.questions_attempted) || 0) + 1;
+        if (isCorrect) player.questions_correctly_answered = (Number(player.questions_correctly_answered) || 0) + 1;
         return;
+    }
+
+    /**
+     * Record a blitz question attempt (per-player flow). Uses persistent playerId.
+     * @param {string} roomCode - Room code
+     * @param {string} playerId - Persistent player ID
+     * @param {string|number} questionId - Question id that was attempted
+     * @param {boolean} isCorrect - Whether the answer was correct
+     */
+    recordBlitzQuestionAttempted(roomCode, playerId, questionId, isCorrect) {
+        const room = this.rooms.get(roomCode);
+        if (!room) return null;
+        const player = room.players.find(p => p.playerId === playerId);
+        if (!player) {
+            log.warn({ roomCode, playerId }, 'Player not found in recordBlitzQuestionAttempted');
+            return null;
+        }
+        if (!Array.isArray(player.attemptedQuestionIds)) player.attemptedQuestionIds = [];
+        // Store canonical id (string) so filtering elsewhere can match regardless of number vs string from quiz
+        player.attemptedQuestionIds.push(String(questionId));
+        player.questions_attempted = (Number(player.questions_attempted) || 0) + 1;
+        if (isCorrect) player.questions_correctly_answered = (Number(player.questions_correctly_answered) || 0) + 1;
     }
 
     /**

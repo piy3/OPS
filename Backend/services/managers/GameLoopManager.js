@@ -4,7 +4,7 @@
  */
 
 import { SOCKET_EVENTS, GAME_PHASE, GAME_LOOP_CONFIG, COMBAT_CONFIG } from '../../config/constants.js';
-import { getBlitzQuestion, BLITZ_QUIZ_CONFIG } from '../../config/questions.js';
+import { getBlitzQuestion, getRandomQuestions, BLITZ_QUIZ_CONFIG } from '../../config/questions.js';
 import log from '../../utils/logger.js';
 import roomManager from '../RoomManager.js';
 import quizizzService from '../QuizizzService.js';
@@ -27,6 +27,37 @@ class GameLoopManager {
         this.roomRounds = new Map();
 
         this.wasUnicorn = new Map(); // roomCode -> {set of Ids}
+
+        this.globalTimer = new Map(); // roomCode -> { timeoutId, endTime }
+        this.playerBlitzState = new Map(); // `${roomCode}_${playerId}` -> { questionIds, questions, answers Map, startTime }
+        this.playerHuntTimers = new Map(); // `${roomCode}_${playerId}` -> { timeoutId }
+        this.playerPhase = new Map(); // `${roomCode}_${playerId}` -> 'blitz' | 'hunt'
+    }
+
+    _playerKey(roomCode, playerId) {
+        return `${roomCode}_${playerId}`;
+    }
+
+    _clearPlayerBlitzStateForRoom(roomCode) {
+        for (const key of this.playerBlitzState.keys()) {
+            if (key.startsWith(roomCode + '_')) this.playerBlitzState.delete(key);
+        }
+    }
+
+    clearPlayerHuntTimersForRoom(roomCode) {
+        for (const key of this.playerHuntTimers.keys()) {
+            if (key.startsWith(roomCode + '_')) {
+                const entry = this.playerHuntTimers.get(key);
+                if (entry?.timeoutId) clearTimeout(entry.timeoutId);
+                this.playerHuntTimers.delete(key);
+            }
+        }
+    }
+
+    _clearPlayerPhaseForRoom(roomCode) {
+        for (const key of this.playerPhase.keys()) {
+            if (key.startsWith(roomCode + '_')) this.playerPhase.delete(key);
+        }
     }
 
     // ==================== ROUND TRACKING METHODS ====================
@@ -43,6 +74,74 @@ class GameLoopManager {
             currentRound: 1
         });
         log.info({ roomCode, totalRounds: totalRoundsOverride }, 'Initialized rounds');
+    }
+
+    /**
+     * Start the global game timer for per-player flow. When it fires, onGameEnd(roomCode, io) is called.
+     * @param {string} roomCode - Room code
+     * @param {Object} io - Socket.IO server
+     * @param {Function} onGameEnd - Callback (roomCode, io) when time is up
+     */
+    initGameTimer(roomCode, io, onGameEnd) {
+        this.clearGlobalTimer(roomCode);
+        const room = roomManager.getRoom(roomCode);
+        const duration = room?.gameDurationMs ?? GAME_LOOP_CONFIG.GAME_TOTAL_DURATION_MS ?? 300000;
+        const timeoutId = setTimeout(() => {
+            this.globalTimer.delete(roomCode);
+            onGameEnd(roomCode, io);
+        }, duration);
+        this.globalTimer.set(roomCode, { timeoutId, endTime: Date.now() + duration });
+    }
+
+    /**
+     * Clear the global game timer for a room
+     * @param {string} roomCode - Room code
+     */
+    clearGlobalTimer(roomCode) {
+        const entry = this.globalTimer.get(roomCode);
+        if (entry?.timeoutId) clearTimeout(entry.timeoutId);
+        this.globalTimer.delete(roomCode);
+    }
+
+    /**
+     * Start hunt phase for a single player (per-player flow). Sets phase to hunt and a 30s timer; on fire calls onHuntEndForPlayer(roomCode, playerId, io).
+     * @param {string} roomCode - Room code
+     * @param {string} playerId - Persistent player ID
+     * @param {Object} io - Socket.IO server
+     * @param {Function} onHuntEndForPlayer - Callback (roomCode, playerId, io) when 30s expires
+     */
+    startHuntForPlayer(roomCode, playerId, io, onHuntEndForPlayer) {
+        const key = this._playerKey(roomCode, playerId);
+        const existing = this.playerHuntTimers.get(key);
+        if (existing?.timeoutId) clearTimeout(existing.timeoutId);
+        this.playerPhase.set(key, 'hunt');
+        const timeoutId = setTimeout(() => {
+            this.playerHuntTimers.delete(key);
+            onHuntEndForPlayer(roomCode, playerId, io);
+        }, GAME_LOOP_CONFIG.HUNT_DURATION);
+        this.playerHuntTimers.set(key, { timeoutId });
+    }
+
+    /**
+     * Get per-player phase (blitz | hunt) for movement/freeze check
+     * @param {string} roomCode - Room code
+     * @param {string} playerId - Persistent player ID
+     * @returns {string} 'blitz' | 'hunt' or 'blitz' if not set (default frozen)
+     */
+    getPlayerPhase(roomCode, playerId) {
+        return this.playerPhase.get(this._playerKey(roomCode, playerId)) || 'blitz';
+    }
+
+    /**
+     * Get a player's current entry quiz questions (for game state sync / reconnection).
+     * @param {string} roomCode - Room code
+     * @param {string} playerId - Persistent player ID
+     * @returns {Array|null} Array of question objects or null if not in blitz
+     */
+    getPlayerEntryQuiz(roomCode, playerId) {
+        const state = this.playerBlitzState.get(this._playerKey(roomCode, playerId));
+        if (!state?.questions?.length) return null;
+        return state.questions;
     }
 
     /**
@@ -236,6 +335,85 @@ class GameLoopManager {
         this.gameLoopTimers.set(roomCode, timers);
     }
 
+    async prepQuestionsInRoom(roomCode){
+        await this._ensureRoomQuizPool(roomCode);
+    }
+
+    /**
+     * Send 3 unattempted blitz questions to a single player (per-player flow). Sets per-player blitz state and phase to blitz.
+     * @param {string} roomCode - Room code
+     * @param {string} playerId - Persistent player ID
+     * @param {Object} io - Socket.IO server
+     */
+    async sendBlitzQuizToPlayer(roomCode, playerId, io) {
+        const room = roomManager.getRoom(roomCode);
+        if (!room) return;
+        const player = room.players.find(p => p.playerId === playerId);
+        if (!player) return;
+        const socketId = player.id;
+        const attemptedIds = player.attemptedQuestionIds ?? [];
+        const hasAttempted = (q) => attemptedIds.some(id => String(id) === String(q.id));
+        const need = GAME_LOOP_CONFIG.BLITZ_QUESTION_COUNT;
+        let questions = [];
+        // 1) Throughout the game: prefer questions this player has not yet attempted (no repetition until necessary)
+        if (room.quizQuestionPool?.length > 0) {
+            let unattempted = room.quizQuestionPool.filter(q => q && !hasAttempted(q));
+            unattempted = [...unattempted].sort(() => Math.random() - 0.5);
+            const count = Math.min(need, unattempted.length);
+            for (let i = 0; i < count; i++) {
+                questions.push(unattempted[i]);
+            }
+        }
+        // 2) Only when there are fewer than 3 unattempted: fill remaining slots from full pool (repetition allowed)
+        if (questions.length < need && room.quizQuestionPool?.length > 0) {
+            const pool = room.quizQuestionPool.filter(q => q && (q.id !== undefined && q.id !== null));
+            while (questions.length < need && pool.length > 0) {
+                const idx = Math.floor(Math.random() * pool.length);
+                questions.push(pool[idx]);
+            }
+        }
+        // Fallback when no quiz pool (e.g. no quizId): use local questions so player can still enter maze
+        if (questions.length === 0) {
+            questions = getRandomQuestions(need);
+        }
+        // Keep only well-formed questions (some Quizizz questions can have empty options or bad correctAnswer)
+        questions = questions.filter(q => {
+            if (!q || (q.id === undefined && q.id !== 0) || q.id === null) return false;
+            const opts = Array.isArray(q.options) ? q.options : [];
+            if (opts.length < 2) return false;
+            const correct = Number(q.correctAnswer);
+            if (!Number.isInteger(correct) || correct < 0 || correct >= opts.length) return false;
+            return true;
+        });
+        if (questions.length === 0) {
+            questions = getRandomQuestions(need);
+        }
+        // If still short (e.g. pool had only invalid entries), pad with local questions
+        if (questions.length < need) {
+            const extra = getRandomQuestions(need - questions.length).map((q, i) => ({
+                ...q,
+                id: `blitz_pad_${Date.now()}_${i}` // unique id so no clash with pool
+            }));
+            questions = [...questions, ...extra];
+        }
+        if (questions.length > need) {
+            questions = questions.slice(0, need);
+        }
+        const now = Date.now();
+        const questionIds = questions.map(q => q.id);
+        this.playerBlitzState.set(this._playerKey(roomCode, playerId), {
+            questionIds,
+            questions,
+            answers: new Map(),
+            startTime: now
+        });
+        this.playerPhase.set(this._playerKey(roomCode, playerId), 'blitz');
+        io.to(socketId).emit('maze_entry_quiz', questions);
+        // Notify other players that this player is no longer visible in the maze
+        io.to(roomCode).emit(SOCKET_EVENTS.SERVER.PLAYER_LEFT_MAZE, { playerId });
+        if (player) player.timeLeftInMaze = GAME_LOOP_CONFIG.ALLOWED_TIME_IN_MAZE;
+    }
+
     /**
      * Submit a Blitz Quiz answer
      * @param {string} roomCode - Room code
@@ -285,6 +463,54 @@ class GameLoopManager {
             onAllAnswered(roomCode, io);
         }
 
+        return { isCorrect, responseTime };
+    }
+
+    /**
+     * Submit one blitz answer for a player (per-player flow). When all 3 answers received, calls onAnswered(roomCode, io, playerId).
+     * @param {string} roomCode - Room code
+     * @param {string} playerId - Persistent player ID
+     * @param {number} questionIndex - Index of question (0, 1, or 2)
+     * @param {number} answerIndex - Selected answer index
+     * @param {Object} io - Socket.IO server
+     * @param {Function} onAnswered - Callback (roomCode, io, playerId) when all 3 answers submitted
+     * @returns {Object|null} { isCorrect, responseTime } or null
+     */
+    submitBlitzAnswerForPlayer(roomCode, playerId, questionIndex, answerIndex, io, onAnswered) {
+        const key = this._playerKey(roomCode, playerId);
+
+        const state = this.playerBlitzState.get(key);
+        if (!state || !state.questions?.length) return null;
+
+        if (questionIndex < 0 || questionIndex >= state.questions.length) return null;
+        if (state.answers.has(questionIndex)) return null; // already answered this question
+
+        const question = state.questions[questionIndex];
+        if (!question || !Array.isArray(question.options)) return null;
+        const correctAnswerIndex = Number(question.correctAnswer);
+        const isCorrect = Number(answerIndex) === (Number.isInteger(correctAnswerIndex) ? correctAnswerIndex : -1);
+
+        const now = Date.now();
+        const responseTime = now - state.startTime;
+        state.answers.set(questionIndex, { answerIndex, isCorrect, responseTime });
+
+        roomManager.recordBlitzQuestionAttempted(roomCode, playerId, question.id, isCorrect);
+        const room = roomManager.getRoom(roomCode);
+        const player = room?.players.find(p => p.playerId === playerId);
+        const socketId = player?.id ?? playerId;
+        const payload = {
+            isCorrect,
+            responseTime,
+            answersReceived: state.answers.size,
+            totalQuestions: state.questions.length
+        };
+        if (isCorrect) payload.bonusCoins = GAME_LOOP_CONFIG.BLITZ_WINNER_BONUS;
+        
+        io.to(socketId).emit(SOCKET_EVENTS.SERVER.BLITZ_ANSWER_RESULT, payload);
+        if (state.answers.size >= state.questions.length) {
+            this.playerBlitzState.delete(key);
+            onAnswered(roomCode, io, playerId);
+        }
         return { isCorrect, responseTime };
     }
 
@@ -599,11 +825,15 @@ class GameLoopManager {
      */
     cleanupRoom(roomCode) {
         this.clearGameLoopTimers(roomCode);
+        this.clearGlobalTimer(roomCode);
+        this.clearPlayerHuntTimersForRoom(roomCode);
         this.gamePhases.delete(roomCode);
         this.blitzQuizzes.delete(roomCode);
         this.reserveUnicorns.delete(roomCode);
         this.roomRounds.delete(roomCode);
         this.wasUnicorn.delete(roomCode);
+        this._clearPlayerBlitzStateForRoom(roomCode);
+        this._clearPlayerPhaseForRoom(roomCode);
         log.info({ roomCode }, 'Game loop state cleaned up');
     }
 }

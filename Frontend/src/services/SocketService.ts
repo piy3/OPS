@@ -92,6 +92,7 @@ export const SOCKET_EVENTS = {
     START_ERROR: 'start_error',
     PHASE_CHANGE: 'phase_change',
     BLITZ_START: 'blitz_start',
+    MAZE_ENTRY_QUIZ: 'maze_entry_quiz',  // Per-player: 3 questions to enter maze
     BLITZ_ANSWER_RESULT: 'blitz_answer_result',
     BLITZ_RESULT: 'blitz_result',
     HUNT_START: 'hunt_start',
@@ -119,6 +120,8 @@ export const SOCKET_EVENTS = {
     SINK_TRAP_TRIGGERED: 'sink_trap_triggered',
     // Player elimination (instant kill mode)
     PLAYER_ELIMINATED: 'player_eliminated',
+    // Player visibility
+    PLAYER_LEFT_MAZE: 'player_left_maze',
     // Reconnection Events
     REJOIN_SUCCESS: 'rejoin_success',
     REJOIN_ERROR: 'rejoin_error',
@@ -392,14 +395,15 @@ class SocketService {
   }
 
   // Room operations
-  createRoom(name?: string, maxPlayers: number = 30, quizId?: string, isTeacher?: boolean, totalRounds?: number, userId?: string) {
+  createRoom(name?: string, maxPlayers: number = 30, quizId?: string, isTeacher?: boolean, totalRounds?: number, userId?: string, gameDurationMinutes?: number) {
     const playerId = this.getOrCreatePlayerId();
-    const payload: { name?: string; maxPlayers: number; quizId?: string; isTeacher?: boolean; totalRounds?: number; userId?: string; playerId: string } = { maxPlayers, playerId };
+    const payload: { name?: string; maxPlayers: number; quizId?: string; isTeacher?: boolean; totalRounds?: number; userId?: string; playerId: string; gameDurationMinutes?: number } = { maxPlayers, playerId };
     if (name?.trim()) payload.name = name.trim();
     if (quizId?.trim()) payload.quizId = quizId.trim();
     if (isTeacher) payload.isTeacher = true;
-    if (totalRounds) payload.totalRounds = totalRounds;
+    if (totalRounds != null) payload.totalRounds = totalRounds;
     if (userId?.trim()) payload.userId = userId.trim();
+    if (gameDurationMinutes != null) payload.gameDurationMinutes = gameDurationMinutes;
     this.emit(SOCKET_EVENTS.CLIENT.CREATE_ROOM, payload);
   }
 
@@ -459,9 +463,9 @@ class SocketService {
     });
   }
 
-  // Game actions
-  submitBlitzAnswer(answerIndex: number) {
-    this.emit(SOCKET_EVENTS.CLIENT.BLITZ_ANSWER, { answerIndex });
+  // Game actions (per-player blitz: questionIndex 0..2, answerIndex for selected option)
+  submitBlitzAnswer(questionIndex: number, answerIndex: number) {
+    this.emit(SOCKET_EVENTS.CLIENT.BLITZ_ANSWER, { questionIndex, answerIndex });
   }
 
   collectCoin(coinId: string) {

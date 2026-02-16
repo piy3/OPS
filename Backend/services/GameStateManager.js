@@ -31,11 +31,13 @@ import RoomManager from './RoomManager.js';
 
 class GameStateManager {
     constructor() {
-        // Bind methods for callbacks
+        // Bind methods for callbacks (so "this" is correct when invoked by timers/other modules)
         this._onBlitzEnd = this._onBlitzEnd.bind(this);
         this._onStartHunt = this._onStartHunt.bind(this);
         this._onQuizComplete = this._onQuizComplete.bind(this);
-        
+        this._onBlitzFinished = this._onBlitzFinished.bind(this);
+        this._onHuntEndForPlayer = this._onHuntEndForPlayer.bind(this);
+
         // Unfreeze quiz state: Map<roomCode, Map<playerId, { questions, answers, startTime }>>
         this.unfreezeQuizzes = new Map();
     }
@@ -130,17 +132,22 @@ class GameStateManager {
             teacherId: room.teacherId,
             isTeacher: requesterId == room.teacherId,
             totalRounds: room?.totalRounds ?? GAME_LOOP_CONFIG.TOTAL_GAME_ROUNDS,
-            players: room.players.map(player => ({
-                id: player.playerId,  // Use persistent playerId for player identification
-                name: player.name,
-                isUnicorn: player.isUnicorn,
-                coins: player.coins,
-                sinkInventory: sinkTrapManager.getPlayerInventory(roomCode, player.playerId),
-                state: player.state || PLAYER_STATE.ACTIVE, // Include player state for frozen detection
-                position: positionManager.getPlayerPosition(roomCode, player.id),  // Position manager still uses socket ID internally
-                questions_attempted: player.questions_attempted ?? 0,
-                questions_correctly_answered: player.questions_correctly_answered ?? 0
-            })),
+            players: room.players.map(player => {
+                const inMaze = gameLoopManager.getPlayerPhase(roomCode, player.playerId) === 'hunt';
+                return {
+                    id: player.playerId,  // Use persistent playerId for player identification
+                    name: player.name,
+                    isUnicorn: player.isUnicorn,
+                    coins: player.coins,
+                    sinkInventory: sinkTrapManager.getPlayerInventory(roomCode, player.playerId),
+                    state: player.state || PLAYER_STATE.ACTIVE, // Include player state for frozen detection
+                    position: positionManager.getPlayerPosition(roomCode, player.id),  // Position manager still uses socket ID internally
+                    questions_attempted: Number(player.questions_attempted) || 0,
+                    questions_correctly_answered: Number(player.questions_correctly_answered) || 0,
+                    timeLeftInMaze: player.timeLeftInMaze,
+                    inMaze, // true only when player has finished entry quiz and is in hunt (visible to others)
+                };
+            }),
             unicornIds: room.unicornIds ?? (room.unicornId ? [room.unicornId] : []),
             unicornId: room.unicornIds?.[0] ?? room.unicornId ?? null, // not necessary to send it, but kept due to support legacy frontend code
             leaderboard: roomManager.getLeaderboard(roomCode),
@@ -175,16 +182,35 @@ class GameStateManager {
         }
     }
 
+    async startGameLoopForEachPlayer(roomCode, io) {
+        const room = roomManager.getRoom(roomCode);
+        if (!room) return;
+        gameLoopManager.setGamePhase(roomCode, GAME_PHASE.HUNT, io); 
+        gameLoopManager.initGameTimer(roomCode, io, (code, socket) => this._endGame(code, socket));
+        await gameLoopManager.prepQuestionsInRoom(roomCode);
+
+        const mapConfig = room.mapConfig;
+        coinManager.initializeCoins(roomCode, io, mapConfig);
+        sinkholeManager.initializeSinkholes(roomCode, io, mapConfig);
+        sinkTrapManager.initializeSinkTraps(roomCode, io, mapConfig);
+
+        const players = room.players ?? [];
+        for (const p of players) {
+            await gameLoopManager.sendBlitzQuizToPlayer(roomCode, p.playerId, io);
+        }
+    }
+
     /**
-     * Submit a Blitz Quiz answer
+     * Submit a Blitz Quiz answer (per-player flow: one of 3 questions)
      */
-    submitBlitzAnswer(roomCode, playerId, answerIndex, io) {
-        return gameLoopManager.submitBlitzAnswer(
-            roomCode, 
-            playerId, 
-            answerIndex, 
+    submitBlitzAnswer(roomCode, playerId, questionIndex, answerIndex, io) {
+        return gameLoopManager.submitBlitzAnswerForPlayer(
+            roomCode,
+            playerId,
+            questionIndex,
+            answerIndex,
             io,
-            this._onBlitzEnd
+            this._onBlitzFinished
         );
     }
 
@@ -231,6 +257,12 @@ class GameStateManager {
 
         const player = room.players.find(p => p.id === playerId);
         if (!player) return null;
+
+        // Per-player flow: allow move only when this player is in hunt phase (not in blitz)
+        const playerPhase = gameLoopManager.getPlayerPhase(roomCode, player.playerId);
+        if (playerPhase !== GAME_PHASE.HUNT && playerPhase !== 'hunt') {
+            return null;
+        }
         
         // Check if player can move (not frozen from combat)
         if (!combatManager.canPlayerMove(player, playerId)) {
@@ -251,8 +283,8 @@ class GameStateManager {
 
         if (!updatedPosition) return null;
 
-        // Only process collisions during HUNT phase
-        if (io && gameLoopManager.getGamePhase(roomCode) === GAME_PHASE.HUNT) {
+        // Only process collisions when room is in HUNT or this player is in hunt (per-player flow)
+        if (io && (gameLoopManager.getGamePhase(roomCode) === GAME_PHASE.HUNT || playerPhase === 'hunt')) {
             const validatedPosition = { row: updatedPosition.row, col: updatedPosition.col };
             
             // Check coin collection (survivors only)
@@ -497,6 +529,100 @@ class GameStateManager {
     }
 
     /**
+     * Callback when a single player has submitted all 3 blitz answers (per-player flow). Assign enforcer (20%), start hunt for this player.
+     */
+    _onBlitzFinished(roomCode, io, playerId) {
+        const room = roomManager.getRoom(roomCode);
+        if (!room || room.status !== ROOM_STATUS.PLAYING) return;
+        const player = room.players.find(p => p.playerId === playerId);
+        if (!player) return;
+        const enforcerChance = GAME_LOOP_CONFIG.ENFORCER_CHANCE ?? 0.2;
+        const isEnforcer = Math.random() < enforcerChance;
+        const currentIds = room.unicornIds ?? [];
+        
+        // Update unicornIds: add if becoming enforcer, remove if not
+        let unicornIdsChanged = false;
+        if (isEnforcer) {
+            if (!currentIds.includes(playerId)) {
+                roomManager.setUnicorns(roomCode, [...currentIds, playerId]);
+                unicornIdsChanged = true;
+            }
+        } else {
+            // Remove player from unicornIds if they're no longer an enforcer
+            if (currentIds.includes(playerId)) {
+                roomManager.setUnicorns(roomCode, currentIds.filter(id => id !== playerId));
+                unicornIdsChanged = true;
+            }
+        }
+        
+        const updatedRoom = roomManager.getRoom(roomCode);
+        const socketId = player.id;
+        const now = Date.now();
+        const huntEndTime = now + GAME_LOOP_CONFIG.HUNT_DURATION;
+        gameLoopManager.startHuntForPlayer(roomCode, playerId, io, (code, pid, socket) => this._onHuntEndForPlayer(code, socket, pid));
+        io.to(socketId).emit(SOCKET_EVENTS.SERVER.HUNT_START, {
+            duration: GAME_LOOP_CONFIG.HUNT_DURATION,
+            endTime: huntEndTime,
+            isEnforcer: isEnforcer,
+            unicornIds: updatedRoom?.unicornIds ?? room.unicornIds ?? [],
+            timestamp: now
+        });
+        
+        // Broadcast enforcer status change to all players so they update their remotePlayersRef
+        if (unicornIdsChanged) {
+            io.to(roomCode).emit(SOCKET_EVENTS.SERVER.UNICORN_TRANSFERRED, {
+                newUnicornIds: updatedRoom?.unicornIds ?? [],
+                reason: 'role_change'
+            });
+        }
+        
+        // Broadcast this player's position so others see them in the maze
+        const pos = positionManager.getPlayerPosition(roomCode, socketId);
+        if (pos) {
+            io.to(roomCode).emit(SOCKET_EVENTS.SERVER.PLAYER_POSITION_UPDATE, {
+                playerId: playerId,
+                position: pos
+            });
+        }
+    }
+
+    /**
+     * Callback when a single player's hunt 30s expires (per-player flow). Send next 3 questions and set phase back to blitz.
+     * If the player was frozen (in unfreeze quiz), cancel their quiz and clear frozen state first.
+     */
+    async _onHuntEndForPlayer(roomCode, io, playerId) {
+        const room = roomManager.getRoom(roomCode);
+        if (!room || room.status !== ROOM_STATUS.PLAYING) return;
+        
+        // Check if this player has an active unfreeze quiz (they were tagged during hunt)
+        // If so, cancel their quiz and clear their frozen state before starting blitz
+        if (this.hasUnfreezeQuiz(roomCode, playerId)) {
+            log.info({ roomCode, playerId }, 'Player hunt timer expired while in unfreeze quiz - cancelling quiz');
+            
+            // Clear frozen state in combat manager
+            combatManager.clearFrozenState(playerId);
+            
+            // Find player to get socket ID for emitting and state reset
+            const player = room.players.find(p => p.playerId === playerId);
+            if (player) {
+                // Reset player state to ACTIVE
+                roomManager.setPlayerState(roomCode, player.id, PLAYER_STATE.ACTIVE);
+                
+                // Notify player their quiz was cancelled
+                io.to(player.id).emit(SOCKET_EVENTS.SERVER.UNFREEZE_QUIZ_CANCELLED, {
+                    reason: 'hunt_timer_expired',
+                    message: 'Hunt timer expired - starting blitz quiz!'
+                });
+            }
+            
+            // Clean up quiz state
+            this.cleanupUnfreezeQuiz(roomCode, playerId);
+        }
+        
+        await gameLoopManager.sendBlitzQuizToPlayer(roomCode, playerId, io);
+    }
+
+    /**
      * Callback when hunt phase should start
      */
     _onStartHunt(roomCode, io) {
@@ -736,6 +862,8 @@ class GameStateManager {
                 // uid is persistent playerId, need to get socket ID for position lookup
                 const unicornPlayer = roomManager.getPlayerByPlayerId(roomCode, uid);
                 if (!unicornPlayer) continue;
+                // Skip unicorns in blitz quiz (not in maze yet)
+                if (gameLoopManager.getPlayerPhase(roomCode, uid) !== 'hunt') continue;
                 const unicornPos = positionManager.getPlayerPosition(roomCode, unicornPlayer.id);
                 if (!unicornPos) continue;
                 const crossed = pathCells.some(cell =>
@@ -751,6 +879,8 @@ class GameStateManager {
             const caughtPlayers = [];
             for (const p of room.players) {
                 if (p.id === playerId || p.isUnicorn) continue;
+                // Don't tag players still in blitz (not in maze yet)
+                if (gameLoopManager.getPlayerPhase(roomCode, p.playerId) !== 'hunt') continue;
                 const playerPos = positionManager.getPlayerPosition(roomCode, p.id);
                 if (!playerPos) continue;
                 const caught = pathCells.some(cell =>
@@ -877,17 +1007,18 @@ class GameStateManager {
      * Respawn player after freeze duration
      * BATCHED: Single PLAYER_RESPAWN event includes position + health + state
      * @param {string} roomCode - Room code
-     * @param {string} socketId - Player socket ID
+     * @param {string} persistentPlayerId - Persistent player ID
      * @param {Object} io - Socket.IO server
      */
-    _respawnAfterFreeze(roomCode, socketId, io) {
-        const player = roomManager.getPlayer(roomCode, socketId);
-        if (!player) return;
-
+    _respawnAfterFreeze(roomCode, persistentPlayerId, io) {
         const room = roomManager.getRoom(roomCode);
         if (!room) return;
 
-        const persistentPlayerId = player.playerId;
+        // Find player by persistent playerId
+        const player = room.players.find(p => p.playerId === persistentPlayerId);
+        if (!player) return;
+
+        const socketId = player.id;
 
         // Set state to ACTIVE (uses socket ID for internal operation)
         roomManager.setPlayerState(roomCode, socketId, PLAYER_STATE.ACTIVE);
@@ -922,7 +1053,7 @@ class GameStateManager {
         // BATCHED: Single event with all respawn data (position + health + state)
         // Use persistent playerId for player identification in events
         io.to(roomCode).emit(SOCKET_EVENTS.SERVER.PLAYER_RESPAWN, {
-            playerId: player.playerId,
+            playerId: persistentPlayerId,
             playerName: player.name,
             health: updatedPlayer.health,
             maxHealth: COMBAT_CONFIG.MAX_HEALTH,
@@ -955,10 +1086,11 @@ class GameStateManager {
         const room = roomManager.getRoom(roomCode);
         if (!room) return;
 
-        const player = room.players.find(p => p.id === playerId);
+        // playerId here is the persistent player ID - find player by playerId field
+        const player = room.players.find(p => p.playerId === playerId);
         if (!player) return;
 
-        // Prevent starting multiple quizzes for the same player
+        // Prevent starting multiple quizzes for the same player (keyed by persistent playerId)
         if (this.hasUnfreezeQuiz(roomCode, playerId)) {
             log.warn({ roomCode, playerId, playerName: player.name }, 'Unfreeze quiz already exists, skipping duplicate start');
             return;
@@ -992,7 +1124,7 @@ class GameStateManager {
             this.unfreezeQuizzes.set(roomCode, new Map());
         }
 
-        // Store quiz state for this player
+        // Store quiz state for this player (keyed by persistent playerId)
         this.unfreezeQuizzes.get(roomCode).set(playerId, {
             questions: questions,           // Full questions with correct answers
             answers: [],                    // Player's submitted answers
@@ -1001,8 +1133,8 @@ class GameStateManager {
 
         log.info({ roomCode, playerId, playerName: player.name }, 'Unfreeze quiz started');
 
-        // Emit to only this player's socket
-        io.to(playerId).emit(SOCKET_EVENTS.SERVER.UNFREEZE_QUIZ_START, {
+        // Emit to player's socket (player.id is the socket ID)
+        io.to(player.id).emit(SOCKET_EVENTS.SERVER.UNFREEZE_QUIZ_START, {
             questions: questionsForClient,
             totalQuestions: UNFREEZE_QUIZ_CONFIG.QUESTIONS_COUNT,
             passThreshold: UNFREEZE_QUIZ_CONFIG.PASS_THRESHOLD
@@ -1031,6 +1163,11 @@ class GameStateManager {
             return null;
         }
 
+        // Get player by persistent playerId to access their socket ID for emitting
+        const room = roomManager.getRoom(roomCode);
+        const player = room?.players.find(p => p.playerId === playerId);
+        const socketId = player?.id || playerId; // Fallback to playerId if player not found
+
         // Validate question index
         if (questionIndex < 0 || questionIndex >= quizState.questions.length) {
             log.warn({ roomCode, playerId, questionIndex }, 'Invalid question index for unfreeze quiz');
@@ -1056,8 +1193,8 @@ class GameStateManager {
 
         RoomManager.handlePlayerQuestionsAttempt(roomCode, playerId, isCorrect);
 
-        // Send answer result to the player
-        io.to(playerId).emit(SOCKET_EVENTS.SERVER.UNFREEZE_QUIZ_ANSWER_RESULT, {
+        // Send answer result to the player (use socket ID)
+        io.to(socketId).emit(SOCKET_EVENTS.SERVER.UNFREEZE_QUIZ_ANSWER_RESULT, {
             questionIndex,
             isCorrect,
             correctAnswer: question.correctAnswer,
@@ -1085,8 +1222,8 @@ class GameStateManager {
                 // Respawn the player
                 this._respawnAfterFreeze(roomCode, playerId, io);
 
-                // Notify player quiz is complete
-                io.to(playerId).emit(SOCKET_EVENTS.SERVER.UNFREEZE_QUIZ_COMPLETE, {
+                // Notify player quiz is complete (use socket ID)
+                io.to(socketId).emit(SOCKET_EVENTS.SERVER.UNFREEZE_QUIZ_COMPLETE, {
                     passed: true,
                     correctCount,
                     totalQuestions: UNFREEZE_QUIZ_CONFIG.QUESTIONS_COUNT
@@ -1102,8 +1239,8 @@ class GameStateManager {
                     this.unfreezeQuizzes.delete(roomCode);
                 }
 
-                // Notify player they failed and will get new questions
-                io.to(playerId).emit(SOCKET_EVENTS.SERVER.UNFREEZE_QUIZ_COMPLETE, {
+                // Notify player they failed and will get new questions (use socket ID)
+                io.to(socketId).emit(SOCKET_EVENTS.SERVER.UNFREEZE_QUIZ_COMPLETE, {
                     passed: false,
                     correctCount,
                     totalQuestions: UNFREEZE_QUIZ_CONFIG.QUESTIONS_COUNT,
@@ -1115,22 +1252,22 @@ class GameStateManager {
                 setTimeout(() => {
                     // Check player is still in room and still frozen
                     const room = roomManager.getRoom(roomCode);
-                    const player = room?.players.find(p => p.id === playerId);
+                    const retryPlayer = room?.players.find(p => p.playerId === playerId);
                     
-                    if (!room || !player) {
+                    if (!room || !retryPlayer) {
                         // Player left the room - no action needed
                         log.info({ roomCode, playerId }, 'Player left room during quiz retry delay');
                         return;
                     }
                     
-                    if (player.state === PLAYER_STATE.FROZEN) {
-                        // Player still frozen - start new quiz
+                    if (retryPlayer.state === PLAYER_STATE.FROZEN) {
+                        // Player still frozen - start new quiz (playerId is persistent ID)
                         this._startUnfreezeQuiz(roomCode, playerId, io);
                     } else {
                         // Player no longer frozen (unfrozen via blitz cancel or other means)
-                        // Notify client so they don't wait forever
-                        log.info({ roomCode, playerId, playerName: player.name, state: player.state }, 'Player no longer frozen during retry delay');
-                        io.to(playerId).emit(SOCKET_EVENTS.SERVER.UNFREEZE_QUIZ_CANCELLED, {
+                        // Notify client so they don't wait forever (use socket ID)
+                        log.info({ roomCode, playerId, playerName: retryPlayer.name, state: retryPlayer.state }, 'Player no longer frozen during retry delay');
+                        io.to(retryPlayer.id).emit(SOCKET_EVENTS.SERVER.UNFREEZE_QUIZ_CANCELLED, {
                             reason: 'state_changed',
                             message: 'You are no longer frozen!'
                         });
@@ -1160,15 +1297,20 @@ class GameStateManager {
         log.info({ roomCode, count: roomQuizzes.size }, 'Cancelling unfreeze quizzes due to blitz start');
 
         // Process each player with an active unfreeze quiz
+        const room = roomManager.getRoom(roomCode);
         for (const [playerId, quizState] of roomQuizzes) {
-            // Clear frozen state in combat manager
+            // Clear frozen state in combat manager (playerId is persistent ID)
             combatManager.clearFrozenState(playerId);
 
-            // Respawn the player
+            // Respawn the player (playerId is persistent ID)
             this._respawnAfterFreeze(roomCode, playerId, io);
 
-            // Notify player their quiz was cancelled
-            io.to(playerId).emit(SOCKET_EVENTS.SERVER.UNFREEZE_QUIZ_CANCELLED, {
+            // Find player to get socket ID for emitting
+            const player = room?.players.find(p => p.playerId === playerId);
+            const socketId = player?.id || playerId;
+
+            // Notify player their quiz was cancelled (use socket ID)
+            io.to(socketId).emit(SOCKET_EVENTS.SERVER.UNFREEZE_QUIZ_CANCELLED, {
                 reason: 'blitz_start',
                 message: 'Blitz Quiz starting - you have been unfrozen!'
             });
@@ -1209,52 +1351,55 @@ class GameStateManager {
      * If the player is frozen and has an active quiz, resend the quiz data.
      * If the player is frozen but has no quiz, start a new one.
      * @param {string} roomCode - Room code
-     * @param {string} playerId - Player ID
+     * @param {string} socketId - Player socket ID
      * @param {Object} io - Socket.IO server
      * @returns {boolean} True if quiz was sent/started
      */
-    requestUnfreezeQuiz(roomCode, playerId, io) {
+    requestUnfreezeQuiz(roomCode, socketId, io) {
         const room = roomManager.getRoom(roomCode);
         if (!room) {
             log.warn({ roomCode }, 'Request unfreeze quiz failed: room not found');
             return false;
         }
 
-        const player = room.players.find(p => p.id === playerId);
+        const player = room.players.find(p => p.id === socketId);
         if (!player) {
-            log.warn({ roomCode, playerId }, 'Request unfreeze quiz failed: player not found');
+            log.warn({ roomCode, socketId }, 'Request unfreeze quiz failed: player not found');
             return false;
         }
+
+        // Get persistent playerId for quiz storage lookup
+        const persistentPlayerId = player.playerId || socketId;
 
         // Only process if player is actually frozen
         if (player.state !== PLAYER_STATE.FROZEN) {
-            log.info({ roomCode, playerId, playerName: player.name, state: player.state }, 'Request unfreeze quiz: player not frozen');
+            log.info({ roomCode, socketId, playerName: player.name, state: player.state }, 'Request unfreeze quiz: player not frozen');
             return false;
         }
 
-        // Check if player already has an active quiz
+        // Check if player already has an active quiz (keyed by persistent playerId)
         const roomQuizzes = this.unfreezeQuizzes.get(roomCode);
-        const existingQuiz = roomQuizzes?.get(playerId);
+        const existingQuiz = roomQuizzes?.get(persistentPlayerId);
 
         if (existingQuiz) {
             // Resend existing quiz data
-            log.info({ roomCode, playerId, playerName: player.name }, 'Resending existing unfreeze quiz');
+            log.info({ roomCode, persistentPlayerId, playerName: player.name }, 'Resending existing unfreeze quiz');
             const questionsForClient = existingQuiz.questions.map(q => ({
                 id: q.id,
                 question: q.question,
                 options: q.options
             }));
 
-            io.to(playerId).emit(SOCKET_EVENTS.SERVER.UNFREEZE_QUIZ_START, {
+            io.to(socketId).emit(SOCKET_EVENTS.SERVER.UNFREEZE_QUIZ_START, {
                 questions: questionsForClient,
                 totalQuestions: UNFREEZE_QUIZ_CONFIG.QUESTIONS_COUNT,
                 passThreshold: UNFREEZE_QUIZ_CONFIG.PASS_THRESHOLD
             });
             return true;
         } else {
-            // No quiz exists - start a new one
-            log.info({ roomCode, playerId, playerName: player.name }, 'Starting new unfreeze quiz for reconnection recovery');
-            this._startUnfreezeQuiz(roomCode, playerId, io);
+            // No quiz exists - start a new one (pass persistent playerId)
+            log.info({ roomCode, persistentPlayerId, playerName: player.name }, 'Starting new unfreeze quiz for reconnection recovery');
+            this._startUnfreezeQuiz(roomCode, persistentPlayerId, io);
             return true;
         }
     }

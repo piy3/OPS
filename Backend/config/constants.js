@@ -37,7 +37,7 @@ export const GAME_PHASE = {
 export const GAME_LOOP_CONFIG = {
     // Blitz Quiz Phase
     BLITZ_QUIZ_DURATION: 15000,     // 15 seconds for Blitz Quiz
-    BLITZ_QUESTION_COUNT: 1,        // Single question per Blitz Quiz
+    BLITZ_QUESTION_COUNT: 3,        // Single question per Blitz Quiz
     
     // Hunt Phase
     HUNT_DURATION: 30000,           // 30 seconds of active gameplay
@@ -47,23 +47,26 @@ export const GAME_LOOP_CONFIG = {
     
     // Game Loop
     GAME_LOOP_INTERVAL: 30000,      // Blitz Quiz every 60 seconds during hunt
+    ALLOWED_TIME_IN_MAZE: 30000, // 30 seconds
     
     // Game Length
     TOTAL_GAME_ROUNDS: 4,           // Number of rounds before game ends (1 round = Blitz + Hunt)
-    
+    GAME_TOTAL_DURATION_MS: 300000, // 5 minutes - global timer ends game for everyone (per-player flow)
+
     // Scoring
     TAG_SCORE_STEAL: 15,            // Unicorn steals 15 points per tag
     COIN_VALUE: 5,                  // Each coin worth 5 points
     BLITZ_WINNER_BONUS: 10,         // Bonus for winning Blitz Quiz
     
-    // Multiple Unicorns (20% of players, min 1)
+    // Multiple Unicorns (room flow: 30%; per-player flow: ENFORCER_CHANCE when entering hunt)
     UNICORN_PERCENTAGE: 0.3,
+    ENFORCER_CHANCE: 0.2,           // Per-player flow: 20% chance of becoming enforcer (unicorn) when entering hunt
     MIN_UNICORNS: 1,
     MAX_UNICORNS: 30,             // null = no cap; set to N to ensure at least one survivor
     
     // Reserve Unicorn (legacy: used only when refilling after unicorn disconnect if desired)
     RESERVE_UNICORN_ENABLED: false, // Disabled for multi-unicorn; refill from room when needed
-    RESERVE_ACTIVATION_DELAY: 5000  // Delay before reserve can become unicorn
+    RESERVE_ACTIVATION_DELAY: 5000,  // Delay before reserve can become unicorn
 };
 
 /**
@@ -249,6 +252,7 @@ export const SOCKET_EVENTS = {
         SINK_TRAP_DEPLOYED: 'sink_trap_deployed',             // Player deployed a sink trap
         SINK_TRAP_TRIGGERED: 'sink_trap_triggered',           // Unicorn triggered a sink trap
         PLAYER_ELIMINATED: 'player_eliminated',               // Player was eliminated
+        PLAYER_LEFT_MAZE: 'player_left_maze',                 // Player went back to blitz (not visible in maze)
         // Reconnection Events
         REJOIN_SUCCESS: 'rejoin_success',                     // Player successfully rejoined
         REJOIN_ERROR: 'rejoin_error',                         // Failed to rejoin

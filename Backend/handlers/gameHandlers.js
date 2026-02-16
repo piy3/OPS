@@ -64,20 +64,22 @@ export function registerGameHandlers(socket, io) {
             };
 
             // Notify all players in the room with initial game state
-            // Include mapConfig so all clients use the same map dimensions
+            // Include mapConfig and gameEndTime (per-player flow: teacher-set global timer)
+            const durationMs = room?.gameDurationMs ?? GAME_LOOP_CONFIG.GAME_TOTAL_DURATION_MS ?? 300000;
+            const gameEndTime = Date.now() + durationMs;
             io.to(roomCode).emit(SOCKET_EVENTS.SERVER.GAME_STARTED, {
                 room: room,
                 gameState: gameState,
                 roundInfo: roundInfo,
-                mapConfig: room.mapConfig
+                mapConfig: room.mapConfig,
+                gameEndTime
             });
 
-            // Immediately broadcast initial spawn positions to all players
-            // This ensures all clients know where each player spawns before any movement
+            // Broadcast spawn positions only for players already in maze (hunt phase)
+            // Players still in blitz quiz are not visible to others until they finish
             if (gameState && gameState.players) {
                 gameState.players.forEach(player => {
-                    if (player.position) {
-                        // Broadcast spawn position to all other players
+                    if (player.position && player.inMaze) {
                         io.to(roomCode).emit(SOCKET_EVENTS.SERVER.PLAYER_POSITION_UPDATE, {
                             playerId: player.id,
                             position: player.position
@@ -86,8 +88,8 @@ export function registerGameHandlers(socket, io) {
                 });
             }
 
-            // Start the game loop (Blitz Quiz + Hunt cycle); may fetch Quizizz if room has quizId
-            await gameStateManager.startGameLoop(roomCode, io);
+            // Per-player flow: send 3 questions to each player, global timer, no room-wide blitz
+            await gameStateManager.startGameLoopForEachPlayer(roomCode, io);
         } catch (error) {
             log.error({ err: error }, 'Error starting game');
             socket.emit(SOCKET_EVENTS.SERVER.START_ERROR, { message: 'Failed to start game' });
@@ -129,19 +131,14 @@ export function registerGameHandlers(socket, io) {
                 return; // Silently ignore if game not playing
             }
 
-            // Verify we're in Blitz Quiz phase
-            const currentPhase = gameStateManager.getGamePhase(roomCode);
-            if (currentPhase !== GAME_PHASE.BLITZ_QUIZ) {
-                roomLog(roomCode, room).warn({ currentPhase }, 'Blitz answer rejected: Not in Blitz Quiz phase');
-                return;
-            }
+            const { questionIndex, answerIndex } = answerData ?? {};
+            const playerId = roomManager.getPersistentPlayerId(roomCode, socket.id);
+            if (playerId == null || answerIndex == null) return;
 
-            const { answerIndex } = answerData;
-
-            // Submit the Blitz answer
             const result = gameStateManager.submitBlitzAnswer(
                 roomCode,
-                socket.id,
+                playerId,
+                questionIndex ?? 0,
                 answerIndex,
                 io
             );
@@ -215,19 +212,21 @@ export function registerGameHandlers(socket, io) {
 
             const gameState = gameStateManager.getGameState(roomCode, socket.id);
             const roundInfo = gameLoopManager.getRoomRounds(roomCode);
-            const currentPhase = gameStateManager.getGamePhase(roomCode);
-            
-            // Include active blitz quiz data if in blitz_quiz phase
-            // This handles the race condition where client navigates to /game
-            // after GAME_STARTED but misses BLITZ_START
+            const roomPhase = gameStateManager.getGamePhase(roomCode);
+            const playerId = roomManager.getPersistentPlayerId(roomCode, socket.id);
+            const playerPhase = playerId ? gameLoopManager.getPlayerPhase(roomCode, playerId) : roomPhase;
+            // Per-player flow: send this player's phase and entry quiz if in blitz
+            const mazeEntryQuiz = playerId ? gameLoopManager.getPlayerEntryQuiz(roomCode, playerId) : null;
+            const currentPhase = mazeEntryQuiz?.length ? 'blitz_quiz' : playerPhase;
             const blitzQuiz = gameLoopManager.getActiveBlitzQuiz(roomCode);
             
             socket.emit(SOCKET_EVENTS.SERVER.GAME_STATE_SYNC, { 
                 gameState: gameState,
                 roundInfo: roundInfo,
                 phase: currentPhase,
-                blitzQuiz: blitzQuiz, // Will be null if not in blitz phase
-                mapConfig: room.mapConfig // Include mapConfig for reconnection
+                blitzQuiz: blitzQuiz,
+                mazeEntryQuiz: mazeEntryQuiz,
+                mapConfig: room.mapConfig
             });
         } catch (error) {
             log.error({ err: error }, 'Error getting game state');
@@ -302,17 +301,20 @@ export function registerGameHandlers(socket, io) {
                 return;
             }
 
-            if (!gameStateManager.hasUnfreezeQuiz(roomCode, socket.id)) {
-                roomLog(roomCode, room).warn({ socketId: socket.id }, 'Unfreeze quiz answer rejected: No active unfreeze quiz for player');
+            // Use persistent player ID for unfreeze quiz operations (matches how frozen state is tracked)
+            const persistentPlayerId = player.playerId || socket.id;
+
+            if (!gameStateManager.hasUnfreezeQuiz(roomCode, persistentPlayerId)) {
+                roomLog(roomCode, room).warn({ socketId: socket.id, persistentPlayerId }, 'Unfreeze quiz answer rejected: No active unfreeze quiz for player');
                 return;
             }
 
             const { questionIndex, answerIndex } = answerData;
 
-            // Submit the answer
+            // Submit the answer using persistent player ID
             const result = gameStateManager.submitUnfreezeQuizAnswer(
                 roomCode,
-                socket.id,
+                persistentPlayerId,
                 questionIndex,
                 answerIndex,
                 io

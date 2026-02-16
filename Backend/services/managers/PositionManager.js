@@ -465,10 +465,11 @@ class PositionManager {
             this.lastUpdateTime.set(newSocketId, lastUpdate);
         }
 
-        // Update respawned players tracking
-        if (this.respawnedPlayers.has(oldSocketId)) {
+        // Update respawned players tracking (Map: socketId -> timestamp)
+        const respawnTs = this.respawnedPlayers.get(oldSocketId);
+        if (respawnTs !== undefined) {
             this.respawnedPlayers.delete(oldSocketId);
-            this.respawnedPlayers.add(newSocketId);
+            this.respawnedPlayers.set(newSocketId, respawnTs);
         }
     }
 

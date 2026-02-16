@@ -5,7 +5,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { Trophy, Users, Clock, Zap } from 'lucide-react';
+import { Trophy, Users, Zap } from 'lucide-react';
 import socketService, { SOCKET_EVENTS, Room, MapConfig } from '@/services/SocketService';
 import logger from '@/utils/logger';
 
@@ -48,6 +48,10 @@ const TeacherGame: React.FC = () => {
   // Leaderboard
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   
+  // Global game end time (teacher-set duration; game ends when this timestamp is reached)
+  const [gameEndTime, setGameEndTime] = useState<number | null>(null);
+  const [countdownTick, setCountdownTick] = useState(0);
+
   // Game end state
   const [isGameOver, setIsGameOver] = useState(false);
   const [finalLeaderboard, setFinalLeaderboard] = useState<LeaderboardEntry[]>([]);
@@ -170,6 +174,7 @@ const TeacherGame: React.FC = () => {
 
     // Game end
     const unsubGameEnd = socketService.on(SOCKET_EVENTS.SERVER.GAME_END, (data: any) => {
+      setGameEndTime(null);
       setGamePhase('game_end');
       setIsGameOver(true);
       
@@ -189,6 +194,7 @@ const TeacherGame: React.FC = () => {
 
     // Game started (initial start or restart after game over)
     const unsubGameStarted = socketService.on(SOCKET_EVENTS.SERVER.GAME_STARTED, (data: any) => {
+      setGameEndTime(data.gameEndTime ?? null);
       if (isGameOverRef.current) {
         // Restart: leave game-over screen and restore in-game view
         setIsGameOver(false);
@@ -229,6 +235,13 @@ const TeacherGame: React.FC = () => {
       unsubGameStarted();
     };
   }, [unicornIds]);
+
+  // Global game timer countdown tick (updates every second when gameEndTime is set)
+  useEffect(() => {
+    if (gameEndTime == null) return;
+    const interval = setInterval(() => setCountdownTick((t) => t + 1), 1000);
+    return () => clearInterval(interval);
+  }, [gameEndTime]);
 
   // Timer countdown
   useEffect(() => {
@@ -312,7 +325,20 @@ const TeacherGame: React.FC = () => {
             <h1 className="text-3xl font-bold text-foreground">Teacher Dashboard</h1>
             <p className="text-muted-foreground">Game in progress</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
+            {gameEndTime != null && (
+              <div className="bg-amber-950/50 px-4 py-3 rounded-lg border border-amber-500/40">
+                <span className="text-amber-400 text-sm">Game ends in: </span>
+                <span className="text-amber-300 font-mono font-bold text-xl">
+                  {(() => {
+                    const secs = Math.max(0, Math.floor((gameEndTime - Date.now()) / 1000));
+                    const m = Math.floor(secs / 60);
+                    const s = secs % 60;
+                    return `${m}:${s.toString().padStart(2, '0')}`;
+                  })()}
+                </span>
+              </div>
+            )}
             <div className="bg-card px-6 py-3 rounded-lg border border-border">
               <span className="text-muted-foreground text-sm">Room Code: </span>
               <span className="text-cream font-mono font-bold text-2xl">{room?.code}</span>
@@ -357,45 +383,43 @@ const TeacherGame: React.FC = () => {
 
         {/* Game Status Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Phase Card */}
+          {/* Status Card */}
           <div className={`p-6 rounded-xl border ${
-            gamePhase === 'blitz_quiz' 
-              ? 'bg-neutral-800/80 border-cream/40'
-              : gamePhase === 'hunt'
-                ? 'bg-neutral-700/80 border-cream/30'
-                : 'bg-card border-border'
+            gamePhase === 'game_end'
+              ? 'bg-card border-border'
+              : 'bg-neutral-700/80 border-cream/30'
           }`}>
             <div className="flex items-center gap-3 mb-2">
               <Zap size={24} className="text-cream" />
-              <span className="text-muted-foreground font-medium">Current Phase</span>
+              <span className="text-muted-foreground font-medium">Game Status</span>
             </div>
             <p className="text-2xl font-bold text-foreground">
-              {gamePhase === 'blitz_quiz' && 'Blitz Quiz'}
-              {gamePhase === 'hunt' && 'Hunt Phase'}
-              {gamePhase === 'round_end' && 'Round End'}
-              {gamePhase === 'waiting' && 'Waiting'}
+              {gamePhase === 'game_end' ? 'Game Over' : 'In Progress'}
+            </p>
+            <p className="text-sm text-muted-foreground mt-1">
+              Players in quiz &amp; maze
             </p>
           </div>
 
-          {/* Round Card */}
+          {/* Players Card */}
           <div className="bg-card p-6 rounded-xl border border-border">
             <div className="flex items-center gap-3 mb-2">
               <Users size={24} className="text-cream" />
-              <span className="text-muted-foreground font-medium">Round</span>
+              <span className="text-muted-foreground font-medium">Players</span>
             </div>
             <p className="text-2xl font-bold text-foreground">
-              {currentRound} <span className="text-muted-foreground">/ {totalRounds}</span>
+              {leaderboard.length} <span className="text-muted-foreground">in game</span>
             </p>
           </div>
 
-          {/* Timer Card */}
+          {/* Enforcers Card */}
           <div className="bg-card p-6 rounded-xl border border-border">
             <div className="flex items-center gap-3 mb-2">
-              <Clock size={24} className="text-cream" />
-              <span className="text-muted-foreground font-medium">Time Left</span>
+              <span className="text-2xl">🚔</span>
+              <span className="text-muted-foreground font-medium">Enforcers</span>
             </div>
-            <p className={`text-4xl font-mono font-bold ${huntTimeLeft <= 10 ? 'text-destructive' : 'text-foreground'}`}>
-              {gamePhase === 'hunt' ? `${Math.ceil(huntTimeLeft)}s` : '--'}
+            <p className="text-2xl font-bold text-foreground">
+              {unicornIds.length} <span className="text-muted-foreground">active</span>
             </p>
           </div>
         </div>
@@ -474,7 +498,10 @@ const TeacherGame: React.FC = () => {
 
         {/* Footer */}
         <div className="text-center text-muted-foreground text-sm">
-          Game will end after {totalRounds} rounds
+          {gameEndTime != null 
+            ? 'Game ends when the timer reaches 0:00'
+            : 'Waiting for game timer...'
+          }
         </div>
       </div>
     </div>
